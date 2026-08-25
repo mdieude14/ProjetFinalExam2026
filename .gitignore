@@ -1,0 +1,32 @@
+# Dépendances
+node_modules/
+
+# Variables d'environnement — NE JAMAIS COMMITER
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Builds
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Uploads temporaires (Multer avant envoi vers Cloudinary)
+server/uploads/
+server/tmp/
+
+# Éditeurs & OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Divers
+coverage/
+.cache/

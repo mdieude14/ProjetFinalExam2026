@@ -1,0 +1,93 @@
+@import 'tailwindcss';
+
+/* ==================================================================
+ *  THEME DU PROJET
+ * ==================================================================
+ * Tailwind 4 se configure directement en CSS, dans un bloc @theme.
+ * Chaque variable declaree ici genere automatiquement les classes
+ * correspondantes : --color-marque-500 produit bg-marque-500,
+ * text-marque-500, border-marque-500, etc.
+ *
+ * Centraliser la palette ici garantit qu'un changement de couleur se
+ * repercute partout, au lieu d'etre a chasser dans cinquante composants.
+ * ================================================================== */
+
+@theme {
+  /* Couleur principale — un orange sportif, energique et lisible
+     sur fond clair comme sur fond sombre. */
+  --color-marque-50: #fff7ed;
+  --color-marque-100: #ffedd5;
+  --color-marque-200: #fed7aa;
+  --color-marque-300: #fdba74;
+  --color-marque-400: #fb923c;
+  --color-marque-500: #f97316;
+  --color-marque-600: #ea580c;
+  --color-marque-700: #c2410c;
+  --color-marque-800: #9a3412;
+  --color-marque-900: #7c2d12;
+
+  /* Gris neutres pour les fonds, bordures et textes secondaires. */
+  --color-ardoise-50: #f8fafc;
+  --color-ardoise-100: #f1f5f9;
+  --color-ardoise-200: #e2e8f0;
+  --color-ardoise-300: #cbd5e1;
+  --color-ardoise-400: #94a3b8;
+  --color-ardoise-500: #64748b;
+  --color-ardoise-600: #475569;
+  --color-ardoise-700: #334155;
+  --color-ardoise-800: #1e293b;
+  --color-ardoise-900: #0f172a;
+
+  /* Couleurs de statut. */
+  --color-succes: #16a34a;
+  --color-erreur: #dc2626;
+  --color-alerte: #ca8a04;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    Roboto, sans-serif;
+
+  --radius-carte: 1rem;
+}
+
+/* ==================================================================
+ *  STYLES DE BASE
+ * ================================================================== */
+
+@layer base {
+  html {
+    /* Un ancrage interne amene la cible en douceur plutot que d'un coup. */
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-ardoise-50 text-ardoise-900 font-sans antialiased;
+  }
+
+  /* Anneau de focus visible au clavier UNIQUEMENT.
+     `focus-visible` evite l'anneau disgracieux au clic a la souris tout en
+     preservant la navigation au clavier — un point d'accessibilite trop
+     souvent supprime a coups de `outline: none`. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-marque-500;
+  }
+}
+
+/* ==================================================================
+ *  UTILITAIRES DU PROJET
+ * ================================================================== */
+
+@layer utilities {
+  /* Masque un element visuellement mais le laisse lisible par les
+     lecteurs d'ecran. Sert aux libelles de champs implicites. */
+  .lecteur-ecran-seulement {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
