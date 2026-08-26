@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import useAuth from '@/hooks/useAuth';
 import followApi from '@/api/follow.api';
+import messageApi from '@/api/message.api';
+import useSocket from '@/hooks/useSocket';
 import Avatar from '@/components/ui/Avatar';
 
 /**
@@ -17,12 +19,13 @@ import Avatar from '@/components/ui/Avatar';
 
 const LIENS = [
   { to: '/home', libelle: 'Accueil', icone: '⌂' },
-  { to: '/maps', libelle: 'Carte', icone: '◎', bientot: true },
-  { to: '/search', libelle: 'Recherche', icone: '⌕', bientot: true },
-  { to: '/messages', libelle: 'Messages', icone: '✉', bientot: true },
+  { to: '/carte', libelle: 'Carte', icone: '◎' }, // module 8
+  { to: '/evenements', libelle: 'Événements', icone: '▤' }, // module 9
+  { to: '/recherche', libelle: 'Recherche', icone: '⌕' }, // module 10
+  { to: '/messages', libelle: 'Messages', icone: '✉' }, // module 11
 ];
 
-function LienNav({ to, libelle, icone, bientot, mobile }) {
+function LienNav({ to, libelle, icone, bientot, mobile, pastille = 0 }) {
   // Les pages pas encore developpees restent visibles mais inertes :
   // elles montrent la structure de l'application sans mener a une 404.
   if (bientot) {
@@ -47,8 +50,8 @@ function LienNav({ to, libelle, icone, bientot, mobile }) {
       className={({ isActive }) =>
         [
           mobile
-            ? 'flex flex-1 flex-col items-center gap-0.5 py-2'
-            : 'rounded-lg px-3 py-2 text-sm font-medium',
+            ? 'relative flex flex-1 flex-col items-center gap-0.5 py-2'
+            : 'relative rounded-lg px-3 py-2 text-sm font-medium',
           isActive
             ? 'text-marque-600'
             : 'text-ardoise-500 hover:text-ardoise-800',
@@ -57,16 +60,40 @@ function LienNav({ to, libelle, icone, bientot, mobile }) {
     >
       <span aria-hidden="true" className={mobile ? 'text-lg' : ''}>{icone}</span>
       <span className={mobile ? 'text-[10px]' : 'ml-1.5'}>{libelle}</span>
+
+      {/*
+        Pastille de non-lus (module 11).
+        Le nombre est REPRIS DANS LE LIBELLE ACCESSIBLE : une pastille est
+        une information purement visuelle, qu'un lecteur d'ecran n'annonce
+        pas et qu'un utilisateur daltonien peut manquer.
+      */}
+      {pastille > 0 && (
+        <>
+          <span
+            aria-hidden="true"
+            className={`absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-marque-500 px-1 text-[10px] font-bold text-white ${
+              mobile ? 'right-1/4 top-1' : '-right-1 -top-0.5'
+            }`}
+          >
+            {pastille > 9 ? '9+' : pastille}
+          </span>
+          <span className="lecteur-ecran-seulement">
+            {` — ${pastille} non lu${pastille > 1 ? 's' : ''}`}
+          </span>
+        </>
+      )}
     </NavLink>
   );
 }
 
 export default function Navbar() {
   const { utilisateur, deconnexion, estAdmin, estCoach } = useAuth();
+  const { ecouter } = useSocket();
   const naviguer = useNavigate();
   const emplacement = useLocation();
   const [menuOuvert, setMenuOuvert] = useState(false);
   const [nbDemandes, setNbDemandes] = useState(0);
+  const [nbMessages, setNbMessages] = useState(0);
 
   /**
    * Compteur de demandes de suivi en attente.
@@ -100,6 +127,63 @@ export default function Navbar() {
     };
   }, [emplacement.pathname, utilisateur?.visibilite]);
 
+  /**
+   * Compteur de messages non lus (module 11).
+   *
+   * DEUX SOURCES, ET IL EN FAUT DEUX.
+   *
+   * Le socket porte les mises à jour immédiates : un message qui arrive
+   * pendant qu'on lit une autre page doit incrémenter la pastille sur-le-
+   * champ, sans rien recharger.
+   *
+   * Mais le socket ne raconte que ce qui s'est passé DEPUIS la connexion. À
+   * l'ouverture de l'application — ou après une coupure réseau —, il ne dira
+   * rien des messages arrivés entre-temps. La lecture HTTP au montage, puis
+   * à chaque changement de page, comble ce trou.
+   *
+   * N'en garder qu'une donne deux défauts symétriques : une pastille qui ne
+   * bouge jamais, ou une pastille toujours à zéro au démarrage.
+   */
+  useEffect(() => {
+    let annule = false;
+
+    messageApi
+      .nonLus()
+      .then((reponse) => {
+        if (!annule) setNbMessages(reponse.data.nombre || 0);
+      })
+      .catch(() => {
+        // Sans conséquence : on n'affiche simplement pas de pastille.
+      });
+
+    return () => {
+      annule = true;
+    };
+  }, [emplacement.pathname]);
+
+  useEffect(() => {
+    const arrets = [
+      ecouter('message:nouveau', ({ message }) => {
+        // Ses propres messages ne se comptent pas : on ne se notifie pas
+        // soi-même de ce qu'on vient d'écrire depuis un autre onglet.
+        if (String(message?.expediteur?._id) === String(utilisateur?._id)) return;
+        setNbMessages((n) => n + 1);
+      }),
+
+      // Une conversation lue ailleurs — un autre onglet, le téléphone —
+      // doit faire retomber la pastille ici aussi. On relit plutôt que de
+      // décrémenter à l'aveugle : le nombre exact vient du serveur.
+      ecouter('conversation:maj', () => {
+        messageApi
+          .nonLus()
+          .then((reponse) => setNbMessages(reponse.data.nombre || 0))
+          .catch(() => {});
+      }),
+    ];
+
+    return () => arrets.forEach((arreter) => arreter());
+  }, [ecouter, utilisateur?._id]);
+
   const seDeconnecter = async () => {
     setMenuOuvert(false);
     await deconnexion();
@@ -118,7 +202,11 @@ export default function Navbar() {
           {/* Liens horizontaux, masques sous 768 px */}
           <nav className="hidden items-center gap-1 md:flex" aria-label="Navigation principale">
             {LIENS.map((lien) => (
-              <LienNav key={lien.to} {...lien} />
+              <LienNav
+                key={lien.to}
+                {...lien}
+                pastille={lien.to === '/messages' ? nbMessages : 0}
+              />
             ))}
           </nav>
 
@@ -191,6 +279,15 @@ export default function Navbar() {
                   </Link>
 
                   <Link
+                    to="/abonnements"
+                    onClick={() => setMenuOuvert(false)}
+                    className="block px-4 py-2 text-sm text-ardoise-700 hover:bg-ardoise-50"
+                    role="menuitem"
+                  >
+                    Mes abonnements
+                  </Link>
+
+                  <Link
                     to="/settings"
                     onClick={() => setMenuOuvert(false)}
                     className="block px-4 py-2 text-sm text-ardoise-700 hover:bg-ardoise-50"
@@ -207,6 +304,17 @@ export default function Navbar() {
                       role="menuitem"
                     >
                       Mon diplôme
+                    </Link>
+                  )}
+
+                  {estCoach && (
+                    <Link
+                      to="/coach/premium"
+                      onClick={() => setMenuOuvert(false)}
+                      className="block px-4 py-2 text-sm text-ardoise-700 hover:bg-ardoise-50"
+                      role="menuitem"
+                    >
+                      Contenu premium
                     </Link>
                   )}
 
@@ -241,7 +349,12 @@ export default function Navbar() {
         aria-label="Navigation mobile"
       >
         {LIENS.map((lien) => (
-          <LienNav key={lien.to} {...lien} mobile />
+          <LienNav
+            key={lien.to}
+            {...lien}
+            mobile
+            pastille={lien.to === '/messages' ? nbMessages : 0}
+          />
         ))}
       </nav>
     </>

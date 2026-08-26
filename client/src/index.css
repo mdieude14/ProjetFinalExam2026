@@ -1,5 +1,17 @@
 @import 'tailwindcss';
 
+/*
+ * Feuille de style de Leaflet, INDISPENSABLE au fonctionnement de la carte.
+ * Sans elle, la carte n'est pas seulement moins jolie : Leaflet positionne
+ * ses tuiles en absolu, elles se superposent n'importe ou et le resultat est
+ * illisible.
+ *
+ * Elle est importee ici, en tete du CSS global, pour deux raisons : une regle
+ * @import doit preceder toute autre regle, et un import global evite que la
+ * carte s'affiche en escalier le temps d'un eclair au premier rendu.
+ */
+@import 'leaflet/dist/leaflet.css';
+
 /* ==================================================================
  *  THEME DU PROJET
  * ==================================================================
@@ -89,5 +101,40 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border-width: 0;
+  }
+}
+
+/* ==================================================================
+ *  CARTE LEAFLET — module 8
+ * ================================================================== */
+
+@layer components {
+  /* Pastille marquant la position du visiteur — volontairement
+     differente des gouttes de resultats : ce n'est pas un coach. */
+  .bloc-position-visiteur {
+    display: block;
+    width: 18px;
+    height: 18px;
+    border-radius: 9999px;
+    background-color: var(--color-marque-500);
+    border: 3px solid #ffffff;
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.15);
+  }
+
+  /* Les popups de Leaflet imposent leur propre typographie ; on les
+     realigne sur celle du projet. */
+  .leaflet-popup-content {
+    margin: 0.75rem 0.9rem;
+    font-family: inherit;
+  }
+
+  .leaflet-container {
+    font-family: inherit;
+  }
+
+  /* L'attribution OpenStreetMap est EXIGEE PAR LA LICENCE ODbL : on la
+     rend discrete, jamais invisible. */
+  .leaflet-control-attribution {
+    font-size: 0.65rem;
   }
 }

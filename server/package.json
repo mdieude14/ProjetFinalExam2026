@@ -12,7 +12,14 @@
     "start": "node src/server.js",
     "creer-admin": "node scripts/creerAdmin.js",
     "nettoyer-medias": "node scripts/nettoyerMedias.js",
-    "test:api": "node tests/regression.mjs"
+    "test:api": "node tests/regression.mjs",
+    "diag-stripe": "node scripts/diagnosticStripe.js",
+    "test:stripe": "node tests/stripe.mjs",
+    "coach-demo": "node scripts/creerCoachDemo.js",
+    "test:evenements": "node tests/evenements.mjs",
+    "reindexer-recherche": "node scripts/reindexerRecherche.js",
+    "test:recherche": "node tests/recherche.mjs",
+    "test:messagerie": "node tests/messagerie.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -30,9 +37,11 @@
     "mongoose": "^8.8.0",
     "morgan": "^1.10.0",
     "multer": "^2.2.0",
+    "socket.io": "^4.8.3",
     "stripe": "^22.5.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.7"
+    "nodemon": "^3.1.7",
+    "socket.io-client": "^4.8.3"
   }
 }

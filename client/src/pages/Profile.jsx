@@ -4,6 +4,8 @@ import userApi from '@/api/user.api';
 import postApi from '@/api/post.api';
 import PostCard from '@/components/post/PostCard';
 import BoutonSuivre from '@/components/profile/BoutonSuivre';
+import BoutonAbonnement from '@/components/profile/BoutonAbonnement';
+import BoutonMessage from '@/components/profile/BoutonMessage';
 import ModaleAbonnes from '@/components/profile/ModaleAbonnes';
 import Avatar from '@/components/ui/Avatar';
 import Badge, { BadgeDiplome } from '@/components/ui/Badge';
@@ -98,6 +100,24 @@ export default function Profile() {
     },
     [identifiant]
   );
+
+  /**
+   * Rechargement apres un changement d'abonnement premium.
+   *
+   * S'ABONNER OU RESILIER CHANGE CE QUE LE SERVEUR ACCEPTE DE RENVOYER.
+   * Les publications premium sont verrouillees cote serveur : leurs medias
+   * et leur description sont retires de la reponse HTTP, pas seulement
+   * masques a l'ecran. Un abonnement qui commence — ou qui s'arrete — ne
+   * peut donc pas se refleter en modifiant l'etat local : il faut redemander
+   * les publications pour obtenir la version deverrouillee (ou reverrouillee).
+   *
+   * On repart du debut de la liste, sans curseur : les elements deja charges
+   * portent l'ancien niveau d'acces et doivent etre remplaces.
+   */
+  const rechargerApresAbonnement = useCallback(() => {
+    setCurseurPosts(null);
+    chargerPosts(null);
+  }, [chargerPosts]);
 
   useEffect(() => {
     let annule = false;
@@ -246,11 +266,33 @@ export default function Profile() {
                   </Button>
                 </Link>
               ) : (
-                <BoutonSuivre
-                  identifiant={profil.pseudo}
-                  relationInitiale={relation}
-                  onChangement={surChangementRelation}
-                />
+                <div className="space-y-2">
+                  <BoutonSuivre
+                    identifiant={profil.pseudo}
+                    relationInitiale={relation}
+                    onChangement={surChangementRelation}
+                  />
+
+                  {/*
+                    L'abonnement premium est DISTINCT du suivi gratuit : on
+                    peut suivre un coach sans payer, et payer sans suivre. Le
+                    composant ne s'affiche de lui-meme que si le coach vend
+                    reellement quelque chose.
+                  */}
+                  <BoutonAbonnement
+                    coach={profil}
+                    estMoi={estMoi}
+                    surChangement={rechargerApresAbonnement}
+                  />
+
+                  {/*
+                    Point d entree de la messagerie (module 11). Sans lui, on
+                    pouvait repondre a un fil existant mais jamais en ouvrir
+                    un : la fonctionnalite etait complete et pourtant
+                    inatteignable.
+                  */}
+                  <BoutonMessage profil={profil} estMoi={estMoi} />
+                </div>
               )}
             </div>
           </div>

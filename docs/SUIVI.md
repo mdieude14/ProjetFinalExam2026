@@ -628,84 +628,1266 @@ chaque module. Ils sont désormais versionnés et rejouables.
 
 ---
 
-## Module 7 — Abonnements premium (Stripe Connect)  `EN COURS`
-
-> **Ce qu'il faut de toi** : une clé secrète Stripe de **test**
-> (`sk_test_…`), puis un secret de webhook (`whsec_…`) obtenu avec la CLI
-> Stripe. Détail des étapes en fin de module. Tant qu'elles manquent, tout
-> est écrit mais rien n'est vérifiable.
+## Module 7 — Abonnements premium (Stripe Connect)  `TERMINÉ`
 
 > Rappel de conception : le **follow** (module 6) est gratuit et donne accès
 > au contenu public. L'**abonnement premium** est payant, récurrent, et donne
 > accès au contenu `estPremium`. Les deux sont indépendants : on peut être
 > abonné payant sans suivre, et inversement.
 
-### 7.1 Configuration
-- [ ] `config/stripe.js` — instance du SDK, vérification des clés au démarrage
-- [ ] Variables `.env` : clé secrète, secret de webhook, taux de commission
-- [ ] Journal de démarrage indiquant si Stripe est actif, comme pour Cloudinary
+### 7.0 Architecture imposée par Stripe — décidée après essais
 
-### 7.2 Modèles
-- [ ] `models/Subscription.js` — statuts alignés sur ceux de Stripe,
-      index unique partiel sur `{ utilisateur, coach }` où `statut: 'actif'`
-- [ ] `models/ProcessedWebhook.js` — **idempotence** : Stripe rejoue ses
-      événements, un paiement ne doit pas être crédité deux fois
-- [ ] TTL de 30 jours sur les webhooks traités
+Les tâches de ce module ont été **réécrites** : leur première version décrivait
+l'API Connect v1, que Stripe refuse désormais pour toute nouvelle intégration.
+Deux contraintes ont été découvertes en testant, pas en lisant :
 
-### 7.3 Onboarding Stripe Connect (coach)
-- [ ] `POST /stripe/connect/onboarding` — crée un compte Express et renvoie
-      un lien d'inscription hébergé par Stripe
-- [ ] `GET /stripe/connect/statut` — rafraîchit `chargesEnabled` depuis Stripe
-- [ ] Réservé aux coachs dont le diplôme est **vérifié** (`coachCertifie`)
-- [ ] Le lien d'onboarding expire : en régénérer un à chaque demande
+**1. Accounts v1 est fermé aux nouvelles intégrations.**
+```
+Stripe no longer recommends Accounts v1 for new Connect integrations.
+Create connected accounts with POST /v2/core/accounts instead.
+```
+La quasi-totalité des tutoriels en ligne décrit encore la v1. Le code utilise
+`stripe.v2.core.accounts`.
 
-### 7.4 Tarif du coach
-- [ ] `PATCH /stripe/premium/tarif` — crée un `Product` et un `Price` Stripe
-- [ ] **Un prix Stripe est immuable** : changer de tarif crée un nouveau
-      `Price` et archive l'ancien ; les abonnés en cours gardent le leur
-- [ ] `PATCH /stripe/premium/actif` — suspendre les nouvelles souscriptions
+**2. Une plateforme française ne peut pas créer de compte « marchand ».**
+```
+Connect platforms based in FR can only update certain identity information
+on a v2 account with a merchant configuration via account tokens.
+```
+Passer par des *account tokens* obligerait à collecter l'identité et l'IBAN
+des coachs dans notre propre interface — exactement ce qu'on veut éviter.
 
-### 7.5 Souscription
-- [ ] `POST /subscriptions/:identifiant/checkout` — session Stripe Checkout
-- [ ] **Commission plateforme** via `application_fee_percent`
-- [ ] Refus si : coach non monétisable, abonnement déjà actif, soi-même
-- [ ] `GET /subscriptions` — mes abonnements · `GET /subscriptions/abonnes`
-- [ ] `DELETE /subscriptions/:id` — résiliation **à la fin de la période
-      payée**, pas immédiate : l'utilisateur a payé jusque-là
+**Solution retenue et vérifiée : configuration `recipient` + destination charges.**
 
-### 7.6 Webhooks
-- [ ] Route montée **avant `express.json()`** avec `express.raw` — la
-      signature porte sur le corps brut (emplacement déjà réservé au module 1)
-- [ ] Vérification de la signature `stripe-signature`
-- [ ] Idempotence : événement déjà traité → 200 sans effet
-- [ ] `checkout.session.completed` → abonnement actif
-- [ ] `customer.subscription.updated` / `.deleted` → statut synchronisé
-- [ ] `invoice.payment_succeeded` → période prolongée
-- [ ] `invoice.payment_failed` → statut `impaye`, contenu reverrouillé
-- [ ] `account.updated` → `chargesEnabled` du coach
+| | |
+|---|---|
+| Qui débite la carte du sportif | la **plateforme** |
+| Qui reçoit l'argent | le **coach**, par virement automatique |
+| Commission de 15 % | prélevée au passage via `application_fee_amount` |
+| Où le coach saisit identité et IBAN | formulaire **hébergé par Stripe** |
+| Ce qui transite par notre serveur | **aucune donnée bancaire** |
+
+Le coach n'encaisse donc pas lui-même : il reçoit des virements. C'est le
+modèle des **destination charges**, standard pour une place de marché, et il
+dispense l'application de toute contrainte PCI-DSS.
+
+### 7.1 Configuration  `TERMINÉ`
+- [x] `config/stripe.js` — instance du SDK, `exigerStripe()` renvoyant 503
+      quand la clé manque, vérification au démarrage
+- [x] Version d'API **figée** à `2026-07-29.dahlia`, celle du SDK v22 : sans
+      cela Stripe applique la version du compte, qui peut changer côté
+      tableau de bord et modifier les réponses sans qu'une ligne bouge
+- [x] Clés placées dans `server/.env` (secrète) et `client/.env` (publiable),
+      les deux exclus de git — vérifié après le push
+- [x] Journal de démarrage : `[PAIEMENTS] Stripe connecte (compte acct_…)`
+- [x] `scripts/diagnosticStripe.js` — `npm run diag-stripe` — **9/9**
+      compte, mode test confirmé (`livemode = false`), création et fermeture
+      d'un compte connecté, génération d'un lien d'inscription, produit et
+      prix récurrent, archivage, accès aux webhooks
+
+### 7.2 Modèles  `TERMINÉ`
+- [x] `models/Subscription.js`
+  - [x] Statuts calqués sur ceux de Stripe : la synchronisation par webhook
+        devient une correspondance, pas une interprétation
+  - [x] **Index unique partiel** sur `{ utilisateur, coach }` où
+        `statut: 'actif'` — un seul abonnement actif, mais l'historique des
+        résiliations reste possible (sans quoi on ne pourrait jamais se
+        réabonner)
+  - [x] Virtuel `donneAcces` : un abonnement **résilié garde son accès**
+        jusqu'à `periodeFin`, un abonnement `impaye` le perd aussitôt
+  - [x] `coachsAccessibles()` — requête unique pour le déverrouillage
+- [x] `models/ProcessedWebhook.js` — index unique sur `stripeEventId`,
+      TTL de 30 jours
+
+### 7.3 Service Stripe et onboarding des coachs  `TERMINÉ`
+- [x] `services/stripe.service.js` — 11 fonctions, toute la logique Stripe en
+      un point ; les contrôleurs expriment une intention métier, le service
+      traduit en appels d'API
+- [x] `POST /stripe/connect/onboarding` — compte connecté en **v2**,
+      configuration `recipient`, lien hébergé renvoyé
+- [x] `GET /stripe/connect/statut` — interroge Stripe et met à jour
+      `chargesEnabled` ; expose aussi ce qui manque encore au coach
+- [x] Routeur **entièrement** protégé par `coachCertifie` — le middleware
+      écrit au module 2, jusqu'ici sans consommateur
+- [x] Un lien **neuf** est régénéré à chaque appel : un lien d'inscription
+      expire en quelques minutes, en stocker un serait inutile
+- [x] `metadata.utilisateurId` sur le compte connecté : les webhooks
+      retrouveront l'utilisateur sans requête sur un champ non indexé
+
+### 7.4 Tarif du coach  `TERMINÉ`
+- [x] `PUT /stripe/premium/tarif` — `Product` créé une fois, `Price` récurrent
+- [x] **Un prix Stripe est immuable** : changer de tarif crée un nouveau
+      `Price` et archive l'ancien — vérifié, l'ancien passe à `active: false`
+- [x] Les abonnés en cours conservent leur prix ; le message le dit
+- [x] `PATCH /stripe/premium/actif` — suspend les nouvelles souscriptions
+      **sans** résilier les abonnements en cours (ce serait rompre un
+      contrat déjà payé)
+- [x] `GET /stripe/premium/revenus` — brut, commission, net, calculés depuis
+      notre base plutôt qu'en interrogeant Stripe à chaque affichage
+- [x] Bornes 5 € à 500 €, saisie en euros, conversion en centimes en un seul
+      point
+
+### 7.5 Souscription  `TERMINÉ`
+- [x] `POST /subscriptions/:identifiant/checkout` — session Stripe Checkout
+- [x] `application_fee_percent` + `transfer_data.destination`
+- [x] **Aucun abonnement n'est créé en base avant le paiement** : c'est le
+      webhook qui l'enregistrera. Créer un document « en attente » laisserait
+      des abonnements fantômes à chaque page de paiement abandonnée
+- [x] `Customer` Stripe réutilisé d'un abonnement à l'autre — vérifié
+- [x] Refus : soi-même (400), coach non certifié (403), abonnement déjà
+      actif (409)
+- [x] `GET /subscriptions` · `GET /subscriptions/abonnes` (coachs)
+      · `GET /subscriptions/statut/:identifiant` pour le bouton du profil
+- [x] `DELETE /subscriptions/:id` — `cancel_at_period_end`, l'accès court
+      jusqu'à la fin de la période payée
+- [x] `POST /subscriptions/:id/reprendre` — annuler une résiliation
+
+### 7.5 bis Vérifications — 50/50  (`npm run test:stripe`)
+- [x] Onboarding refusé à un coach non certifié, à un sportif, sans session
+- [x] Lien `connect.stripe.com` généré ; second appel réutilise le compte
+      mais **régénère un lien neuf**
+- [x] Compte créé en configuration `recipient`, métadonnée reliée à notre base
+- [x] Statut : `chargesEnabled` faux tant que le formulaire n'est pas rempli,
+      12 exigences remontées, `manque` détaillé au coach
+- [x] Tarif refusé tant que Stripe n'encaisse pas · 2 € et 900 € rejetés
+- [x] 19,90 € → 1990 centimes, `Product` et `Price` créés, `peutMonetiser`
+      passe à vrai
+- [x] **Changement de tarif → nouveau `Price`, ancien archivé chez Stripe**,
+      produit inchangé
+- [x] Suspension et réactivation de l'offre ; revenus à 15 % de commission
+- [x] S'abonner à soi-même (400), à un coach non certifié (403)
+- [x] **Checkout refusé tant que le compte du coach n'est pas validé par
+      Stripe** — garantie qu'on ne vend pas un abonnement dont l'argent
+      n'arriverait jamais au coach
+- [x] Client Stripe créé puis **réutilisé** au second appel
+- [x] Liste des abonnés refusée à un sportif, accessible au coach
+
+> **Limite connue.** Le parcours de paiement complet — carte `4242…`, webhook,
+> déverrouillage — exige un compte coach ayant **réellement finalisé** son
+> inscription Stripe (identité, IBAN). Tant que ce n'est pas fait, Stripe
+> refuse toute session de paiement vers ce compte. À faire une fois, via le
+> lien d'inscription, avant les tests de la section 7.9.
+
+### 7.6 Webhooks  `TERMINÉ`
+
+**Mise en place de l'outillage**
+- [x] CLI Stripe 1.50.5 installée via winget
+- [x] `stripe listen --api-key … --forward-to localhost:5000/api/webhooks/stripe`
+      — l'option `--api-key` **évite l'étape `stripe login`** et son
+      authentification par navigateur, la clé secrète suffit
+- [x] Secret de signature `whsec_…` récupéré et placé dans `server/.env`
+- [x] Le tunnel annonce la **même version d'API** que celle épinglée dans
+      `config/stripe.js` — cohérence vérifiée
+
+**Code**
+- [x] `routes/webhook.routes.js` monté sur `/api/webhooks` **avant
+      `express.json()`**, avec `express.raw` (emplacement réservé au module 1)
+- [x] Aucune authentification sur cette route — ce n'est pas un oubli :
+      Stripe n'a pas de session chez nous, l'authenticité vient de la
+      signature cryptographique, plus solide qu'un jeton qui pourrait fuiter
+- [x] Le limiteur de débit global reste monté **après** : bloquer Stripe
+      ferait perdre des paiements
+- [x] `controllers/stripeWebhook.controller.js` — 6 types traités
+  - [x] `checkout.session.completed` → création de l'abonnement
+  - [x] `customer.subscription.updated` / `.deleted` → statut synchronisé
+  - [x] `invoice.payment_succeeded` → période prolongée, `impaye` levé
+  - [x] `invoice.payment_failed` → `impaye`, accès retiré **immédiatement**
+        (pas de période payée à honorer, contrairement à une résiliation)
+  - [x] `account.updated` → état du compte coach relu auprès de Stripe
+- [x] **Réponse 200 même en cas d'échec métier** : un code d'erreur ferait
+      rejouer l'événement en boucle par Stripe pendant des jours. L'échec est
+      journalisé dans `ProcessedWebhook.resultat = 'erreur'`
+- [x] Compteur d'abonnés **recalculé** plutôt qu'incrémenté : les webhooks
+      peuvent arriver dans le désordre, un `$inc` ferait dériver le total
+
+**Vérifications en conditions réelles**
+- [x] Route montée : répond 503 sans secret, **pas 404**
+- [x] **Signature falsifiée → 400** (et non 200 : Stripe doit savoir que le
+      message est refusé)
+- [x] 7 événements réels reçus par le tunnel, tous en **200**
+- [x] Types non concernés journalisés puis ignorés (`resultat: 'ignore'`)
+- [x] `checkout.session.completed` sans métadonnées correctement rejeté —
+      l'événement synthétique de `stripe trigger` n'en porte pas
+- [x] **IDEMPOTENCE : même événement rejoué via `stripe events resend`**
+      → journal `déjà traité, ignoré`, compteur inchangé (7 → 7), aucun
+      doublon en base
+
+> **Éprouvé en 7.9** : les gestionnaires métier ont été exercés avec de
+> vraies données, via le coach `coachdemo` dont l'inscription Stripe est
+> finalisée (`acct_1U8g8HJQ8AUWtMKm`). Un paiement réel par carte `4242…`
+> traverse toute la chaîne — voir `npm run test:paiement`, 46/46.
 
 ### 7.7 Déverrouillage du contenu
-- [ ] Brancher `abonnementsPremiumActifs()` dans `feed.service.js` — le point
-      unique laissé au module 5, qui renvoie un ensemble vide pour l'instant
-- [ ] Vérifier que le contenu premium se déverrouille **et se reverrouille**
-      quand l'abonnement passe à `impaye` ou `annule`
+- [x] `abonnementsPremiumActifs()` branché dans `feed.service.js` sur
+      `Subscription.coachsAccessibles()` — le point unique laissé au module 5
+- [x] Contenu premium déverrouillé après paiement : médias, description et URL
+      réapparaissent dans la réponse HTTP, sur la publication **et** dans le fil
+- [x] **Reverrouillé dès le passage à `impaye`** — médias retirés, description
+      masquée, `abonne: false` côté statut
+- [x] Accès **conservé** sur un abonnement `annule` tant que `periodeFin` court
+
+> **Ce que couvre exactement `coachsAccessibles()`.** L'accès n'est pas
+> « statut === actif ». Un abonnement résilié garde l'accès jusqu'au terme
+> déjà payé ; un abonnement impayé le perd immédiatement, puisqu'aucun
+> prélèvement n'a eu lieu. Ces deux cas sont dans la même requête, et c'est le
+> seul endroit du code qui décide de l'accès premium.
+
+> **Bogue rencontré — l'API Stripe a déplacé la période.** Depuis la version
+> `2026-07-29.dahlia`, `current_period_end` a quitté la racine de
+> l'abonnement pour ses *items*. `periodeFin` restait donc vide, et un
+> abonnement résilié perdait aussitôt l'accès qu'il avait pourtant payé.
+> Corrigé par `stripe.service.js → finDePeriode()`, qui interroge les deux
+> emplacements et centralise le repli.
 
 ### 7.8 Front
-- [ ] `api/subscription.api.js`
-- [ ] `pages/coach/Premium.jsx` — onboarding Stripe, tarif, revenus
-- [ ] `components/profile/BoutonAbonnement.jsx` — remplace le bouton inerte
-- [ ] `pages/PaymentSuccess.jsx` — retour de Checkout, attente du webhook
-- [ ] `pages/Abonnements.jsx` — mes abonnements, résiliation
-- [ ] Entrée « Premium » dans le menu des coachs
+- [x] `api/subscription.api.js` — `subscriptionApi` (abonné) et
+      `monetisationApi` (coach), séparés parce qu'ils vivent sous deux
+      préfixes distincts : `/subscriptions` et `/stripe`
+- [x] `utils/prix.js` — formatage des montants **en centimes**, et
+      documentation de l'asymétrie : le tarif s'envoie en euros, se relit en
+      centimes
+- [x] `pages/coach/Premium.jsx` — inscription Stripe, tarif, revenus, abonnés,
+      et surtout la liste explicite de **ce qui manque encore** pour vendre
+- [x] `components/profile/BoutonAbonnement.jsx` — cinq états distincts, tous
+      lus du serveur : pas d'offre, non abonné, abonné, résilié, impayé
+- [x] `pages/PaymentSuccess.jsx` — la route `/paiement/succes` renvoyait 404
+- [x] `pages/Abonnements.jsx` — mes abonnements, résiliation et reprise
+- [x] Entrées « Mes abonnements » (tous) et « Contenu premium » (coachs) au menu
+- [x] `Profile.jsx` recharge ses publications après un changement d'abonnement
+
+> **Pourquoi `PaymentSuccess` attend au lieu d'annoncer.** Cette page est la
+> `success_url` de Stripe : n'importe qui peut l'ouvrir à la main sans avoir
+> payé. Elle ne crée donc rien et ne valide rien — c'est le webhook, signature
+> vérifiée, qui fait foi. Elle se contente d'interroger la base quelques
+> secondes, parce que la redirection et le webhook partent en même temps et
+> que rien ne garantit lequel arrive le premier.
+
+> **Pourquoi le profil recharge ses publications.** Le verrouillage premium
+> retire les médias de la **réponse HTTP** ; il ne les masque pas à l'écran.
+> Un abonnement qui commence ne peut donc pas se refléter par une mise à jour
+> d'état local : il faut redemander les publications au serveur.
 
 ### 7.9 Vérifications
-- [ ] Onboarding refusé à un coach non certifié
-- [ ] Tarif hors bornes rejeté ; changement de tarif → nouveau `Price`
-- [ ] Checkout refusé : sur soi-même, coach non monétisable, doublon actif
-- [ ] Webhook sans signature valide → 400
-- [ ] **Même événement rejoué deux fois → traité une seule fois**
-- [ ] `checkout.session.completed` → contenu premium déverrouillé
-- [ ] `invoice.payment_failed` → **contenu reverrouillé**
-- [ ] Résiliation → accès conservé jusqu'à la fin de la période
-- [ ] Index unique partiel : deux abonnements actifs au même coach impossibles
-- [ ] Parcours complet dans le navigateur avec carte de test `4242…`
+- [x] Onboarding refusé à un coach non certifié
+- [x] Tarif hors bornes rejeté ; changement de tarif → nouveau `Price`
+- [x] Checkout refusé : sur soi-même, coach non monétisable, doublon actif
+- [x] Webhook sans signature valide → 400
+- [x] **Même événement rejoué deux fois → traité une seule fois**
+- [x] `checkout.session.completed` → contenu premium déverrouillé
+- [x] Échec de prélèvement → **contenu reverrouillé**
+- [x] Résiliation → accès conservé jusqu'à la fin de la période, puis reprise
+- [x] Index unique partiel : deuxième abonnement actif refusé en 409
+- [x] **Parcours complet dans le navigateur avec carte de test `4242…`**
+- [x] Répartition des revenus exacte : 1990 brut / 299 commission / 1691 net
+- [x] Écrans de monétisation vérifiés au navigateur, gardes de rôle comprises
+
+**Suites permanentes ajoutées par ce module**
+
+| Commande | Portée | Résultat |
+|---|---|---|
+| `npm run test:stripe` (serveur) | API des abonnements, refus, signatures | 50/50 |
+| `npm run test:paiement` (client) | paiement réel de bout en bout | 46/46 |
+| `npm run test:premium` (client) | rendu des trois écrans, gardes de rôle | 18/18 |
+
+**Contrôle final du module 7** — les cinq suites rejouées à la suite :
+`test:api` 73/73 · `test:stripe` 50/50 · `test:ui` 45/45 ·
+`test:premium` 18/18 · `test:paiement` 46/46 → **232/232**.
+
+> **Défaut d'isolation corrigé dans `test:paiement`.** La suite passait à la
+> première exécution puis échouait aux suivantes sur les revenus (2 abonnés,
+> puis 3…). Aucune régression du produit : les deux routes de nettoyage font
+> exactement leur travail — `DELETE /subscriptions/:id` résilie **en fin de
+> période** et `DELETE /users/me` **désactive** sans supprimer. L'abonnement
+> restait donc `actif` un mois de plus, et s'accumulait. Le nettoyage descend
+> désormais en base retirer ce qu'aucune API n'a vocation à retirer, et balaie
+> au passage les restes d'exécutions interrompues. **Vérifié par deux
+> exécutions consécutives sans purge manuelle : 46/46 les deux fois.**
+
+> **Dette technique remboursée au passage.** `tests/parcours.mjs` forçait
+> certains états par `docker exec … mongosh`. Cet appel n'a pas de délai
+> d'expiration : quand le CLI Docker ne répondait plus, la suite se **figeait
+> indéfiniment** au lieu d'échouer. Elle parle désormais au pilote MongoDB
+> directement, en empruntant l'URI au serveur.
+
+---
+
+## Module 8 — Géolocalisation et carte interactive  `TERMINÉ`
+
+> Ce que le module 1 a déjà posé, et qu'il s'agit maintenant d'exploiter :
+> le champ `localisation` en **Point GeoJSON**, l'index **2dsphere**, la route
+> `PATCH /users/me/localisation`, et la capture de position du navigateur dans
+> l'inscription et les paramètres. Rien n'interroge encore ces données.
+
+### 8.0 Décision de conception — la confidentialité des coordonnées
+
+`versionPublique()` **exclut délibérément** `localisation` depuis le module 4 :
+aucune coordonnée exacte ne sort de l'API aujourd'hui. Une carte des coachs ne
+doit pas revenir sur cette décision — la position d'un particulier, c'est très
+souvent son domicile.
+
+- [x] **Position approchée pour l'affichage public.** Les coordonnées exactes
+      restent en base et servent au calcul de distance côté serveur ; l'API ne
+      renvoie qu'une position arrondie. Trois décimales ≈ 110 m : assez précis
+      pour situer un quartier, trop grossier pour désigner une porte.
+- [x] **Consentement explicite** : un coach n'apparaît sur la carte que s'il
+      l'a activé (`carteVisible`). Avoir renseigné sa position pour trouver des
+      coachs près de chez soi n'est pas consentir à y être trouvé.
+- [x] **Distance calculée par le serveur**, jamais reconstituée par le client :
+      renvoyer une position floue *et* une distance exacte annulerait le flou
+      par trilatération depuis plusieurs points.
+
+### 8.1 Modèle
+- [x] `User.carteVisible` — booléen, `false` par défaut (opt-in)
+- [x] `User.versionCarte()` — quatrième niveau de vue : identité publique
+      minimale + position **arrondie** + distance, sans bio ni statistiques
+- [x] Index composé `{ carteVisible, type, visibilite, isActive }` pour le
+      filtre appliqué avant le tri par distance
+
+### 8.2 Service de recherche géographique
+- [x] `services/geo.service.js`
+- [x] **`$geoNear` en agrégation plutôt que `$near` en requête** : seul
+      `$geoNear` renvoie la distance calculée (`distanceField`), qui est
+      précisément ce qu'on veut afficher. Avec `$near`, il faudrait la
+      recalculer côté client — donc exposer la position exacte.
+- [x] Filtres cumulables : rayon, sport, coach certifié, offre premium
+- [x] Rayon borné (1 à 100 km) et nombre de résultats plafonné
+- [x] Exclusion des comptes désactivés, privés et sans position
+
+### 8.3 Endpoints
+- [x] `GET /api/geo/coachs` — coachs autour d'un point, avec distance
+- [x] `GET /api/geo/villes` — regroupement par ville, pour un rendu dézoomé
+- [x] `PATCH /geo/carte-visible` — consentement d'affichage (la route vit
+      sous `/geo` et non sous `/users` : c'est une propriété de la carte,
+      pas du profil, et elle est réservée aux coachs)
+- [x] `GET /api/geo/sports` — sports réellement proposés, pour le filtre
+- [x] `validators/geo.validator.js` — bornes des coordonnées et du rayon
+
+### 8.4 Front — dépendances et couche API
+- [x] `leaflet` et `react-leaflet`, plus la feuille de style de Leaflet
+- [x] Correctif des icônes de marqueur : Leaflet référence ses images par des
+      chemins relatifs que les empaqueteurs cassent — panne classique où les
+      marqueurs deviennent invisibles sans la moindre erreur en console
+- [x] `api/geo.api.js`
+- [x] `hooks/usePosition.js` — géolocalisation du navigateur, avec les trois
+      refus possibles distingués (indisponible, refusée, expirée)
+
+### 8.5 Front — carte
+- [x] `components/map/CarteCoachs.jsx` — fond OpenStreetMap, attribution
+      conservée (elle est exigée par la licence, pas décorative)
+- [x] `components/map/MarqueurCoach.jsx` — fiche avec avatar, nom, pseudo,
+      certification, distance, sports, tarif, lien vers le profil
+- [x] `components/map/CercleRayon.jsx` — matérialise la zone de recherche
+- [x] `components/map/etalerPositions.js` — écarte les marqueurs superposés
+- [x] Plafonnement des résultats (50 par défaut, 100 au maximum)
+
+### 8.6 Front — page
+- [x] `pages/Carte.jsx` — carte et liste synchronisées
+- [x] Filtres : rayon, sport, certification, offre premium
+- [x] Repli lisible quand la position est refusée : recherche par ville
+- [x] Entrée « Carte » dans la navigation
+- [x] Case « apparaître sur la carte » dans les paramètres du coach
+
+### 8.7 Vérifications
+- [x] Recherche `$geoNear` : ordre par distance croissante, rayon respecté
+- [x] **Coordonnées exactes absentes de toutes les réponses HTTP**
+- [x] Coach non consentant absent de la carte, même dans le rayon
+- [x] Comptes privés, désactivés et sans position exclus
+- [x] Rayon hors bornes et coordonnées invalides rejetés en 400
+- [x] Filtres cumulés cohérents
+- [x] Marqueurs réellement affichés dans le navigateur (icônes chargées)
+- [x] Carte utilisable en mobile 375 px, sans débordement
+- [x] Refus de géolocalisation → repli fonctionnel, pas d'écran vide
+
+### 8.8 Ce que le module a produit
+
+**Fichiers créés**
+
+| Côté | Fichier | Rôle |
+|---|---|---|
+| serveur | `services/geo.service.js` | `$geoNear`, filtres, villes, sports |
+| serveur | `controllers/geo.controller.js` | 4 points d'entrée |
+| serveur | `routes/geo.routes.js` | 3 routes publiques, 1 protégée |
+| serveur | `validators/geo.validator.js` | bornes des coordonnées et du rayon |
+| client | `api/geo.api.js` | couche d'appel |
+| client | `hooks/usePosition.js` | géolocalisation, 3 échecs distingués |
+| client | `components/map/CarteCoachs.jsx` | carte, marqueurs, infobulles |
+| client | `components/map/iconesLeaflet.js` | icônes SVG, contournement du bogue |
+| client | `pages/Carte.jsx` | carte et liste synchronisées |
+| client | `tests/carte.mjs` | suite de régression — **37/37** |
+
+**Modifiés** : `models/User.js` (`carteVisible`, `versionCarte()`),
+`routes/index.js`, `App.jsx`, `Navbar.jsx`, `Settings.jsx`, `index.css`.
+
+**Trois décisions techniques à retenir**
+
+1. **`$geoNear` plutôt que `$near`.** Les deux trient par distance ; seul
+   `$geoNear` la *renvoie*. Avec `$near`, il aurait fallu la recalculer côté
+   client — donc lui livrer la position exacte, exactement ce qu'on refuse.
+   MongoDB calcule sur les coordonnées réelles, l'API ne publie que l'arrondi.
+
+2. **Icônes SVG en `data:` plutôt que les images de Leaflet.** Leaflet
+   référence ses marqueurs par des chemins relatifs que Vite renomme à la
+   compilation : les marqueurs deviennent invisibles **sans la moindre erreur
+   en console**. La suite vérifie donc `naturalWidth > 0` sur chaque icône,
+   pas seulement leur présence dans le DOM.
+
+3. **Carte chargée à la demande.** Leaflet pèse ~49 ko compressés, soit un
+   tiers de l'application. `lazy()` la sort du paquet principal, qui repasse
+   de 166 à **117,8 ko** — le poids d'avant le module.
+
+**Limite connue** : les tuiles viennent de `tile.openstreetmap.org`. Sans
+accès Internet, la carte s'affiche mais reste vide. La suite sonde le serveur
+de tuiles avant de conclure, plutôt que de produire un échec rouge trompeur.
+
+### 8.9 Contrôle de non-régression
+
+Les six suites rejouées après le module :
+
+| Commande | Résultat |
+|---|---|
+| `npm run test:api` (serveur) | 73/73 |
+| `npm run test:stripe` (serveur) | 50/50 |
+| `npm run test:ui` (client) | 45/45 |
+| `npm run test:premium` (client) | 18/18 |
+| `npm run test:paiement` (client) | 46/46 |
+| `npm run test:carte` (client) | 37/37 |
+
+**269/269.**
+
+### 8.10 Audit d'affichage — points et fiche profil
+
+Contrôle demandé après coup : les points du visiteur et des coachs
+s'affichent-ils, et la fiche s'ouvre-t-elle au clic ? Vérifié dans un vrai
+Chromium, capture à l'appui (`client/captures/carte-fiche-coach.png`).
+
+- [x] **Pastille de position du visiteur** affichée, et centrée sur le point
+      de recherche (tolérance 60 px)
+- [x] **Marqueurs des coachs** affichés, icônes réellement rendues
+- [x] **Fiche ouverte au clic** sur un point : avatar, nom, pseudo,
+      certification, distance, ville, sports, tarif, lien vers le profil
+- [x] Avatar de la fiche réellement rendu (image ou initiales)
+- [x] Le lien mène bien à `/profile/<pseudo>` du coach cliqué
+- [x] Cercle du rayon dessiné, attribution OpenStreetMap présente
+
+**Trois cases avaient été cochées à tort.** Le module 8 avait été validé en
+bloc par une expression régulière, sans relire ligne à ligne. Trois entrées ne
+correspondaient à rien de livré : `MarqueurCoach.jsx` et `CercleRayon.jsx`
+n'existaient pas — leur contenu était resté dans `CarteCoachs.jsx` — et
+aucun index composé n'avait été créé. Les trois ont été réellement faites, et
+le chemin de la route de consentement corrigé (`/geo/…`, pas `/users/me/…`).
+
+**Un défaut réel trouvé pendant cet audit — et causé par le module lui-même.**
+L'arrondi de confidentialité à ~110 m fait que deux coachs séparés de moins de
+110 mètres reçoivent des coordonnées **identiques**. Leurs marqueurs se
+superposaient au pixel près, et celui du dessous devenait littéralement
+inatteignable : impossible à cliquer, impossible à voir. Dans une salle de
+sport ou un quartier dense, c'est le cas courant.
+
+`etalerPositions.js` dispose les marqueurs partageant une position sur un
+petit cercle d'une trentaine de mètres — bien en deçà du flou déjà appliqué,
+donc sans rien révéler de plus. Le décalage est **déterministe** (déduit du
+rang, jamais d'un tirage aléatoire) : sans quoi la carte danserait à chaque
+changement de filtre. La fiche annonce « position approchée — plusieurs coachs
+dans ce secteur » plutôt que de laisser croire à une précision qu'elle n'a pas.
+
+> **Limite assumée.** L'écartement ne sépare visuellement les marqueurs qu'à
+> partir d'un certain niveau de zoom : à 25 km de rayon, trente mètres restent
+> sous le pixel. Aucun coach n'est pour autant introuvable — **la liste sous
+> la carte présente tous les résultats**, sans superposition possible. Un vrai
+> regroupement de marqueurs (*clustering*) demanderait une dépendance
+> supplémentaire ; il n'a pas été retenu à ce stade.
+
+**Deux pièges d'outillage corrigés au passage**
+
+1. **`$geoNear` et le second index géographique.** L'index composé aurait pu
+   être un `{ localisation: '2dsphere', … }`. C'était un piège : deux index
+   2dsphere sur la même collection font échouer `$geoNear` — « more than one
+   2dsphere index, not sure which to run geoNear on ». La carte serait tombée
+   en panne au premier appel. On garde **un seul** index géographique, on
+   indexe les champs du filtre à part, et le service précise désormais
+   `key: 'localisation'` pour lever l'ambiguïté par avance.
+
+2. **La suite ne se purgeait qu'en sortie.** Une exécution interrompue laissait
+   ses comptes en base ; la suivante trouvait deux coachs homonymes et un
+   sélecteur censé désigner une personne en désignait deux. Échec
+   incompréhensible, sans rapport avec le code testé. La purge se fait
+   désormais aussi **au démarrage** — même correction que pour
+   `test:paiement`. Et l'infobulle des marqueurs affiche le pseudo en plus du
+   nom, ce qui règle le même problème pour un utilisateur réel : deux coachs
+   peuvent parfaitement s'appeler « Marc Bernard ».
+
+`npm run test:carte` passe de 37 à **50/50**.
+
+---
+
+## Module 9 — Événements sportifs  `TERMINÉ`
+
+> Ce que les modules précédents rendent possible ici : la **position** et
+> l'index 2dsphere (module 8) pour trouver les événements proches, le
+> **contrôle d'accès premium** (module 7) pour les événements réservés aux
+> abonnés, le **stockage Cloudinary** (module 5) pour l'affiche, et les
+> **transactions** (module 1) pour les compteurs de participants.
+
+### 9.0 Le problème central — la concurrence sur les places
+
+Un événement à capacité limitée est le cas d'école de la **course critique** :
+deux personnes cliquent sur « Je participe » à la même milliseconde alors
+qu'il reste une place. Lues séparément, les deux requêtes voient « 9 inscrits
+sur 10 », et les deux acceptent. L'événement se retrouve en surréservation.
+
+- [x] **`EventRegistration` en collection séparée**, jamais un tableau
+      `inscrits` dans l'événement. Un tableau se lit puis se réécrit : la
+      fenêtre entre les deux est précisément la faille.
+- [x] **Index unique `{ event, utilisateur }`** — la base refuse le doublon,
+      quel que soit le nombre de requêtes simultanées
+- [x] **La place est réservée dans une transaction** avec l'incrément du
+      compteur. La réservation est un `$inc` **sous condition de capacité** :
+      filtre et incrément forment une seule opération indivisible, et `$expr`
+      compare `inscritsCount` à `capaciteMax` — deux champs du même document,
+      ce qu'une requête ordinaire ne sait pas faire.
+- [x] **La place est réservée AVANT la création de l'inscription.** L'ordre
+      inverse laisserait une inscription orpheline si la place venait à
+      manquer : un document en base pour quelqu'un qui n'a rien obtenu.
+- [x] Surréservation vérifiée par un **test de charge réel** :
+      **20 requêtes simultanées sur 5 places → exactement 5 acceptées,
+      15 refusées en 409**, compteur et documents en base concordants
+
+### 9.1 Modèles
+- [x] `models/SportEvent.js` — organisateur, type, dates, lieu, capacité,
+      image, statut
+- [x] Point GeoJSON en **sous-schéma avec `default: undefined`** — même piège
+      qu'au module 1 : déclaré en ligne, Mongoose fabriquerait un point
+      dégénéré sur chaque événement et l'index 2dsphere buterait dessus
+- [x] `capaciteMax: null` signifie « sans limite » — distingué de `0`, qui
+      serait un événement auquel personne ne peut s'inscrire
+- [x] `dateFin > dateDebut` validé **au niveau du schéma** (`pre('validate')`)
+      et pas seulement dans `express-validator` : un script ou un import de
+      données passeraient à côté d'une règle qui ne vivrait que côté HTTP
+- [x] Index `2dsphere` sur `lieu.localisation`, `{ dateDebut: 1 }`,
+      `{ organisateur, dateDebut: -1 }`, `{ statut, type, dateDebut }`
+- [x] Virtuels `estComplet`, `estPasse`, `placesRestantes`,
+      `inscriptionOuverte` — `estPasse` se fie à `dateFin` et non à
+      `dateDebut` : une sortie de 9 h à 17 h est encore en cours à midi
+- [x] `versionPour(visiteur, aAccesPremium)` — un événement `prive` masque son
+      **adresse exacte** aux non-abonnés, mais garde titre, ville et date
+      visibles : c'est ce qui donne envie de s'abonner. Le champ est retiré de
+      la **réponse HTTP**, pas seulement de l'écran (même règle qu'au module 7).
+- [x] `detailsVerrouilles` signalé explicitement, pour que l'interface explique
+      ce qui manque au lieu d'afficher un vide inexpliqué
+- [x] `models/EventRegistration.js` — index unique `{ event, utilisateur }`,
+      statuts `inscrit` / `annule`, `versionPublique()`
+
+### 9.2 Service
+- [x] `services/event.service.js`
+- [x] `inscrire()` — transaction : contrôle de capacité, création, compteur
+- [x] Retour après désistement : l'inscription `annule` est **réactivée**, pas
+      dupliquée — l'index unique le refuserait de toute façon
+- [x] Double clic intercepté par l'index unique (code 11000) et traduit en
+      message métier plutôt qu'en erreur de base
+- [x] `desinscrire()` — bascule en `annule` et décrémente **dans la même
+      transaction** ; séparés, un incident laisserait une place fantôme.
+      Filtre `inscritsCount > 0` en ceinture de sécurité.
+- [x] `recompter()` — filet de sécurité, à l'image du module 6
+- [x] `listeAVenir()` — filtre sur `dateFin` (un événement en cours reste
+      d'actualité), tri par `dateDebut` croissante, filtres ville/sport/type
+- [x] Les événements `annule` restent dans la liste : les masquer priverait
+      les inscrits de l'information qui les concerne le plus
+- [x] `evenementsAutourDe()` — réutilise `$geoNear` du module 8, `key` désigné
+      explicitement. **Ici la position n'est pas floutée** : un lieu de
+      rendez-vous collectif est public, contrairement au domicile d'un coach.
+- [x] Un événement passé ou annulé n'accepte plus d'inscription
+
+### 9.3 Règles d'accès
+- [x] Seuls les **coachs certifiés** créent des événements (`coachCertifie`)
+- [x] Un événement `prive` n'est visible que des **abonnés premium** du coach —
+      contrôle délégué à `abonnementsPremiumActifs()` du module 7, jamais
+      redupliqué : deux implémentations finiraient par diverger
+- [x] L'organisateur ne s'inscrit pas à son propre événement
+- [x] Modifier ou annuler : organisateur ou admin uniquement
+- [x] **Liste blanche des champs modifiables** — sans elle, un `Object.assign`
+      laisserait réécrire `inscritsCount`, `organisateur` ou `statut`
+- [x] Capacité refusée si elle passe **sous le nombre d'inscrits** : on ne
+      choisit pas à la place de l'organisateur lesquels perdent leur place
+- [x] Annuler ≠ supprimer : les inscrits constatent l'annulation et son motif
+- [x] **La liste des participants n'est pas publique** — elle révèle qui
+      pratique quoi, où et quand ; réservée à l'organisateur et à l'admin
+
+### 9.4 Endpoints
+- [x] `POST /api/events` — création, affiche facultative. Ordre des
+      middlewares non interchangeable : `protect` → `coachCertifie` →
+      `upload` → `validate`. Téléverser avant de vérifier le droit laisserait
+      un fichier orphelin chez Cloudinary pour un appelant qu'on refuse.
+- [x] Nettoyage de l'affiche si l'écriture en base échoue
+- [x] `GET /api/events` — à venir, filtres ville/sport/type, paginé
+- [x] Accès premium calculé **une fois pour toute la page**, pas par carte
+- [x] `GET /api/events/proches` — autour d'un point, distance renvoyée
+- [x] `GET /api/events/:id` — détail, `monInscription`, participants réservés
+- [x] `PATCH /api/events/:id` · `DELETE /api/events/:id` (annulation)
+- [x] `POST /api/events/:id/inscription` · `DELETE /api/events/:id/inscription`
+- [x] `GET /api/events/mes-inscriptions`
+- [x] Segments fixes déclarés **avant** `/:id` — sans quoi `/events/proches`
+      serait lu comme un identifiant (même piège qu'aux modules 6 et 7)
+- [x] `validators/event.validator.js` — dates, capacité, coordonnées par paire,
+      rayon borné
+- [x] Routeur monté dans `routes/index.js`
+
+### 9.5 Front
+- [x] `api/event.api.js`
+- [x] **Champs imbriqués en notation à crochets dans le `FormData`** —
+      `lieu[ville]`, jamais `lieu.ville`. Multer reconstruit l'objet à partir
+      des crochets ; avec un point il crée une clé plate littérale, le serveur
+      ne trouve aucune ville et refuse un champ pourtant rempli. Détail
+      minuscule, panne totale — comportement vérifié en conditions réelles.
+- [x] `utils/dates.js` — créneau condensé quand début et fin tombent le même
+      jour, délai en clair (« demain », « dans 3 jours »), et conversion vers
+      `datetime-local`, **qui travaille en heure locale et refuse tout fuseau** :
+      lui passer un `toISOString()` décale la séance de l'écart horaire, sans
+      le moindre avertissement
+- [x] `components/map/CarteBase.jsx` — **socle extrait de `CarteCoachs`**,
+      désormais partagé avec la carte des événements : fond de plan,
+      attribution, recentrage, recalcul de taille, cercle de recherche,
+      pastille de position. Recopié, ce socle aurait vécu en deux exemplaires —
+      corriger l'un aurait laissé le défaut dans l'autre.
+- [x] `etalerPositions` généralisé par accesseurs : les événements souffrent du
+      même recouvrement de marqueurs, pour une autre raison — un cours
+      hebdomadaire dans la même salle produit des coordonnées identiques
+- [x] `components/map/CarteEvenements.jsx` · `MarqueurEvenement.jsx` — teinte
+      indigo, franchement distincte de l'orange des coachs
+- [x] `components/event/EventCard.jsx` — quand, où, places restantes : les
+      trois questions qui décident d'y aller. L'état est dit par un **mot**
+      (« Complet », « Annulé »), jamais par la seule couleur.
+- [x] `components/event/EventForm.jsx` — création avec affiche, position
+      facultative, dates pré-remplies (un formulaire vide invite à saisir une
+      date passée, refusée pour une raison que rien n'annonçait)
+- [x] `pages/Events.jsx` — trois onglets, parce que ce sont trois questions
+      différentes : « à venir », « autour de moi », « mes inscriptions ».
+      Chacun ne charge que ses propres données.
+- [x] `pages/EventDetail.jsx` — détail, inscription, participants, plus
+      modification et annulation pour l'organisateur
+- [x] Un événement privé garde sa place dans la liste « autour de moi » même
+      sans coordonnées : le retirer des deux vues laisserait croire qu'il
+      n'existe pas — et supprimerait l'argument qui donne envie de s'abonner
+- [x] Le bloc d'inscription est **une fonction qui rend du balisage, pas un
+      composant déclaré dans le rendu** : ce dernier reçoit une identité neuve
+      à chaque passage, et le champ de message perdrait le focus à chaque frappe
+- [x] Entrée « Événements » dans la navigation
+- [x] Les deux écrans sont chargés **à la demande** (`lazy`), comme `/carte` :
+      ils embarquent Leaflet, et un import statique aurait ramené ses 150 ko
+      dans le paquet principal par une autre porte
+
+### 9.6 Vérifications
+
+Suite serveur `npm run test:evenements` — **76/76 réussies**.
+
+- [x] Création refusée à un sportif et à un coach non certifié
+- [x] `dateFin` antérieure à `dateDebut` rejetée · capacité nulle rejetée ·
+      longitude sans latitude rejetée
+- [x] **Surréservation impossible : 20 inscriptions simultanées sur 5 places,
+      exactement 5 acceptées**
+- [x] Double inscription refusée · double désinscription refusée
+- [x] Inscription à un événement passé, annulé, ou au sien : refusée
+- [x] Désinscription libère la place, compteur exact, documents concordants
+- [x] Une place libérée profite bien à un candidat précédemment refusé
+- [x] Retour après désistement : **un seul document** malgré l'aller-retour
+- [x] Événement privé : adresse absente de la réponse pour un non-abonné,
+      ville et titre conservés, inscription refusée en 403
+- [x] Liste des participants masquée à un simple inscrit
+- [x] Modification et annulation refusées à un tiers
+- [x] Capacité sous le nombre d'inscrits refusée
+- [x] Annulation : événement conservé, statut `annule`, motif visible
+- [x] Recherche par proximité cohérente avec le module 8, distance renvoyée
+- [x] `/events/proches` et `/events/mes-inscriptions` non confondus avec un
+      identifiant ; identifiant réellement invalide rejeté en 400
+
+Parcours navigateur `npm run test:evenements` côté client — **38/38 réussies**.
+
+- [x] Parcours complet : liste, fiche, inscription, désinscription, agenda
+- [x] **L'adresse d'un événement privé est absente du HTML lui-même**, pas
+      seulement masquée à l'écran — la masquer en CSS ne protégerait personne
+- [x] Marqueurs réellement rendus sur la carte des événements
+- [x] Bouton de création absent pour un sportif et pour un coach non certifié
+- [x] Création, modification, annulation depuis le navigateur ; l'événement
+      annulé reste consultable avec son motif
+- [x] `/evenements` et la fiche sans débordement en 375 et 768 px
+- [x] Console propre
+- [x] Aucune régression : `test:carte` 50/50, `test:api` 73/73
+
+### 9.7 Contrôle de non-régression
+
+Les huit suites rejouées après le module :
+
+| Commande | Résultat |
+|---|---|
+| `npm run test:api` (serveur) | 73/73 |
+| `npm run test:stripe` (serveur) | 50/50 |
+| `npm run test:evenements` (serveur) | 76/76 |
+| `npm run test:ui` (client) | 45/45 |
+| `npm run test:premium` (client) | 18/18 |
+| `npm run test:paiement` (client) | 46/46 |
+| `npm run test:carte` (client) | 50/50 |
+| `npm run test:evenements` (client) | 38/38 |
+
+**396/396.** `npm run lint` et `npm run build` passent également : Leaflet reste
+dans un fragment séparé, le paquet principal n'a pas grossi.
+
+> **Piège d'environnement, à retenir.** `test:paiement` a d'abord échoué à
+> 18/31 — et l'échec ne désignait rien de juste : treize vérifications rouges
+> en cascade, toutes après « attente du webhook ». La cause était en amont et
+> hors du code : `stripe listen --forward-to localhost:5000/api/webhooks/stripe`
+> n'était pas lancé, donc aucun webhook n'arrivait. Avec le relais actif,
+> 46/46 sans rien changer. **Le premier réflexe devant une cascade d'échecs
+> n'est pas de lire le code, mais de vérifier que les prérequis tournent.**
+>
+> Deux exécutions ont par ailleurs expiré au premier `page.goto` lorsque
+> plusieurs suites navigateur s'enchaînaient dans la même commande : c'est la
+> machine qui sature, pas l'application. Les lancer une par une suffit.
+
+---
+
+## Module 10 — Recherche  `TERMINÉ`
+
+> Ce que les modules précédents rendent possible ici : l'**index texte** sur
+> `pseudo`, `nom`, `prenom` posé dès le module 1, les **règles de visibilité**
+> du module 4, le **contrôle d'accès premium** du module 7, et les contenus à
+> parcourir — publications (module 5), coachs (module 8), événements (module 9).
+
+### 10.0 Le problème central — un index texte ne fait PAS d'autocomplétion
+
+C'est la méprise fondatrice du module, et elle coûte cher à qui la découvre
+tard. `$text` de MongoDB travaille sur des **mots entiers**, après
+segmentation et désuffixation : chercher `mar` ne trouve **jamais** « Martin ».
+Or une barre de recherche moderne doit répondre dès la troisième lettre.
+
+- [x] **Deux mécanismes distincts, pour deux usages distincts**, et non un
+      seul étiré : `$text` pour la recherche *lancée* (mots entiers, résultats
+      classés par pertinence), une **expression rationnelle ancrée** pour
+      l'autocomplétion (`^mar`, préfixe, donc indexable)
+- [x] **L'ancrage `^` n'est pas cosmétique** : sans lui, MongoDB ne peut pas
+      se servir de l'index et parcourt la collection entière à chaque frappe
+- [x] **Et une expression ancrée n'utilise l'index QUE si elle est sensible à
+      la casse.** `$options: 'i'` annule le bénéfice ; une collation
+      insensible ne sauve pas non plus la mise, MongoDB refusant l'index pour
+      toute expression rationnelle dès que la collation n'est pas simple.
+- [x] **D'où le champ `termesRecherche`** : une liste de termes déjà mis en
+      minuscules et désaccentués. La comparaison s'y fait en casse exacte —
+      donc indexée — et se trouve néanmoins insensible à la casse et aux
+      accents, puisque les deux côtés ont subi le même traitement.
+- [x] **Vérifié par le plan d'exécution, pas par déduction** :
+      `explain()` sur `{ isActive, termesRecherche: /^mar/ }` renvoie
+      `IXSCAN isActive_1_termesRecherche_1` — l'index est bien parcouru par
+      plage, et non la collection balayée
+- [x] **La requête est retardée côté client** (`useDebounce`, 300 ms) :
+      une frappe = une requête ferait neuf appels pour « martineau ».
+      Mesuré dans le navigateur : **1 requête pour 9 lettres**.
+
+### 10.1 Index et données
+- [x] Index texte sur `User` — en place depuis le module 1, poids
+      `pseudo: 10`, `prenom: 3`, `nom: 3`
+- [x] `User.termesRecherche` — tableau normalisé, `select: false` (ce champ ne
+      regarde que le moteur de recherche, pas les réponses HTTP)
+- [x] Index multiclé `{ isActive: 1, termesRecherche: 1 }` — `isActive` en
+      tête écarte d'emblée les comptes désactivés
+- [x] Crochet `pre('save')` **déclenché par champ modifié**, pas à chaque
+      enregistrement : un `save()` qui ne touche qu'à `derniereConnexion` n'a
+      aucune raison de réécrire un tableau identique
+- [x] `utils/texte.js` — `normaliser()`, `termesDe()`, `echapperRegex()`,
+      `motifPrefixe()`. On indexe **les mots, pas la chaîne entière** : sur
+      « martin dupont », un préfixe `dup` ne matcherait rien autrement.
+- [x] Index texte sur `Post` (titre 8, description 2) et sur `SportEvent`
+      (titre 8, sport 8, description 2) — la limite d'un index texte est **par
+      collection**, pas globale
+- [x] **`scripts/reindexerRecherche.js` + `npm run reindexer-recherche`** —
+      le crochet n'alimente que les documents enregistrés APRÈS lui : sans
+      reprise, tous les comptes antérieurs resteraient introuvables. C'est le
+      piège classique d'une dénormalisation ajoutée après coup — la
+      fonctionnalité marche sur les comptes de test créés pendant le
+      développement, et ne trouve rien en production. Écriture groupée,
+      idempotent.
+
+### 10.2 Service
+- [x] `services/search.service.js`
+- [x] `suggestions()` — préfixe ancré, huit résultats, tri par nombre
+      d'abonnés (à préfixe égal, le compte le plus suivi est presque toujours
+      celui qu'on cherchait)
+- [x] `utilisateurs()` — `$text` classé par pertinence, **complété par le
+      préfixe en filet** : sans lui, valider « mar » ne donnerait rien
+- [x] L'ordre de fusion porte la priorité : les résultats notés passent
+      devant, le repli comble la suite sans jamais déloger un mieux classé
+- [x] `publications()` — les deux verrous cumulés : visibilité du profil de
+      l'auteur, puis verrou premium délégué à `versionPour()`
+- [x] `evenements()` — à venir seulement, filtre sur `dateFin` comme au
+      module 9
+- [x] `globale()` — les trois en parallèle (`Promise.all`) : enchaînées,
+      l'écran d'ensemble attendrait la somme de trois latences indépendantes
+- [x] Limites bornées (20 par défaut, 50 au maximum, 8 en suggestion)
+
+### 10.3 Règles de visibilité
+- [x] Les comptes **désactivés** n'apparaissent jamais
+- [x] Un profil **privé** reste trouvable mais ne livre que sa version
+      publique : être trouvable et être lisible sont deux choses différentes
+- [x] Les auteurs interrogeables sont restreints **en amont** de la requête :
+      filtrer après coup obligerait à charger des documents pour les jeter, et
+      fausserait le compte de résultats
+- [x] Une publication **premium** n'expose ni description ni médias à qui
+      n'est pas abonné — point unique du module 7, jamais redupliqué
+- [x] Un événement **privé** garde son adresse masquée, comme au module 9
+- [x] La recherche n'est **pas** une porte dérobée : chaque verrou des modules
+      4, 7 et 9 a sa vérification dédiée dans la suite
+
+### 10.4 Endpoints
+- [x] `GET /api/search` — recherche globale
+- [x] `GET /api/search/utilisateurs` (filtres type et ville) ·
+      `/publications` · `/evenements`
+- [x] `GET /api/search/suggestions` — autocomplétion, **route à part** : ni le
+      même coût, ni la même forme de réponse, ni la même fréquence d'appel
+- [x] `protectOptionnel` partout — chercher ne demande pas de compte, mais la
+      session **change les résultats** : comptes privés suivis, contenu
+      premium, adresses d'événements réservés
+- [x] Requête vide, trop courte (< 2) ou trop longue (> 80) rejetée en 400
+- [x] `validators/search.validator.js` — **sans `.escape()`, délibérément** :
+      il transformerait l'apostrophe de « l'entraînement » en `&#x27;`, et la
+      recherche ne trouverait plus rien. Le terme interroge, il n'est ni
+      stocké ni réaffiché ; le risque réel est le ReDoS, traité par
+      `echapperRegex()`.
+- [x] Pas de limiteur spécifique : la route la plus appelée du projet reste
+      couverte par le limiteur global, et la vraie réduction du trafic se fait
+      par le délai d'attente côté client
+- [x] Routeur monté dans `routes/index.js`
+
+### 10.5 Front
+- [x] `api/search.api.js` — chaque appel accepte un `signal`
+- [x] `hooks/useDebounce.js` — 300 ms. En dessous de 200 ms une frappe normale
+      passe encore à travers ; au-delà de 400 ms l'interface traîne. Le
+      nettoyage `clearTimeout` **est l'essentiel du hook** : sans lui, chaque
+      lettre programmerait son propre déclenchement et les neuf requêtes
+      partiraient quand même, avec 300 ms de retard.
+- [x] `components/search/BarreRecherche.jsx` — motif ARIA `combobox`,
+      navigation aux flèches, `aria-activedescendant` (sans quoi un lecteur
+      d'écran n'annonce pas la suggestion survolée au clavier)
+- [x] **`onMouseDown` et non `onClick`** sur les suggestions : le clic retire
+      d'abord le focus, ce qui ferme la liste — le bouton disparaîtrait avant
+      d'avoir reçu le clic
+- [x] **Annulation des requêtes obsolètes** (`AbortController`) : rien ne
+      garantit que la réponse à « nat » revienne avant celle à « natation ».
+      Sans annulation, la liste régresse sous les yeux de l'utilisateur.
+- [x] `pages/Search.jsx` — **le terme vit dans l'URL** (`?q=`), donc partageable,
+      rechargeable et navigable au bouton « précédent »
+- [x] Quatre onglets, chacun ne chargeant que ses propres données
+- [x] Le message de liste vide **nomme la famille interrogée** : « Aucun
+      résultat » sur l'onglet « Personnes » laisserait croire que le terme
+      n'existe nulle part, alors que l'événement cherché est dans l'onglet
+      voisin
+- [x] Entrée « Recherche » active dans la navigation, route `/recherche`
+
+#### Deux défauts trouvés à l'exécution, invisibles à la lecture
+
+- [x] **Échap vidait le champ.** Sur un `input type="search"`, Échap a une
+      action **native** : effacer la saisie. Elle déclenchait `onChange`, qui
+      rouvrait la liste — Échap effaçait donc le texte *et* laissait les
+      suggestions ouvertes, l'inverse exact des deux intentions. Le code disait
+      « fermer » ; c'est le navigateur qui faisait autre chose derrière.
+      Corrigé par `preventDefault()`, et le test vérifie désormais que le
+      **texte survit** — sans quoi il passait pour la mauvaise raison.
+- [x] **`formaterDistance` traînait Leaflet dans la recherche.** `EventCard`
+      l'importait depuis `MarqueurCoach`, un composant `react-leaflet` :
+      l'import avait l'air anodin et embarquait 150 ko de cartographie dans
+      tout écran affichant une carte d'événement. Déplacée dans
+      `utils/distance.js`. Le paquet principal passe de **387 ko à 297 ko**,
+      et `grep leaflet` sur le fragment principal ne renvoie plus rien.
+
+### 10.6 Vérifications
+
+Suite serveur `npm run test:recherche` — **54/54**.
+
+- [x] `$text` trouve un mot entier · un préfixe validé aboutit par le repli
+- [x] **Un fragment au MILIEU d'un mot ne remonte pas** : c'est un préfixe,
+      pas une sous-chaîne, et la distinction est assumée
+- [x] Classement par pertinence : le pseudo (poids 10) passe devant le nom (3)
+- [x] Accents et casse ignorés dans les deux sens
+- [x] Compte désactivé absent · profil privé trouvable, sans email dans la
+      réponse
+- [x] Publication d'un compte privé absente pour un anonyme, visible de son
+      auteur
+- [x] Publication premium : verrouillée, médias retirés, description masquée ;
+      le coach relit la sienne
+- [x] Événement passé absent · événement privé sans adresse exacte, adresse
+      visible pour l'organisateur
+- [x] Requête vide, d'une lettre, de 120 caractères, limite hors bornes :
+      toutes rejetées en 400
+- [x] **Motif ReDoS `(a+)+$` traité en 20 ms** — échappé, il n'est plus qu'une
+      chaîne littérale
+- [x] Apostrophe non transformée en entité HTML
+
+Parcours navigateur `npm run test:recherche` côté client — **36/36**.
+
+- [x] **1 requête pour 9 lettres frappées** — la mesure qui justifie le hook :
+      une barre sans délai passerait tous les autres tests sans exception,
+      puisqu'elle afficherait exactement les mêmes résultats
+- [x] Préfixe de trois lettres, accents ignorés à l'écran aussi
+- [x] Clavier complet : flèches, `aria-activedescendant`, Échap, Entrée sur
+      une suggestion ouvrant le profil
+- [x] **La description premium est absente du HTML lui-même**, pas seulement
+      masquée à l'écran
+- [x] Le terme vient de l'URL · onglets cloisonnés · message vide explicite
+- [x] La liste correspond au dernier terme saisi, pas à un terme abandonné
+- [x] `/recherche` sans débordement en 375 et 768 px · console propre
+
+### 10.7 Contrôle de non-régression
+
+Les dix suites rejouées après le module :
+
+| Commande | Résultat |
+|---|---|
+| `npm run test:api` (serveur) | 73/73 |
+| `npm run test:stripe` (serveur) | 50/50 |
+| `npm run test:evenements` (serveur) | 76/76 |
+| `npm run test:recherche` (serveur) | 54/54 |
+| `npm run test:ui` (client) | 45/45 |
+| `npm run test:premium` (client) | 18/18 |
+| `npm run test:paiement` (client) | 46/46 |
+| `npm run test:carte` (client) | 50/50 |
+| `npm run test:evenements` (client) | 38/38 |
+| `npm run test:recherche` (client) | 36/36 |
+
+**486/486.** `npm run lint` et `npm run build` passent ; Leaflet reste confiné
+au fragment cartographique, absent du paquet principal.
+
+> **Piège d'environnement, à retenir — deuxième occurrence.** Après un
+> redémarrage, aucune suite navigateur ne passait : la connexion restait
+> bloquée sur `/login`. Le code n'était pas en cause. Deux processus Vite
+> orphelins subsistaient d'une session précédente ; celui qui tenait le port
+> 5173 avait perdu son parent et ne relayait plus `/api` — Vite servait les
+> pages, le proxy ne forwardait rien, et le second s'était rabattu sur 5174
+> sans que personne le remarque. L'API répondait parfaitement en direct.
+>
+> **Le symptôme accusait l'application, la cause était deux ports plus loin.**
+> Le réflexe utile : comparer un appel *direct* à l'API et le même appel *via
+> le proxy*, puis vérifier qui écoute réellement sur le port
+> (`Get-NetTCPConnection -LocalPort 5173`).
+
+---
+
+## Module 11 — Messagerie  `TERMINÉ`
+
+> Ce que les modules précédents rendent possible ici : le **JWT** du module 2
+> pour authentifier le socket, la relation de **suivi** du module 6 pour
+> décider si un message est sollicité, le **stockage** du module 5 pour les
+> pièces jointes, et les **transactions** du module 1 pour les compteurs de
+> messages non lus.
+
+### 11.0 Les deux décisions structurantes
+
+**1. Le socket n'est pas une voie d'écriture.**
+La tentation est d'écrire le message dans le gestionnaire de socket : c'est
+plus direct, et tous les tutoriels le font. C'est aussi le moyen le plus sûr
+de se retrouver avec **deux chemins d'écriture divergents** — l'un en HTTP,
+l'autre en socket — chacun avec sa validation, ses contrôles d'accès, et ses
+oublis. Le jour où l'on corrige une règle dans l'un, l'autre reste faux, et
+c'est la voie temps réel, la moins testée, qui reste ouverte.
+
+Ici, **le message s'écrit par HTTP, le socket ne fait que notifier.** Le
+fichier `chat.handler.js` ne contient aucune écriture en base, et ce n'est pas
+un oubli : les seuls événements acceptés du client sont éphémères.
+
+**2. Rien de ce que le client envoie ne désigne un destinataire.**
+Router un message vers un identifiant reçu du navigateur reviendrait à laisser
+n'importe qui écrire à n'importe qui. L'identité vient du **JWT vérifié à la
+poignée de main**, et les destinataires sont relus **en base**.
+
+- [x] Authentification du socket à la connexion, jamais après
+- [x] L'utilisateur est **relu en base** au lieu de croire le jeton : un
+      compte désactivé garderait sinon un accès valide jusqu'à expiration
+- [x] **Une salle par personne, pas par conversation** — un socket rejoint la
+      sienne à la connexion et rien d'autre. Il n'existe aucun événement
+      « rejoindre » : s'inviter dans un échange est donc impossible par
+      construction, et non par contrôle.
+- [x] Diffusion vers les salles des participants relus en base
+- [x] Une seule voie d'écriture : le contrôleur HTTP
+- [x] **Le jeton expire, pas la connexion.** L'access token vaut 15 minutes,
+      un onglet reste ouvert des heures. Fermer le socket à l'expiration
+      déconnecterait quelqu'un au milieu d'une phrase. On accepte donc qu'une
+      session socket survive à son jeton : elle ne peut rien écrire, et toute
+      action réelle repasse par HTTP où le jeton périmé est refusé puis
+      renouvelé.
+- [x] `diffuserA()` tolère l'absence de Socket.io : les suites de tests
+      importent les contrôleurs sans démarrer le temps réel
+
+### 11.1 Modèles
+- [x] `models/Conversation.js` — deux participants, statut, demandeur,
+      dernier message dénormalisé, compteurs de non-lus
+- [x] Participants **triés** dans `pre('validate')` : sans tri, `[a,b]` et
+      `[b,a]` décrivent le même échange sous deux formes
+- [x] `nonLus` en **`Map` plutôt qu'en deux champs nommés** : `{ nonLusA,
+      nonLusB }` obligerait à savoir en permanence qui est « A »
+- [x] `models/Message.js` — texte OU média, jamais vide, suppression douce
+- [x] Index `{ conversation, createdAt: -1 }` · `{ conversation, expediteur, lu }`
+- [x] Les messages **hors** du document conversation : un fil vit des mois et
+      un document MongoDB plafonne à 16 Mo
+
+#### Le piège de l'index unique sur un tableau
+
+- [x] **`index({ participants: 1 }, { unique: true })` ne fait PAS ce qu'il
+      semble dire.** Un index sur un tableau est **multiclé** : MongoDB indexe
+      chaque élément séparément, et `unique` interdit alors qu'une même valeur
+      apparaisse dans deux documents — c'est-à-dire qu'une personne participe
+      à plus d'**une** conversation, pour toute sa vie.
+- [x] Le symptôme trompe : la première conversation d'Alice passe, la seconde
+      échoue en 11000, et le service — qui rattrape le 11000 en relisant la
+      paire — renvoie `null`. L'erreur affichée parle d'un `populate` sur
+      `null`, trois couches plus loin que la cause.
+- [x] **Corrigé par une clé canonique scalaire** `cle: "<idA>_<idB>"`, calculée
+      à la validation depuis la paire triée, avec `unique` dessus. L'index sur
+      `participants` demeure, non unique — c'est justement ce qui le rend
+      correct sur un tableau.
+
+### 11.2 La demande de chat
+- [x] Si la cible **suit déjà** l'initiateur → conversation `accepte`
+- [x] Le sens compte : c'est « la CIBLE suit l'INITIATEUR ». L'inverse ne
+      prouve rien — suivre quelqu'un n'est pas consentir à recevoir ses
+      messages privés.
+- [x] Sinon → `en_attente` : **un** message passe, il faut bien pouvoir se
+      présenter, les suivants sont bloqués. Sans ce plafond, « en attente » ne
+      changerait rien pour l'expéditeur.
+- [x] La cible, elle, écrit librement : **répondre vaut acceptation**
+- [x] Une conversation `refuse` n'accepte plus rien, des deux côtés
+- [x] Accepter ou refuser est réservé à la cible — laisser le demandeur
+      accepter sa propre demande serait un bouton « ignorer le consentement »
+
+### 11.3 Service et endpoints
+- [x] `services/message.service.js`
+- [x] `envoyer()` — **trois écritures dans une seule transaction** : le
+      message, l'extrait du fil, le compteur de non-lus. Séparées, un incident
+      laisse un message invisible dans la liste, ou une pastille que plus
+      aucune lecture ne remet à zéro.
+- [x] `$inc` sur une clé de `Map` en notation pointée : relire puis réécrire
+      la Map rouvrirait la course que la transaction ferme
+- [x] La course à l'ouverture tranchée par la base (index unique), pas par un
+      « chercher puis créer » qui laisse la fenêtre ouverte
+- [x] `marquerLu()` — **deux portées distinctes** : le compteur du fil retombe
+      à zéro, les messages *reçus* passent à `lu`. Lire n'est pas être lu.
+- [x] `totalNonLus()` — `.lean()` rend la `Map` sous forme d'objet simple :
+      `get()` n'y existe pas, et l'appeler planterait à la première pastille
+- [x] `rafraichirExtrait()` — appelé après une suppression (voir 11.6)
+- [x] `POST /api/messages/conversations` · `GET` (liste)
+- [x] `GET /api/messages/conversations/:id/messages` — curseur, pas `skip`
+- [x] `POST /api/messages/conversations/:id/messages` — texte ou pièce jointe
+- [x] `PATCH /api/messages/conversations/:id` — accepter / refuser
+- [x] `POST /api/messages/conversations/:id/lu` · `GET /api/messages/non-lus`
+- [x] `DELETE /api/messages/:id` — suppression douce
+- [x] Segments fixes avant `/:id`, comme aux modules 6, 7, 9 et 10
+- [x] `validators/message.validator.js` — **sans `.escape()`** : il stockerait
+      « l&#x27;entraînement » **en base**, abîmé pour toujours. Le XSS se
+      traite à l'affichage, et React échappe déjà tout ce qu'il rend.
+- [x] `uploadPieceJointe` — plafond plus bas qu'ailleurs (5 Mo) : une
+      conversation accumule des centaines de pièces jointes là où une
+      publication en compte dix
+
+### 11.4 Temps réel
+- [x] `sockets/index.js` — attaché au serveur HTTP d'Express, pas sur un
+      second port : un port distinct imposerait une seconde configuration
+      CORS et casserait le partage du cookie de session
+- [x] `sockets/chat.handler.js` — indicateur de saisie uniquement
+- [x] L'indicateur est **émis vers l'autre, jamais vers soi**
+- [x] Il est aussi contrôlé : émettre une saisie dans un fil étranger
+      révélerait son existence et permettrait de se signaler à quelqu'un qui a
+      refusé le contact
+- [x] Diffusion `message:nouveau`, `conversation:maj`, `messages:lus`,
+      `message:supprime`
+- [x] **L'expéditeur est notifié lui aussi** : sans cela, le message écrit sur
+      le téléphone n'apparaîtrait jamais dans l'onglet resté ouvert
+- [x] Chaque participant reçoit **sa** vue : les non-lus n'ont pas la même
+      valeur des deux côtés
+- [x] La diffusion vient **après** l'écriture et la réponse HTTP : si le temps
+      réel est indisponible, le message est déjà en base
+
+### 11.5 Front
+- [x] `socket.io-client`, `context/SocketContext.jsx`, `hooks/useSocket.js`
+- [x] **Un seul socket pour toute l'application** — un par écran multiplierait
+      les connexions maintenues, et un message reçu ailleurs ne mettrait à
+      jour aucune pastille
+- [x] `SocketProvider` **sous** `AuthProvider` : il lit la session pour
+      décider de se connecter. Placé au-dessus, il boucherait la console de
+      reconnexions refusées.
+- [x] Le jeton est lu **au moment de la connexion**, jamais mémorisé : il
+      tourne toutes les 15 minutes
+- [x] `ecouter()` rend une fonction de désabonnement — en StrictMode, l'oubli
+      produit deux abonnements et chaque message s'affiche en double
+- [x] `api/message.api.js` — aucun `emit` d'envoi, la règle du 11.0 se lit
+      aussi côté client
+- [x] `components/message/ConversationList.jsx` — qui, quand, quoi ; pastille
+      **doublée d'une mise en gras** et d'un libellé accessible
+- [x] `ChatWindow.jsx` — historique par HTTP **puis** socket : l'un sans
+      l'autre donne un fil vide ou un fil figé
+- [x] **Les messages reçus sont filtrés par conversation** : le socket diffuse
+      par utilisateur, tous fils confondus
+- [x] Message ajouté localement à l'envoi, dédoublonné par `_id` au retour du
+      socket
+- [x] L'indicateur « écrit… » s'éteint sur minuteur : si l'autre ferme son
+      onglet entre le début et la fin, le second événement n'arrive jamais
+- [x] Entrée envoie, Maj+Entrée passe à la ligne
+- [x] `ChatRequestBanner.jsx` — trois situations, trois messages ; la
+      conséquence du refus est annoncée **avant** le clic
+- [x] `pages/Messages.jsx` — deux colonnes en grand écran, une seule en
+      mobile avec retour explicite ; le fil ouvert vit dans l'URL (`?c=`)
+- [x] Liste mise à jour **en place** sur `conversation:maj`, pas rechargée
+- [x] Pastille de non-lus dans la navigation, alimentée par **deux sources** :
+      le socket pour l'immédiat, HTTP au montage pour ce qui est arrivé avant
+      la connexion. N'en garder qu'une donne une pastille figée, ou toujours
+      à zéro au démarrage.
+- [x] Entrée « Messages » active dans la navigation
+- [x] **`components/profile/BoutonMessage.jsx` — le point d'entrée qui
+      manquait.** Tout le module 11 était en place et vérifié, mais aucune
+      porte ne menait à une conversation NEUVE : on pouvait lire et répondre à
+      un fil existant, jamais en ouvrir un. Une fonctionnalité sans point de
+      départ n'existe pas pour l'utilisateur, si complète soit-elle par
+      ailleurs. Le bouton ouvre — ou retrouve — la conversation puis emmène au
+      fil ; il n'écrit aucun message, car rédiger se fait là où l'on voit à
+      qui l'on parle.
+- [x] Le bouton s'appuie sur l'**idempotence** de `POST /conversations` :
+      recliquer ne crée pas un second fil, et la garantie vient de l'index
+      unique sur la paire, pas d'une précaution prise dans le composant
+- [x] **Proxy Vite `/socket.io` avec `ws: true`** — sans ce drapeau, Vite
+      relaie la première requête HTTP de Socket.io mais refuse la montée en
+      WebSocket : le socket a l'air de fonctionner par intermittence, et rien
+      en console ne désigne le proxy
+
+#### Deux défauts trouvés à l'exécution
+
+- [x] **Supprimer un message ne le supprimait pas de la liste.** L'extrait
+      « dernier message » est une **copie** du texte : effacer le message
+      d'origine le laissait intact dans la conversation, visible des deux
+      côtés et présent dans la réponse HTTP. C'est le prix de la
+      dénormalisation — toute écriture qui touche un message doit toucher
+      l'extrait. Corrigé par `rafraichirExtrait()`, plus un drapeau `supprime`
+      sur l'extrait.
+- [x] **La règle « texte ou média » bloquait la suppression.** La suppression
+      douce vide précisément ces deux champs, puis enregistre : la validation
+      refusait, et l'API répondait « un message doit contenir du texte ou un
+      média » **à une demande de suppression**. Le message accusait le
+      contenu ; la cause était l'ordre des règles.
+
+### 11.6 Vérifications
+
+Suite serveur `npm run test:messagerie` — **62/62**.
+
+- [x] Socket refusé sans jeton, avec un jeton falsifié, **avec un jeton
+      expiré** (le cas qu'un contrôle naïf laisse passer, la signature étant
+      valide)
+- [x] **Un identifiant envoyé par le client est ignoré** : le serveur répond
+      l'identité du porteur du jeton, et la salle est la sienne
+- [x] S'écrire à soi-même refusé
+- [x] **10 ouvertures simultanées donnent UNE conversation**, un seul document
+- [x] Sas d'entrée : premier message accepté, second refusé, réponse de la
+      cible libre, acceptation puis reprise de l'échange
+- [x] Le demandeur ne peut pas accepter sa propre demande
+- [x] Conversation refusée : plus rien ne passe, des deux côtés
+- [x] Un tiers ne peut ni écrire ni lire ; il ne voit pas la conversation
+- [x] Compteurs exacts (3 d'un côté, 0 de l'autre), total global, remise à
+      zéro, messages reçus marqués lus **mais pas ceux envoyés**
+- [x] **Bob reçoit le message en direct** · **Carol ne reçoit rien**
+- [x] L'expéditeur est notifié pour ses autres onglets, avec sa propre vue
+- [x] Double coche en direct · saisie relayée à l'autre, pas à soi
+- [x] **Saisie émise par un tiers non relayée** · ni dans un fil refusé
+- [x] Suppression : réservée à l'expéditeur, message conservé, contenu absent
+      de la réponse HTTP
+- [x] `/messages/non-lus` non confondu avec un identifiant · 400 · 404 · 401
+
+Parcours navigateur `npm run test:messagerie` côté client — **25/25**,
+**avec deux navigateurs ouverts simultanément**.
+
+- [x] **Alice écrit, le message paraît chez Bob sans aucun rechargement** —
+      c'est la seule vérification qui distingue « diffusé » de « rechargé »
+- [x] **Et une seule fois chez Alice** : l'ajout local et le socket ne doublent
+      pas la bulle
+- [x] Le fil de Carol n'apparaît pas chez Bob : le filtrage par conversation
+      tient à l'écran
+- [x] Double coche en direct · « Alice écrit… » chez Bob, jamais chez Alice
+- [x] **La pastille apparaît chez Bob depuis une autre page, et retombe** à
+      l'ouverture de la conversation
+- [x] Demande de chat : bandeau chez la cible, conséquence du refus annoncée,
+      champ de saisie retiré au demandeur, puis **rendu en direct** après
+      acceptation
+- [x] `/messages` sans débordement en 375 et 768 px, retour mobile présent
+- [x] Console propre
+
+> **Une vérification a d'abord échoué pour une raison qui n'était pas la
+> bonne.** Le compte des occurrences portait sur la page entière : le même
+> texte y figure légitimement deux fois — dans la bulle, et dans l'extrait de
+> la liste à gauche. Le banc d'essai signalait donc un doublon qui n'existait
+> pas. Corrigé en ciblant le fil (`data-testid="fil-messages"`).
+
+### 11.7 Parcours utilisateur de bout en bout — modules 10 et 11
+
+Contrôle demandé explicitement : *chercher une personne et voir un résultat*,
+puis *ouvrir une conversation, la retrouver dans sa liste, y entrer, écrire et
+envoyer*. Suite dédiée `npm run test:parcours-10-11` — **35/35**.
+
+Les deux autres suites vérifient les RÈGLES ; celle-ci suit une INTENTION du
+début à la fin. C'est cette différence qui a révélé le trou : `test:recherche`
+et `test:messagerie` passaient à 100 %, et il était pourtant impossible
+d'ouvrir une conversation depuis l'interface. Une suite qui teste des règles
+ne voit pas l'absence d'un point d'entrée.
+
+- [x] La recherche s'ouvre depuis la navigation
+- [x] **Les suggestions apparaissent pendant la frappe**, la personne y figure
+- [x] **La recherche validée affiche un résultat**, nom complet lisible
+- [x] L'onglet « Personnes » la liste, sans message « aucun résultat »
+- [x] **Cliquer sur le résultat ouvre son profil**
+- [x] **Le profil propose « Envoyer un message »**
+- [x] Le clic mène à la messagerie, sur la bonne conversation
+- [x] **La conversation existe réellement en base** (un seul document)
+- [x] **Elle apparaît dans ma liste de conversations**, avec le nom
+- [x] **Elle s'ouvre au clic**, champ de saisie et bouton présents
+- [x] **Le message envoyé apparaît dans le fil**, le champ est vidé
+- [x] **Et il est enregistré en base** — un message affiché n'est pas un
+      message envoyé : une interface optimiste peut montrer une bulle qu'aucun
+      serveur n'a reçue
+- [x] Le destinataire voit la conversation, l'extrait et **un message non lu**
+- [x] Entrée envoie aussi ; deux messages en base
+- [x] Responsive 375 et 768 px, console propre
+
+#### Le sas d'entrée, tel qu'il se voit à l'écran
+
+Le premier scénario écrit pour ce parcours a échoué sur un comportement qui
+était **juste** : le champ de saisie disparaissait après le premier message.
+La cible ne suivait pas l'expéditeur, la conversation était donc « en
+attente », et la règle du 11.2 s'appliquait — un seul message tant qu'elle
+n'a pas accepté.
+
+- [x] Le scénario principal ouvre une conversation avec quelqu'un **qui me
+      suit** : c'est l'échange courant, et le champ y reste disponible
+- [x] Un second scénario couvre l'autre chemin : premier message accepté,
+      **puis champ retiré**
+- [x] **Et l'interface explique pourquoi** — sans cette phrase, un champ qui
+      s'évanouit ressemble exactement à un bogue
+
+### 11.8 Contrôle de non-régression
+
+Les douze suites rejouées après le module :
+
+| Commande | Résultat |
+|---|---|
+| `npm run test:api` (serveur) | 73/73 |
+| `npm run test:stripe` (serveur) | 50/50 |
+| `npm run test:evenements` (serveur) | 76/76 |
+| `npm run test:recherche` (serveur) | 54/54 |
+| `npm run test:messagerie` (serveur) | 62/62 |
+| `npm run test:ui` (client) | 45/45 |
+| `npm run test:premium` (client) | 18/18 |
+| `npm run test:paiement` (client) | 46/46 |
+| `npm run test:carte` (client) | 50/50 |
+| `npm run test:evenements` (client) | 38/38 |
+| `npm run test:recherche` (client) | 36/36 |
+| `npm run test:messagerie` (client) | 25/25 |
+| `npm run test:parcours-10-11` (client) | 35/35 |
+
+**608/608.** `npm run lint` et `npm run build` passent.
+
+---
+
+## Reste à faire
+
+| # | Module | Contenu |
+|---|---|---|
+| 12 | Notifications | génération centralisée, badge, liste |
+| 13 | Finitions | responsive, tests, README, déploiement |

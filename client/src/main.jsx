@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import { AuthProvider } from '@/context/AuthContext';
+import { SocketProvider } from '@/context/SocketContext';
 import App from './App';
 import './index.css';
 
@@ -27,7 +28,15 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        {/*
+          SocketProvider est SOUS AuthProvider, et pas au-dessus : il lit la
+          session pour decider s ouvrir ou non une connexion. Place plus haut,
+          il tenterait de se connecter sans jeton et boucherait la console de
+          reconnexions refusees.
+        */}
+        <SocketProvider>
+          <App />
+        </SocketProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>

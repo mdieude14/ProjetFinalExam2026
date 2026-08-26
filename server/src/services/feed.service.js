@@ -1,5 +1,6 @@
 import Follow from '../models/Follow.js';
 import Post from '../models/Post.js';
+import Subscription from '../models/Subscription.js';
 import { relationAvec, peutVoirContenu } from './access.service.js';
 
 /**
@@ -36,12 +37,19 @@ export async function idsSuivis(idUtilisateur) {
 export async function abonnementsPremiumActifs(idUtilisateur) {
   if (!idUtilisateur) return new Set();
 
-  // Module 7 :
-  //   const abos = await Subscription.distinct('coach', {
-  //     utilisateur: idUtilisateur, statut: 'actif',
-  //   });
-  //   return new Set(abos.map(String));
-  return new Set();
+  /**
+   * L'ACCÈS NE SE RÉDUIT PAS À « statut === actif ».
+   *
+   * `coachsAccessibles()` couvre aussi l'abonnement résilié dont la période
+   * payée court encore : l'utilisateur a payé le mois entamé, il en garde le
+   * bénéfice jusqu'au bout. À l'inverse, un abonnement `impaye` perd l'accès
+   * immédiatement — le prélèvement n'a pas eu lieu, il n'y a rien à honorer.
+   *
+   * C'est le point UNIQUE de déverrouillage : publications, stories,
+   * commentaires et likes interrogent tous l'ensemble renvoyé ici.
+   */
+  const coachs = await Subscription.coachsAccessibles(idUtilisateur);
+  return new Set(coachs.map(String));
 }
 
 /**

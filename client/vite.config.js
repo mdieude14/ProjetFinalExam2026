@@ -56,6 +56,27 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
       },
+
+      /**
+       * Temps reel (module 11).
+       *
+       * `ws: true` EST LA LIGNE QUI COMPTE, et son absence produit une panne
+       * deroutante. Sans elle, Vite relaie la premiere requete HTTP de
+       * Socket.io — celle du transport « polling » — mais refuse la montee en
+       * WebSocket qui suit. Le client se rabat alors sur le polling, ou
+       * boucle en reconnexions, selon les transports autorises : le socket a
+       * l'air de fonctionner par intermittence, et rien en console ne designe
+       * le proxy.
+       *
+       * Le chemin `/socket.io` est celui par defaut de la bibliotheque ; il
+       * est declare explicitement des deux cotes pour qu'aucun changement de
+       * configuration ne le desynchronise en silence.
+       */
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 });

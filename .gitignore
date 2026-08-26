@@ -30,3 +30,6 @@ Thumbs.db
 # Divers
 coverage/
 .cache/
+
+# Captures d'ecran des suites de test (controle visuel local)
+captures/

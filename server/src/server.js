@@ -4,6 +4,7 @@ import { connecterDB, deconnecterDB } from './config/db.js';
 import { modeStockage } from './services/storage.service.js';
 import { verifierCloudinary, cloudinaryConfigure } from './config/cloudinary.js';
 import { verifierStripe, stripeConfigure } from './config/stripe.js';
+import { initialiserSockets } from './sockets/index.js';
 
 /**
  * Point d'entree du serveur.
@@ -62,6 +63,19 @@ async function demarrer() {
     console.log(`[API] Environnement : ${config.env}`);
     console.log(`[API] Sante : http://localhost:${config.port}/api/health`);
   });
+
+  /**
+   * Temps reel (module 11).
+   *
+   * ON ATTACHE SOCKET.IO AU SERVEUR QU'EXPRESS VIENT D'OUVRIR, plutot que
+   * d'ecouter sur un second port : un port distinct imposerait une seconde
+   * configuration CORS, un second reglage d'hebergement, et empecherait le
+   * partage du cookie de session.
+   *
+   * L'attachement vient APRES `app.listen()` : Socket.io a besoin d'un
+   * serveur HTTP deja cree, pas d'une application Express.
+   */
+  initialiserSockets(serveur);
 
   /**
    * Arret propre : on laisse les requetes en cours se terminer avant de

@@ -8,6 +8,12 @@ import postRoutes from './post.routes.js';
 import commentRoutes from './comment.routes.js';
 import storyRoutes from './story.routes.js';
 import followRoutes from './follow.routes.js';
+import stripeRoutes from './stripe.routes.js';
+import subscriptionRoutes from './subscription.routes.js';
+import geoRoutes from './geo.routes.js';
+import eventRoutes from './event.routes.js';
+import searchRoutes from './search.routes.js';
+import messageRoutes from './message.routes.js';
 
 const router = Router();
 
@@ -42,10 +48,12 @@ router.use('/posts', postRoutes); //     module 5
 router.use('/comments', commentRoutes); //module 5
 router.use('/stories', storyRoutes); //  module 5
 router.use('/follows', followRoutes); //  module 6
+router.use('/stripe', stripeRoutes); //   module 7 — configuration coach
+router.use('/subscriptions', subscriptionRoutes); // module 7 — souscriptions
+router.use('/geo', geoRoutes); //         module 8 — carte et proximité
+router.use('/events', eventRoutes); //     module 9 — événements sportifs
+router.use('/search', searchRoutes); //     module 10 — recherche
+router.use('/messages', messageRoutes); //  module 11 — messagerie
 
-/*
- * A venir :
- *   router.use('/subscriptions', subRoutes);   // module 7
- */
 
 export default router;

@@ -154,3 +154,32 @@ export function exigerFichier(req, res, next) {
   }
   next();
 }
+
+/**
+ * Affiche d'un evenement sportif (module 9).
+ *
+ * Une seule image, jamais de video : une affiche se regarde d'un coup d'oeil
+ * dans une liste. Une video imposerait un lecteur par carte, un telechargement
+ * par carte, et rendrait la page inutilisable en connexion mobile.
+ */
+export const uploadAfficheEvenement = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: TAILLE_MAX_IMAGE, files: 1, fields: 15 },
+  fileFilter: filtre(TYPES_IMAGE, 'une affiche'),
+}).single('affiche');
+
+/**
+ * Piece jointe d'un message prive (module 11).
+ *
+ * UNE SEULE IMAGE, ET PLUS PETITE QU'AILLEURS.
+ * Une conversation accumule des centaines de pieces jointes la ou une
+ * publication en compte dix. Le meme plafond qu'un post ferait grossir le
+ * stockage bien plus vite, pour des images qui s'affichent dans une bulle de
+ * quelques centaines de pixels. La video est ecartee pour la meme raison
+ * qu'au module 9 : elle imposerait un lecteur par bulle.
+ */
+export const uploadPieceJointe = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 10 },
+  fileFilter: filtre(TYPES_IMAGE, 'une piece jointe'),
+}).single('media');

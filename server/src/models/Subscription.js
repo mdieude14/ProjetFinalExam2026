@@ -79,7 +79,9 @@ const subscriptionSchema = new Schema(
 
     /* --- Références Stripe ------------------------------------------- */
     stripeCustomerId: String,
-    stripeSubscriptionId: { type: String, index: true },
+    // L'index est déclaré plus bas avec ses contraintes (unique + sparse) :
+    // le répéter ici en `index: true` créerait un second index redondant.
+    stripeSubscriptionId: { type: String },
     stripePriceId: String,
     stripeCheckoutSessionId: String,
 

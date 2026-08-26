@@ -91,6 +91,21 @@ postSchema.index({ auteur: 1, createdAt: -1 });
 // L'ordre des cles compte — l'egalite (auteur) avant le tri (createdAt).
 postSchema.index({ createdAt: -1 });
 
+/*
+ * Recherche textuelle (module 10).
+ *
+ * La limite d'un seul index texte est PAR COLLECTION, pas globale : `User`,
+ * `Post` et `SportEvent` peuvent donc en avoir chacun un.
+ *
+ * Le titre pese plus lourd que la description : c'est ce que l'auteur a
+ * choisi comme resume, et l'ecrire dans le corps du texte ne devrait pas
+ * valoir autant que l'avoir mis en tete.
+ */
+postSchema.index(
+  { titre: 'text', description: 'text' },
+  { weights: { titre: 8, description: 2 }, name: 'recherche_publications' }
+);
+
 /* ------------------------------------------------------------------ *
  *  VIRTUELS
  * ------------------------------------------------------------------ */

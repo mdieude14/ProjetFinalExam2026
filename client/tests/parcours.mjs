@@ -23,7 +23,8 @@
  */
 
 import { chromium } from '@playwright/test';
-import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import zlib from 'node:zlib';
 
 const BASE = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -85,9 +86,33 @@ function png(largeur = 90, hauteur = 60) {
 
 const fichier = (nom) => ({ name: nom, mimeType: 'image/png', buffer: png() });
 
-const mongo = (script) =>
-  execSync(`docker exec sportsocial-mongo mongosh sportsocial --quiet --eval "${script}"`,
-    { encoding: 'utf8' }).trim();
+/**
+ * Acces direct a la base, pour les rares etats qu'aucune API ne permet
+ * d'atteindre : un diplome valide, un compte Stripe capable d'encaisser.
+ *
+ * ON NE PASSE PLUS PAR `docker exec … mongosh`.
+ * Cet appel dependait du CLI Docker, qui peut ne pas repondre — et comme il
+ * n'a pas de delai d'expiration, le test se figeait indefiniment au lieu
+ * d'echouer. Le pilote MongoDB parle au meme serveur, sans intermediaire.
+ *
+ * On emprunte le pilote et l'URI au serveur plutot que de les redeclarer :
+ * une seule source de verite pour l'adresse de la base.
+ */
+const requireServeur = createRequire(new URL('../../server/package.json', import.meta.url));
+const { MongoClient } = requireServeur('mongodb');
+
+const uriMongo = readFileSync(new URL('../../server/.env', import.meta.url), 'utf8')
+  // Un decoupage sur le seul saut de ligne suffit : un eventuel retour
+  // chariot final est retire par le `trim()` juste en dessous.
+  .split(/\r?\n/)
+  .find((ligne) => ligne.startsWith('MONGO_URI='))
+  .slice('MONGO_URI='.length)
+  .trim()
+  .replace(/^["']|["']$/g, '');
+
+const clientMongo = new MongoClient(uriMongo, { serverSelectionTimeoutMS: 8000 });
+await clientMongo.connect();
+const bdd = clientMongo.db();
 
 /**
  * `isVisible()` de Playwright NE PATIENTE PAS : il renvoie false si le rendu
@@ -180,7 +205,10 @@ await coach.goto(BASE + '/home', { waitUntil: 'networkidle' });
 
 section('Module 5 — Publications');
 
-mongo(`db.users.updateOne({pseudo:'${coachPseudo}'},{$set:{'diplome.statut':'verifie'}})`);
+await bdd.collection('users').updateOne(
+  { pseudo: coachPseudo },
+  { $set: { 'diplome.statut': 'verifie' } }
+);
 await coach.reload({ waitUntil: 'networkidle' });
 
 await coach.getByRole('button', { name: /Partagez votre séance/ }).click();
@@ -221,9 +249,19 @@ ok('commentaire publié', await visible(coach.getByText('Commentaire de test')))
 
 section('Contenu premium');
 
-mongo(
-  `db.users.updateOne({pseudo:'${coachPseudo}'},{$set:{'stripeAccount.chargesEnabled':true,` +
-  `'premium.actif':true,'premium.prixMensuel':1990,'premium.stripePriceId':'price_reg'}})`
+// Un compte Stripe reellement capable d'encaisser ne s'obtient que par
+// l'onboarding : on simule ici l'etat d'arrivee pour tester le verrouillage
+// du contenu, pas le paiement — celui-ci a sa propre suite de bout en bout.
+await bdd.collection('users').updateOne(
+  { pseudo: coachPseudo },
+  {
+    $set: {
+      'stripeAccount.chargesEnabled': true,
+      'premium.actif': true,
+      'premium.prixMensuel': 1990,
+      'premium.stripePriceId': 'price_reg',
+    },
+  }
 );
 await coach.reload({ waitUntil: 'networkidle' });
 
@@ -379,13 +417,29 @@ ok('aucune erreur JavaScript inattendue', reelles.length === 0,
 
 await navigateur.close();
 
-mongo(
-  `const ids = db.users.find({email:/@regression\\\\.local$/},{_id:1}).toArray().map(u=>u._id); ` +
-  `db.posts.deleteMany({auteur:{$in:ids}}); db.stories.deleteMany({auteur:{$in:ids}}); ` +
-  `db.comments.deleteMany({auteur:{$in:ids}}); ` +
-  `db.follows.deleteMany({$or:[{follower:{$in:ids}},{following:{$in:ids}}]}); ` +
-  `db.users.deleteMany({_id:{$in:ids}}); print('nettoye')`
-);
+// Nettoyage : on ne garde aucun compte de test en base.
+const comptesTest = await bdd
+  .collection('users')
+  .find({ email: /@regression[.]local$/ }, { projection: { _id: 1 } })
+  .toArray();
+const idsTest = comptesTest.map((u) => u._id);
+
+await Promise.all([
+  bdd.collection('posts').deleteMany({ auteur: { $in: idsTest } }),
+  bdd.collection('stories').deleteMany({ auteur: { $in: idsTest } }),
+  bdd.collection('comments').deleteMany({ auteur: { $in: idsTest } }),
+  bdd.collection('follows').deleteMany({
+    $or: [{ follower: { $in: idsTest } }, { following: { $in: idsTest } }],
+  }),
+  bdd.collection('subscriptions').deleteMany({
+    $or: [{ utilisateur: { $in: idsTest } }, { coach: { $in: idsTest } }],
+  }),
+]);
+await bdd.collection('users').deleteMany({ _id: { $in: idsTest } });
+
+// Sans fermeture explicite, la connexion garde le processus en vie et le
+// test ne rend jamais la main.
+await clientMongo.close();
 
 console.log('\n============ SUITE DE RÉGRESSION — NAVIGATEUR ============');
 const echecs = afficher();

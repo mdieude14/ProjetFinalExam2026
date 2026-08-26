@@ -8,13 +8,23 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:ui": "node tests/parcours.mjs"
+    "test:ui": "node tests/parcours.mjs",
+    "test:paiement": "node tests/paiement-e2e.mjs",
+    "test:premium": "node tests/ecrans-premium.mjs",
+    "test:carte": "node tests/carte.mjs",
+    "test:evenements": "node tests/evenements.mjs",
+    "test:recherche": "node tests/recherche.mjs",
+    "test:messagerie": "node tests/messagerie.mjs",
+    "test:parcours-10-11": "node tests/parcours-10-11.mjs"
   },
   "dependencies": {
     "axios": "^1.19.0",
+    "leaflet": "^1.9.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.2"
+    "react-leaflet": "^5.0.0",
+    "react-router-dom": "^7.18.2",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

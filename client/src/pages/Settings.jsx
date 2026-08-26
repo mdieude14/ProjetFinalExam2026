@@ -4,6 +4,7 @@ import useAuth from '@/hooks/useAuth';
 import Avatar from '@/components/ui/Avatar';
 import userApi from '@/api/user.api';
 import authApi from '@/api/auth.api';
+import geoApi from '@/api/geo.api';
 import { traiterErreurApi, evaluerMotDePasse } from '@/utils/erreurs';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
@@ -36,7 +37,7 @@ function Section({ titre, description, children }) {
 }
 
 export default function Settings() {
-  const { utilisateur, majUtilisateur, deconnexion } = useAuth();
+  const { utilisateur, majUtilisateur, deconnexion, estCoach } = useAuth();
   const naviguer = useNavigate();
 
   /* ---------------- Photo de profil ---------------- */
@@ -128,6 +129,37 @@ export default function Settings() {
       setMessageVisibilite({ variante: 'erreur', texte: erreur.message });
     } finally {
       setChargementVisibilite(false);
+    }
+  };
+
+  /* ---------------- Carte publique (coachs) ---------------- */
+
+  const [carteVisible, setCarteVisible] = useState(Boolean(utilisateur.carteVisible));
+  const [messageCarte, setMessageCarte] = useState(null);
+  const [bascule, setBascule] = useState(false);
+
+  /**
+   * Consentement a figurer sur la carte publique des coachs.
+   *
+   * ON N'INVERSE PAS L'ETAT LOCAL AVANT LA REPONSE DU SERVEUR.
+   * C'est un cas ou la mise a jour optimiste serait nuisible : le serveur
+   * refuse l'activation tant qu'aucune position n'est enregistree, et
+   * afficher « vous etes sur la carte » avant sa reponse ferait croire a un
+   * succes la ou il y a un refus. Pour un reglage de confidentialite, un
+   * affichage faux est pire qu'un affichage lent.
+   */
+  const basculerCarte = async (valeur) => {
+    setBascule(true);
+    setMessageCarte(null);
+    try {
+      const reponse = await geoApi.definirCarteVisible(valeur);
+      setCarteVisible(reponse.data.carteVisible);
+      majUtilisateur({ carteVisible: reponse.data.carteVisible });
+      setMessageCarte({ variante: 'succes', texte: reponse.data.message });
+    } catch (e) {
+      setMessageCarte({ variante: 'erreur', texte: e.message });
+    } finally {
+      setBascule(false);
     }
   };
 
@@ -387,6 +419,45 @@ export default function Settings() {
           </Button>
         </div>
       </Section>
+
+      {/* ============ CARTE PUBLIQUE — coachs seulement ============ */}
+      {estCoach && (
+        <Section
+          titre="Apparaître sur la carte"
+          description="Permet aux sportifs de vous trouver en cherchant un coach près de chez eux."
+        >
+          {messageCarte && (
+            <Alert variante={messageCarte.variante} className="mb-4">
+              {messageCarte.texte}
+            </Alert>
+          )}
+
+          <div className="rounded-xl bg-ardoise-50 p-4">
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={carteVisible}
+                disabled={bascule}
+                onChange={(e) => basculerCarte(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-ardoise-300"
+              />
+              <span className="text-sm">
+                <span className="font-medium text-ardoise-800">
+                  Afficher mon profil sur la carte des coachs
+                </span>
+                <span className="mt-1 block text-xs text-ardoise-500">
+                  Votre position n&apos;est jamais publiée telle quelle : elle est
+                  arrondie à environ 110 mètres avant d&apos;être affichée. Elle
+                  situe votre quartier, pas votre adresse.
+                </span>
+                <span className="mt-1 block text-xs text-ardoise-500">
+                  Désactivé par défaut. Vous pouvez le retirer à tout moment.
+                </span>
+              </span>
+            </label>
+          </div>
+        </Section>
+      )}
 
       {/* ============ MOT DE PASSE ============ */}
       <Section

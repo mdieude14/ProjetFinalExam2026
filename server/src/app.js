@@ -8,6 +8,7 @@ import mongoSanitize from 'express-mongo-sanitize';
 
 import { config, estProduction } from './config/env.js';
 import routes from './routes/index.js';
+import webhookRoutes from './routes/webhook.routes.js';
 import { notFoundMiddleware } from './middlewares/notFound.middleware.js';
 import { errorMiddleware } from './middlewares/error.middleware.js';
 import { limiteurGlobal } from './middlewares/rateLimit.middleware.js';
@@ -26,17 +27,24 @@ const app = express();
 app.set('trust proxy', 1);
 
 /* ==================================================================
- *  2. WEBHOOKS STRIPE  —  A MONTER AVANT express.json()
+ *  2. WEBHOOKS STRIPE  —  MONTES AVANT express.json()
  * ==================================================================
  * Stripe signe le corps BRUT de la requete. Si express.json() l'a deja parse
  * en objet JavaScript, la signature ne correspond plus et la verification
- * echoue systematiquement. Cette route doit donc etre declaree ici, avant
- * tout parseur de corps.
+ * echoue systematiquement : reconstruire le JSON ne redonne pas exactement
+ * les memes octets.
  *
- * Sera active au module 7 :
- *   import webhookRoutes from './routes/webhook.routes.js';
- *   app.use('/api/webhooks', express.raw({ type: 'application/json' }), webhookRoutes);
+ * D'ou cet emplacement, reserve des le module 1, en tete du pipeline.
+ *
+ * `express.raw` livre un Buffer intact a `stripe.webhooks.constructEvent`.
+ * Le limiteur de debit global est monte plus bas : bloquer Stripe pour cause
+ * de trop nombreuses requetes ferait perdre des paiements.
  */
+app.use(
+  '/api/webhooks',
+  express.raw({ type: 'application/json' }),
+  webhookRoutes
+);
 
 /* ==================================================================
  *  3. SECURITE

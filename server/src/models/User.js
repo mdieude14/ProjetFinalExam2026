@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { config } from '../config/env.js';
+import { termesDe } from '../utils/texte.js';
 
 const { Schema, model } = mongoose;
 
@@ -206,6 +207,17 @@ const userSchema = new Schema(
     // echouer la construction de l'index 2dsphere.
     localisation: { type: pointSchema, default: undefined },
 
+    /**
+     * Consentement a figurer sur la carte publique.
+     *
+     * FAUX PAR DEFAUT, ET C'EST LE COEUR DE LA DECISION.
+     * Renseigner sa position sert d'abord a CHERCHER des coachs pres de chez
+     * soi. En deduire un consentement a ETRE TROUVE serait un detournement
+     * de finalite : pour un particulier, sa position est le plus souvent son
+     * domicile. Le coach doit donc l'activer explicitement.
+     */
+    carteVisible: { type: Boolean, default: false },
+
     visibilite: {
       type: String,
       enum: ['public', 'prive'],
@@ -241,6 +253,27 @@ const userSchema = new Schema(
 
     isActive: { type: Boolean, default: true },
     derniereConnexion: Date,
+
+    /**
+     * Termes normalises pour l'autocompletion (module 10).
+     *
+     * POURQUOI DUPLIQUER DES DONNEES QU'ON POSSEDE DEJA.
+     * L'index texte ci-dessous repond a « martin » mais jamais a « mar » :
+     * `$text` travaille sur des mots entiers. Une barre de recherche, elle,
+     * doit repondre des la troisieme lettre — donc par PREFIXE.
+     *
+     * Un prefixe s'ecrit `/^mar/`, et l'ancrage est ce qui permet a MongoDB
+     * d'utiliser l'index. Mais une expression rationnelle n'utilise l'index
+     * QUE si elle est sensible a la casse : ni `$options: 'i'` ni une
+     * collation insensible ne conviennent. On stocke donc une forme deja
+     * mise en minuscules et desaccentuee, sur laquelle la comparaison exacte
+     * est a la fois indexable et insensible a la casse et aux accents.
+     *
+     * `select: false` : ce champ ne regarde que le moteur de recherche. Le
+     * laisser sortir dans les reponses HTTP encombrerait chaque profil d'une
+     * liste de mots sans interet pour le client.
+     */
+    termesRecherche: { type: [String], default: [], select: false },
   },
   {
     timestamps: true, // ajoute createdAt et updatedAt
@@ -265,8 +298,43 @@ userSchema.index(
   { weights: { pseudo: 10, prenom: 3, nom: 3 }, name: 'recherche_utilisateurs' }
 );
 
+/*
+ * Autocompletion par prefixe (module 10).
+ *
+ * Index multicle : chaque entree du tableau `termesRecherche` recoit sa
+ * propre cle d'index. Une expression ancree `/^mar/` se resout donc par un
+ * PARCOURS DE PLAGE — les cles commencant par « mar » sont contigues dans
+ * l'arbre — et non par un balayage de la collection.
+ *
+ * `isActive` en tete : il elimine d'un coup les comptes desactives, qui ne
+ * doivent jamais remonter dans une suggestion.
+ */
+userSchema.index({ isActive: 1, termesRecherche: 1 });
+
 // Listing des coachs d'une ville (page Maps, filtres).
 userSchema.index({ type: 1, ville: 1 });
+
+/*
+ * Carte des coachs (module 8) — filtre appliqué AVANT le tri par distance.
+ *
+ * POURQUOI CE N'EST PAS UN SECOND INDEX 2DSPHERE, ET POURQUOI C'EST IMPORTANT.
+ * L'intuition serait de compléter l'index géographique ci-dessus par un index
+ * composé { localisation: '2dsphere', carteVisible: 1, ... }. C'est un piège :
+ * dès qu'une collection porte DEUX index 2dsphere, `$geoNear` refuse de
+ * choisir et échoue — « more than one 2dsphere index, not sure which to run
+ * geoNear on ». La carte tomberait entièrement en panne, et pas au moment de
+ * la création de l'index : au premier appel de recherche.
+ *
+ * On garde donc UN SEUL index géographique, et on indexe séparément les
+ * champs du filtre. `$geoNear` se sert du 2dsphere pour la proximité, et de
+ * cet index-ci pour restreindre l'ensemble candidat. Le service précise en
+ * plus `key: 'localisation'`, ce qui lève l'ambiguïté par avance si un autre
+ * index géographique venait à apparaître un jour.
+ *
+ * L'ordre des clés suit leur sélectivité : `carteVisible` est faux pour la
+ * quasi-totalité des comptes, il élimine donc le plus de documents d'un coup.
+ */
+userSchema.index({ carteVisible: 1, type: 1, visibilite: 1, isActive: 1 });
 
 // File d'attente de moderation : les diplomes a verifier par l'admin.
 userSchema.index({ 'diplome.statut': 1, 'diplome.dateSoumission': 1 });
@@ -312,6 +380,34 @@ userSchema.virtual('peutMonetiser').get(function () {
  * Le test `isModified` evite de re-hacher un hash deja calcule lors d'une
  * mise a jour du profil, ce qui rendrait le mot de passe inutilisable.
  */
+/**
+ * Tient a jour les termes de recherche.
+ *
+ * DECLENCHE PAR CHAMP MODIFIE, PAS A CHAQUE ENREGISTREMENT. Un `save()` qui
+ * ne touche qu'a `derniereConnexion` — donc a chaque connexion, pour chaque
+ * compte — n'a aucune raison de recalculer et de reecrire un tableau de
+ * termes identique.
+ *
+ * Le calcul vit ICI et non dans un controleur : l'inscription, l'edition de
+ * profil, l'administration et les scripts de reprise passent tous par le
+ * modele. Place plus haut, la regle serait a repeter — et donc a oublier.
+ */
+userSchema.pre('save', function (next) {
+  const champsSuivis = ['pseudo', 'nom', 'prenom', 'ville', 'sports'];
+
+  if (this.isNew || champsSuivis.some((champ) => this.isModified(champ))) {
+    this.termesRecherche = termesDe(
+      this.pseudo,
+      this.nom,
+      this.prenom,
+      this.ville,
+      this.sports
+    );
+  }
+
+  next();
+});
+
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
 
@@ -343,11 +439,16 @@ userSchema.methods.comparePassword = function (motDePasseEnClair) {
 };
 
 /* ------------------------------------------------------------------ *
- *  TROIS NIVEAUX DE VISIBILITE DES DONNEES
+ *  QUATRE NIVEAUX DE VISIBILITE DES DONNEES
  * ------------------------------------------------------------------
+ *  versionCarte()     un marqueur sur la carte — le plus pauvre des quatre
  *  versionPublique()  ce que voit n'importe quel visiteur
  *  versionPrivee()    ce que voit le proprietaire du compte
  *  versionAdmin()     ce que voit un moderateur
+ *
+ * La vue « carte » est plus restrictive que la vue publique, et non
+ * l'inverse : elle est servie en masse a qui n'a demande aucun profil en
+ * particulier.
  *
  * Chaque controleur choisit explicitement le niveau qu'il renvoie. C'est
  * plus verbeux qu'un unique toJSON, mais cela rend la decision visible a la
@@ -398,6 +499,71 @@ userSchema.methods.versionPublique = function () {
   }
 
   return publique;
+};
+
+/**
+ * Vue « carte » — un marqueur, rien de plus.
+ *
+ * QUATRIEME NIVEAU DE VISIBILITE, VOLONTAIREMENT PLUS PAUVRE QUE LE PUBLIC.
+ * Une carte affiche des dizaines de profils d'un coup, a des gens qui n'ont
+ * demande a en consulter aucun. Y verser la bio, les statistiques et la date
+ * d'inscription de chacun serait une divulgation de masse sans contrepartie :
+ * le visiteur veut situer une offre, pas lire trente profils. Il clique s'il
+ * veut la suite.
+ *
+ * LA POSITION RENVOYEE EST DELIBEREMENT IMPRECISE.
+ * Les coordonnees exactes restent en base et servent au calcul de distance
+ * cote serveur ; ce qui sort de l'API est arrondi a trois decimales, soit
+ * environ 110 metres. C'est assez pour designer un quartier, trop grossier
+ * pour designer une porte.
+ *
+ * @param {number} [distance] metres, calcules par `$geoNear`
+ */
+/**
+ * Arrondit une coordonnee a trois decimales.
+ *
+ * L'ordre de grandeur, pour comprendre le choix :
+ *   1 decimale  ~ 11 km    inutilisable, on ne situe plus rien
+ *   2 decimales ~ 1,1 km   un quartier
+ *   3 decimales ~ 110 m    une rue          <- retenu
+ *   4 decimales ~ 11 m     un batiment      <- trop precis pour du public
+ *
+ * L'arrondi est fait ICI, dans le modele, et non dans un controleur : c'est
+ * le seul moyen qu'aucun appelant present ou futur ne puisse l'oublier.
+ */
+function arrondirCoordonnee(valeur) {
+  return Math.round(valeur * 1000) / 1000;
+}
+
+userSchema.methods.versionCarte = function (distance) {
+  if (!this.localisation?.coordinates) return null;
+
+  const [longitude, latitude] = this.localisation.coordinates;
+
+  return {
+    _id: this._id,
+    pseudo: this.pseudo,
+    nom: this.nom,
+    prenom: this.prenom,
+    avatar: this.avatar,
+    ville: this.ville,
+    sports: this.sports,
+    estCertifie: this.estCertifie,
+
+    // Arrondi a la source : aucun appelant ne peut oublier de le faire.
+    position: [arrondirCoordonnee(longitude), arrondirCoordonnee(latitude)],
+
+    // Distance arrondie a 100 m elle aussi. Renvoyer une position floue mais
+    // une distance au metre pres annulerait le flou : trois mesures depuis
+    // trois points suffisent a retrouver l'original par trilateration.
+    distanceM: typeof distance === 'number' ? Math.round(distance / 100) * 100 : undefined,
+
+    // Information commerciale, seule raison d'etre de la carte.
+    premium:
+      this.type === 'coach' && this.peutMonetiser
+        ? { prixMensuel: this.premium.prixMensuel, devise: this.premium.devise }
+        : undefined,
+  };
 };
 
 /**

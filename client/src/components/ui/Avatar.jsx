@@ -8,6 +8,9 @@
  */
 export default function Avatar({ utilisateur, taille = 'md', className = '' }) {
   const tailles = {
+    // `xs` sert aux mentions en pied de carte, ou l'avatar accompagne une
+    // ligne de texte de 12 px : au format `sm` il la dominerait.
+    xs: 'h-6 w-6 text-[10px]',
     sm: 'h-8 w-8 text-xs',
     md: 'h-12 w-12 text-sm',
     lg: 'h-20 w-20 text-xl',

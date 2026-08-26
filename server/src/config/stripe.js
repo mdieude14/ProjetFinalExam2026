@@ -15,9 +15,24 @@ import { config } from './env.js';
  */
 export const stripeConfigure = Boolean(config.stripe.secretKey);
 
+/**
+ * Version de l'API figée.
+ *
+ * Elle doit correspondre à celle pour laquelle le SDK installé a été écrit —
+ * ici `stripe` v22. En pointer une plus ancienne fait remonter un
+ * avertissement à chaque appel, et surtout expose à des différences de forme
+ * entre ce que l'API renvoie et ce que le SDK attend.
+ *
+ * On la fige plutôt que de l'omettre : sans elle, Stripe applique la version
+ * associée au compte, qui peut évoluer côté tableau de bord et changer les
+ * réponses du jour au lendemain sans qu'une ligne de code ait bougé.
+ * La mettre à jour est alors une décision explicite, à tester.
+ */
+const VERSION_API = '2026-07-29.dahlia';
+
 const stripe = stripeConfigure
   ? new Stripe(config.stripe.secretKey, {
-      apiVersion: '2024-06-20',
+      apiVersion: VERSION_API,
       // Identifie l'application dans les journaux Stripe : précieux quand
       // plusieurs services attaquent le même compte.
       appInfo: { name: 'CoachConnect', version: '1.0.0' },
