@@ -368,7 +368,7 @@ Base nettoyée des comptes de test. Le compte réel `mdieude14` a été préserv
         est un désagrément, un post ineffaçable est un vrai problème)
 - [x] `config/cloudinary.js` — vérification des clés au démarrage
 - [x] **Cloudinary activé et vérifié de bout en bout — 22/22**
-      (compte `wxyexp7t`, journal au démarrage : `[MEDIAS] Cloudinary connecte`)
+      (journal au démarrage : `[MEDIAS] Cloudinary connecte`)
   - [x] URL en `https://res.cloudinary.com/…`, dossier `sportsocial/posts`
   - [x] Dimensions et poids renvoyés par Cloudinary (900 × 600, 111 574 o)
   - [x] Fichier téléchargeable depuis le CDN, signature PNG intacte
