@@ -72,6 +72,44 @@ export default function Profile() {
   const ouvrirListe = (onglet) => setListeOuverte(onglet);
 
   /**
+   * Recale le compteur affiché à partir de ce que la liste a réellement rendu.
+   *
+   * POURQUOI LE PROFIL PEUT MENTIR SANS CE RAPPEL.
+   * `stats.followersCount` est dénormalisé côté serveur : il s'incrémente à
+   * chaque relation créée, mais rien ne le corrige quand un compte suivi est
+   * désactivé ou supprimé. Le profil annonçait alors « 25 abonnés » au-dessus
+   * d'une liste de 22, sans que l'écart soit compréhensible.
+   *
+   * `useCallback` n'est pas décoratif : passée en fonction anonyme, cette
+   * propriété changerait d'identité à chaque rendu et relancerait le
+   * chargement de la fenêtre en boucle.
+   */
+  const majCompteurRelations = useCallback((sens, total) => {
+    const champ = sens === 'abonnes' ? 'followersCount' : 'followingCount';
+
+    /*
+     * `profil` n'est pas un état à lui seul : il est extrait de `donnees`,
+     * la réponse complète du serveur. C'est donc `donnees` qu'on met à jour,
+     * en ne remplaçant que la branche concernée.
+     *
+     * Le test d'égalité évite un rendu inutile — et surtout une boucle : ce
+     * rappel est déclenché par le chargement de la liste, qui se relance si
+     * l'état change à chaque appel.
+     */
+    setDonnees((precedentes) =>
+      !precedentes?.profil || precedentes.profil.stats?.[champ] === total
+        ? precedentes
+        : {
+            ...precedentes,
+            profil: {
+              ...precedentes.profil,
+              stats: { ...precedentes.profil.stats, [champ]: total },
+            },
+          }
+    );
+  }, []);
+
+  /**
    * Chargement des publications, independant de celui du profil.
    *
    * Deux appels separes plutot qu'un seul : l'en-tete du profil s'affiche
@@ -320,6 +358,7 @@ export default function Profile() {
         identifiant={profil.pseudo}
         onglet={listeOuverte || 'abonnes'}
         estMonProfil={estMoi}
+        surTotal={majCompteurRelations}
       />
 
       {/* ---------- Bloc coach ---------- */}

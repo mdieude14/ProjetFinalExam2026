@@ -6,6 +6,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { relationAvec, peutVoirContenu } from '../services/access.service.js';
 import { abonnementsPremiumActifs, aAccesPremium } from '../services/feed.service.js';
 import { lirePagination, reponsePaginee } from '../utils/pagination.js';
+import * as notifications from '../services/notification.service.js';
 
 /**
  * Verifie que le visiteur a le droit d'interagir avec une publication.
@@ -101,7 +102,18 @@ export const ajouterCommentaire = asyncHandler(async (req, res) => {
 
   await commentaire.populate('auteur', 'pseudo nom prenom avatar type diplome');
 
-  // A brancher au module 12 : notifier l'auteur du post.
+  /*
+   * `creer` et non `creerOuRegrouper` : deux commentaires successifs sont
+   * deux contributions reelles, pas une hesitation. Les regrouper ferait
+   * disparaitre le second de la liste.
+   */
+  await notifications.creer({
+    destinataire: post.auteur?._id || post.auteur,
+    emetteur: req.user._id,
+    type: 'commentaire',
+    cibleType: 'Post',
+    cible: post._id,
+  });
 
   return res.status(201).json({
     succes: true,

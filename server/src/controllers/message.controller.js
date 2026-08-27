@@ -6,6 +6,7 @@ import Conversation from '../models/Conversation.js';
 import * as messageService from '../services/message.service.js';
 import * as storage from '../services/storage.service.js';
 import { diffuserA } from '../sockets/index.js';
+import * as notifications from '../services/notification.service.js';
 
 /**
  * ===========================================================================
@@ -158,6 +159,29 @@ export const envoyer = asyncHandler(async (req, res) => {
       conversation: conversation.versionPour(id),
     });
   }
+
+  /*
+   * DEUX TYPES SELON L'ETAT DU FIL, et la distinction compte.
+   *
+   * Un premier message dans une conversation « en attente » est une DEMANDE :
+   * le destinataire doit decider s'il accepte le contact. Un message dans une
+   * conversation ouverte est un message ordinaire.
+   *
+   * Les confondre noierait les demandes parmi les messages courants — et une
+   * demande qu'on ne remarque pas reste sans reponse, ce qui bloque
+   * l'expediteur au premier message pour toujours.
+   */
+  const estPremiereDemande =
+    conversation.statut === 'en_attente' &&
+    String(conversation.demandeur) === String(req.user._id);
+
+  await notifications.creerOuRegrouper({
+    destinataire: idsDe(conversation).find((id) => id !== String(req.user._id)),
+    emetteur: req.user._id,
+    type: estPremiereDemande ? 'demande_chat' : 'message',
+    cibleType: 'Conversation',
+    cible: conversation._id,
+  });
 
   return res.status(201).json({
     succes: true,

@@ -7,6 +7,7 @@ import EventRegistration from '../models/EventRegistration.js';
 import * as eventService from '../services/event.service.js';
 import * as storage from '../services/storage.service.js';
 import { abonnementsPremiumActifs } from '../services/feed.service.js';
+import * as notifications from '../services/notification.service.js';
 
 /* ================================================================== *
  *  OUTILS COMMUNS
@@ -413,6 +414,19 @@ export const sInscrire = asyncHandler(async (req, res) => {
   );
 
   const aJour = await SportEvent.findById(req.params.id);
+
+  /*
+   * ON NOTIFIE L'ORGANISATEUR, pas l'inscrit : c'est lui que l'information
+   * concerne — il prepare sa seance en fonction du nombre de participants.
+   * L'inscrit, lui, vient d'agir : il sait deja ce qu'il a fait.
+   */
+  await notifications.creerOuRegrouper({
+    destinataire: evenement.organisateur,
+    emetteur: req.user._id,
+    type: 'inscription_event',
+    cibleType: 'SportEvent',
+    cible: evenement._id,
+  });
 
   return res.status(201).json({
     succes: true,

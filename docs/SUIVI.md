@@ -626,6 +626,121 @@ chaque module. Ils sont désormais versionnés et rejouables.
 - [x] Chaque exécution crée ses propres comptes en `@regression.local` et les
       supprime à la fin ; les comptes réels ne sont jamais touchés
 
+### 6.9 Correction après signalement — les listes d'abonnés  `TERMINÉ`
+
+Défaut remonté à l'usage : *« la liste ne s'actualise pas et n'affiche pas
+toutes les personnes »*. Il était **double**, et aucune des suites du module 6
+ne pouvait l'attraper : toutes vérifiaient que suivre, accepter et refuser
+fonctionnent, **aucune ne comparait le compteur affiché au nombre de lignes
+rendues**.
+
+#### Le tri s'appliquait APRÈS la pagination
+
+```js
+Follow.find(filtre).skip().limit().populate(...)   // 20 relations lues
+  .filter((r) => r[champ]?.isActive)               // puis on en jette
+```
+
+- [x] **Une page de vingt pouvait rendre dix-sept lignes.** Le `.filter()`
+      retirait des éléments déjà découpés en pages.
+- [x] **Le total ne correspondait pas à la liste.** Il venait d'un
+      `countDocuments` sur le filtre brut, sans ce tri : le profil annonçait
+      « 25 abonnés » au-dessus d'une liste de 23.
+- [x] **Une relation orpheline passait le comptage et disparaissait de
+      l'affichage.** L'utilisateur ayant été supprimé, `populate` rendait
+      `null`. C'est le cas le plus fréquent en pratique, et le plus déroutant :
+      rien dans l'interface ne laisse deviner que la personne n'existe plus.
+- [x] Remplacé par une **agrégation** : `$lookup` puis `$unwind` — sans
+      `preserveNullAndEmptyArrays`, ce qui écarte les orphelines — puis
+      `$match` sur `isActive`. Le tri précède la pagination.
+- [x] **`$facet` calcule la page ET le total depuis le même pipeline.** C'est
+      ce qui garantit qu'ils ne peuvent plus diverger : le total n'est plus un
+      second comptage écrit ailleurs, c'est le même filtre compté au lieu
+      d'être paginé.
+- [x] `recompter()` adopte la même définition — sans quoi le filet de sécurité
+      aurait réintroduit l'écart qu'il est censé corriger
+- [x] `estCertifie` reconstitué à la main : l'agrégation ne construit pas les
+      virtuels de Mongoose
+
+#### Le compteur du profil ne se recalait jamais
+
+- [x] `stats.followersCount` s'incrémente à chaque relation créée, mais rien
+      ne le corrige quand un compte suivi est **désactivé ou supprimé**.
+- [x] **Recalculer pour tous les abonnés à chaque désactivation serait un
+      travail non borné**, déclenché par une action anodine : sur un compte
+      très suivi, une seule désactivation invaliderait des milliers de
+      compteurs.
+- [x] On répare donc **au moment où l'écart devient visible** : le total vient
+      d'être calculé pour la réponse ; s'il diffère du compteur stocké, c'est
+      ce dernier qui a tort. Ouvrir la liste suffit à remettre le profil
+      d'aplomb.
+- [x] L'écriture ne bloque pas la réponse — la liste est déjà juste, et un
+      échec de recalage n'a aucune conséquence
+
+#### Côté client — « ne s'actualise pas »
+
+- [x] **Changer d'onglet laissait la liste précédente affichée** pendant tout
+      le chargement : l'indicateur d'attente ne se montre que sur une liste
+      vide. On voyait donc les abonnés sous l'onglet « Abonnements », et si la
+      requête échouait, ils y restaient.
+- [x] **Retirer un abonné ne mettait pas à jour le compteur** : la ligne
+      disparaissait, le nombre au-dessus gardait l'ancien total jusqu'au
+      prochain rechargement de page.
+- [x] Le total est remonté au profil, qui recale son affichage sans
+      rechargement
+- [x] Le total réel est affiché sur l'onglet actif — il vient de la liste
+      elle-même, pas du compteur dénormalisé
+- [x] On décrémente **le total connu**, jamais la longueur de la liste
+      affichée : celle-ci ne contient que les pages chargées, et sur cent
+      abonnés le compteur serait tombé de cent à dix-neuf
+
+#### Deux pièges React évités au passage
+
+- [x] **Le rappel vers le parent est gardé dans une référence.** Dans les
+      dépendances de `charger`, un parent qui le passe en fonction anonyme —
+      l'écriture la plus naturelle — lui donnerait une identité neuve à chaque
+      rendu : `charger` changerait, l'effet se rejouerait, un `setState`
+      suivrait, et l'on martèlerait le serveur en boucle.
+- [x] **Il est appelé hors de la phase de rendu.** Placé dans la fonction de
+      mise à jour de `setTotal`, il déclenchait le `setState` du parent
+      pendant que React calculait le nouvel état — « Cannot update a component
+      while rendering a different component ». Le symptôme était discret :
+      l'affichage restait juste, seule la console le trahissait, mais l'ordre
+      des mises à jour n'était plus garanti.
+
+#### Vérifications
+
+Deux suites dédiées, écrites autour du symptôme signalé.
+
+`npm run test:relations` (serveur) — **28/28** :
+
+- [x] 25 abonnés, page de 20, total annoncé 25, page suivante annoncée
+- [x] **Toutes les pages parcourues rendent 25 personnes, et le total
+      correspond au nombre réellement rendu**
+- [x] Trois comptes désactivés : liste **et** total descendent ensemble à 22
+- [x] **La première page reste pleine** — le tri précède la pagination
+- [x] Une relation orpheline ne compte plus et n'apparaît pas
+- [x] **Ouvrir la liste recale le compteur du profil** (99 forcé → 22)
+- [x] La même règle vaut pour les abonnements
+- [x] Chaque ligne porte l'état de ma relation · aucune adresse email
+- [x] Un compte privé refuse sa liste à un non-abonné, l'accorde à son
+      propriétaire
+
+`npm run test:relations` (client) — **21/21** :
+
+- [x] Le profil annonce 25 (valeur périmée), **puis se recale sur 22** à
+      l'ouverture de la liste
+- [x] L'onglet actif affiche le total réel
+- [x] **Aucune boucle de rechargement** — un seul appel à la liste, mesuré en
+      comptant les requêtes : aucune réponse HTTP ne l'aurait montré
+- [x] **La liste précédente disparaît pendant le chargement** d'un autre
+      onglet — vérifié à 120 ms, seul instant où le défaut était visible
+- [x] « Voir plus » complète la liste sans l'effacer
+- [x] Retirer un abonné : la ligne part, **et le compteur suit** (22 → 21)
+- [x] **La correction survit au rechargement** — elle vient du serveur
+- [x] Sans débordement en 375 et 768 px · console propre
+
+
 ---
 
 ## Module 7 — Abonnements premium (Stripe Connect)  `TERMINÉ`
@@ -1320,6 +1435,7 @@ Les huit suites rejouées après le module :
 |---|---|
 | `npm run test:api` (serveur) | 73/73 |
 | `npm run test:stripe` (serveur) | 50/50 |
+| `npm run test:relations` (serveur) | 28/28 |
 | `npm run test:evenements` (serveur) | 76/76 |
 | `npm run test:ui` (client) | 45/45 |
 | `npm run test:premium` (client) | 18/18 |
@@ -1885,9 +2001,388 @@ Les douze suites rejouées après le module :
 
 ---
 
-## Reste à faire
+## Module 12 — Notifications  `TERMINÉ`
 
-| # | Module | Contenu |
-|---|---|---|
-| 12 | Notifications | génération centralisée, badge, liste |
-| 13 | Finitions | responsive, tests, README, déploiement |
+> Ce que les modules précédents rendent possible ici : le **socket
+> authentifié** du module 11 pour la diffusion immédiate, et les huit
+> événements à notifier, déjà tous écrits — suivi (6), like et commentaire
+> (5), abonnement premium (7), inscription à un événement (9), demande de
+> chat et message (11), vérification de diplôme (4).
+
+### 12.0 La décision structurante — un point de génération unique
+
+Huit endroits du code peuvent créer une notification. La tentation est
+d'écrire `Notification.create(...)` dans chacun : c'est direct, et chaque
+contrôleur sait ce qu'il vient de faire.
+
+C'est aussi le moyen d'obtenir **huit règles légèrement différentes**. Le
+premier oubliera de vérifier qu'on ne se notifie pas soi-même, le deuxième
+créera un doublon à chaque re-like, le troisième laissera une notification
+orpheline quand la publication est supprimée. Aucun de ces défauts n'est
+visible en lisant un seul contrôleur — ils n'apparaissent qu'en les comparant.
+
+- [x] **`notification.service.js` est le SEUL endroit qui écrit** une
+      notification ; les contrôleurs déclarent l'intention, pas la mécanique
+- [x] **On ne se notifie jamais soi-même** — règle appliquée une fois, pas
+      huit. Aimer sa propre publication ne produit rien.
+- [x] **Anti-doublon sur les actions réversibles** : `creerOuRegrouper()` avec
+      `findOneAndUpdate` + `upsert`, en UNE opération. Chercher puis créer
+      laisserait entre les deux la fenêtre où deux clics rapides font deux
+      documents — même raisonnement qu'aux modules 9 et 11.
+- [x] Fenêtre de regroupement d'une heure : en deçà c'est une hésitation,
+      au-delà c'est une attention nouvelle
+- [x] **La création ne lève JAMAIS.** Une notification accompagne une action,
+      elle n'est pas l'action : si son écriture échoue, le like doit rester et
+      le message doit partir. L'échec est tracé, pas propagé — sans quoi
+      l'utilisateur verrait « erreur » alors que tout s'est bien passé.
+- [x] **La cible est polymorphe** (`refPath`) : un champ par type donnerait un
+      document criblé de `null`
+- [x] Une notification dont la cible a disparu ne casse pas l'écran
+
+### 12.1 Modèle
+- [x] `models/Notification.js` — destinataire, émetteur, type, cible
+      polymorphe, `lu`
+- [x] `TYPES_NOTIFICATION` et `TYPES_CIBLE` **exportés en constantes** :
+      recopiée dans le service, les validateurs et les tests, la liste
+      finirait par diverger
+- [x] **`emetteur` facultatif** — « votre diplôme a été vérifié » vient de
+      l'administration, pas d'une personne dont on afficherait l'avatar.
+      Rendre le champ obligatoire forcerait à inventer un émetteur.
+- [x] Index `{ destinataire, lu, createdAt: -1 }` — égalité, filtre, tri
+- [x] **TTL de 30 jours sur `luLe`**, un champ posé UNIQUEMENT à la lecture.
+      Faire expirer sur `updatedAt` effacerait des notifications jamais lues ;
+      MongoDB ignorant les documents dont le champ indexé est absent, ce TTL
+      ne touche que ce qui a été vu.
+- [x] `versionPublique()` — l'émetteur réduit à ce qui l'affiche, jamais son
+      email ; la cible réduite à son identifiant, le front construisant le
+      lien lui-même
+
+### 12.2 Service
+- [x] `creer()` — point unique, ignore l'auto-notification
+- [x] `creerOuRegrouper()` — pour les actions réversibles ; `$unset` de `luLe`
+      au regroupement, sinon une notification relue puis ravivée resterait
+      exposée à la purge
+- [x] `liste()` · `compterNonLues()` · `marquerLu()` · `toutMarquerLu()` ·
+      `supprimer()`
+- [x] **Le filtre porte aussi sur le destinataire**, jamais sur le seul
+      identifiant : connaître un identifiant ne doit pas suffire à écrire
+      chez quelqu'un d'autre
+- [x] Diffusion socket immédiate, **réutilisant `diffuserA()` du module 11** —
+      un second mécanisme de diffusion donnerait deux couches à maintenir et
+      deux façons de se tromper de destinataire
+
+### 12.3 Branchements
+- [x] `follow` et `demande_follow` (module 6) — deux types distincts, parce
+      que « X vous suit » ne demande rien tandis que « X demande à vous
+      suivre » appelle une décision
+- [x] Accepter une demande prévient **le demandeur**, pas celui qui accepte
+- [x] `like` (module 5) — **la pose seulement** : « X n'aime plus votre
+      publication » n'a aucun usage et serait blessant pour rien
+- [x] `commentaire` (module 5) — `creer` et non `creerOuRegrouper` : deux
+      commentaires sont deux contributions, les regrouper effacerait le second
+- [x] `demande_chat` et `message` (module 11) — le type dépend de l'état du
+      fil ; les confondre noierait les demandes parmi les messages courants
+- [x] `inscription_event` (module 9) — notifie **l'organisateur**, pas
+      l'inscrit qui vient d'agir
+- [x] `nouvel_abonne_premium` (module 7) — créé **dans le webhook**, pas au
+      clic : la moitié des sessions Checkout sont abandonnées, et notifier au
+      clic annoncerait des abonnés qui n'ont jamais payé
+- [x] `diplome_verifie` (module 4) — sans émetteur, et émis aussi en cas de
+      refus : un coach non informé attendrait une réponse déjà rendue
+
+### 12.4 Endpoints
+- [x] `GET /api/notifications` — paginé, filtre `nonLues`
+- [x] `GET /api/notifications/non-lues` — pastille
+- [x] `PATCH /api/notifications/:id/lu` · `POST /api/notifications/tout-lu`
+- [x] `DELETE /api/notifications/:id`
+- [x] **Aucune route de création**, et c'est délibéré : une notification naît
+      d'une action réelle, jamais d'une requête qui la demanderait
+- [x] **404 et non 403** sur une notification qui n'est pas la nôtre : le 403
+      confirmerait son existence chez quelqu'un d'autre
+- [x] Segments fixes avant `/:id`, comme aux modules 6, 7, 9, 10 et 11
+- [x] `validators/notification.validator.js`
+
+### 12.5 Front
+- [x] `api/notification.api.js` — aucune fonction de création
+- [x] `context/NotificationContext.jsx` + `hooks/useNotifications.js`
+- [x] **Deux sources pour le compteur** : le socket pour l'immédiat, HTTP au
+      montage pour ce qui est arrivé avant la connexion
+- [x] L'arrivée d'une notification **incrémente localement** au lieu de relire
+      le serveur : une relecture par like d'une publication populaire ferait
+      exactement le trafic que le temps réel devait éviter
+- [x] `components/notification/NotificationItem.jsx` — traduction du type en
+      phrase française, en un seul endroit
+- [x] Le lien mène **à l'endroit exact** ; sans destination, la ligne reste
+      une ligne — un lien mort est pire qu'un texte simple
+- [x] Pictogramme **doublé du texte**, jamais seul porteur de sens
+- [x] `pages/Notifications.jsx` — onglets « toutes » / « non lues »,
+      suppression, « tout marquer comme lu »
+- [x] **Arriver sur la page ne vaut PAS lecture.** Contrairement à la
+      messagerie — où ouvrir une conversation, c'est la lire — une liste de
+      vingt notifications ne se lit pas d'un regard. Tout marquer à l'arrivée
+      ferait disparaître le repère de ce qui restait à voir.
+- [x] Mises à jour optimistes, corrigées par une relecture en cas d'échec
+- [x] Pastille et entrée « Notifications » dans la navigation
+
+#### Deux défauts trouvés à l'exécution
+
+- [x] **Le contexte s'abonnait au socket avant que le socket existe.** React
+      exécute les effets des ENFANTS avant ceux du parent : `NotificationProvider`,
+      placé sous `SocketProvider`, appelait `ecouter()` alors que la référence
+      valait encore `null`. L'abonnement partait dans le vide et la pastille ne
+      bougeait jamais en direct.
+      Le symptôme est particulièrement trompeur : tout fonctionnait dans les
+      composants montés PLUS TARD — une conversation ouverte après navigation
+      trouve un socket bien vivant. Seuls les abonnements posés au premier
+      rendu échouaient, c'est-à-dire ceux des compteurs globaux.
+      Corrigé en passant le socket par un **état** : `ecouter` change alors
+      d'identité quand le socket apparaît, et l'effet des consommateurs se
+      rejoue.
+- [x] **La navigation débordait à 768 px.** La sixième entrée a fait passer
+      les liens horizontaux au-delà de la largeur : la page se mettait à
+      défiler latéralement, ce qui ne se voit sur aucun écran large. Le
+      basculement passe de `md` (768 px) à `lg` (1024 px) — la barre du bas,
+      déjà prévue pour le mobile, sert désormais aussi la tablette.
+
+### 12.6 Vérifications
+
+Suite serveur `npm run test:notifications` — **47/47**.
+
+- [x] **On ne se notifie pas soi-même** : ni en aimant, ni en commentant sa
+      propre publication ; la liste reste vide
+- [x] Un like notifie l'auteur, avec émetteur, cible et état non lu
+- [x] **Liker, dé-liker, re-liker deux fois ne produit QU'UNE notification** —
+      un seul document en base
+- [x] Retirer un like ne notifie rien
+- [x] **Deux commentaires font deux notifications**
+- [x] Un nouvel abonné notifie ; un compte privé reçoit une **demande**, pas
+      un abonné ; accepter prévient le demandeur
+- [x] Premier message d'un fil en attente → `demande_chat` ; une fois ouvert →
+      `message`
+- [x] Une inscription notifie l'organisateur, cible sur l'événement
+- [x] **La décision sur un diplôme notifie le coach, sans émetteur**
+- [x] Compteur exact, filtre « non lues », `luLe` renseigné à la lecture
+- [x] « Tout marquer comme lu » ramène à zéro ; relancer annonce zéro
+- [x] Un tiers ne voit, ne marque ni ne supprime les notifications d'autrui
+      (404, jamais 403) ; aucun email dans les réponses
+- [x] **La liste s'affiche encore quand la cible a été supprimée**
+- [x] `/non-lues` et `/tout-lu` non confondus avec un identifiant · 400 · 404
+
+Parcours navigateur `npm run test:notifications` côté client — **32/32**,
+avec deux navigateurs simultanés.
+
+- [x] **La pastille monte en direct depuis une autre page**, et s'incrémente
+- [x] **Le type est traduit en phrase française** — « a aimé votre
+      publication », et non « like »
+- [x] Nom de l'émetteur, ancienneté, distinction visuelle des non lues
+- [x] Marquer une notification lue fait redescendre la pastille
+- [x] L'onglet « non lues » ne montre que ce qui reste
+- [x] **Arriver sur la page n'a rien marqué lu tout seul**
+- [x] « Tout marquer comme lu » vide la pastille, et le bouton disparaît
+- [x] **La demande de conversation est annoncée comme telle**, et son lien
+      mène directement à la bonne conversation
+- [x] Supprimer retire la ligne, et elle ne revient pas au rechargement
+- [x] Un tiers ne voit rien des notifications d'autrui
+- [x] `/notifications` sans débordement en 375 et 768 px · console propre
+
+### 12.7 Contrôle de non-régression
+
+Les dix-neuf suites rejouées :
+
+| Commande | Résultat |
+|---|---|
+| `npm run test:api` (serveur) | 73/73 |
+| `npm run test:stripe` (serveur) | 50/50 |
+| `npm run test:evenements` (serveur) | 76/76 |
+| `npm run test:recherche` (serveur) | 54/54 |
+| `npm run test:messagerie` (serveur) | 62/62 |
+| `npm run test:notifications` (serveur) | 47/47 |
+| `npm run test:perf` (serveur) | 18/18 |
+| `npm run test:ui` (client) | 45/45 |
+| `npm run test:relations` (client) | 21/21 |
+| `npm run test:premium` (client) | 18/18 |
+| `npm run test:paiement` (client) | 46/46 |
+| `npm run test:carte` (client) | 50/50 |
+| `npm run test:evenements` (client) | 38/38 |
+| `npm run test:recherche` (client) | 36/36 |
+| `npm run test:messagerie` (client) | 25/25 |
+| `npm run test:parcours-10-11` (client) | 35/35 |
+| `npm run test:notifications` (client) | 32/32 |
+| `npm run test:perf` (client) | 15/15 |
+
+**770/770** sur **dix-neuf** suites, performance comprise. `npm run lint` et `npm run build` passent.
+
+> Le changement de point de rupture de la navigation touche **tous** les
+> écrans : les neuf suites navigateur ont été rejouées pour cette seule
+> raison. Une correction de mise en page qui ne concerne qu'une page ne se
+> vérifie pas sur cette page.
+
+---
+
+## Module 13 — Finitions  `TERMINÉ` *(une vérification en attente d une machine vierge)*
+
+> Les douze modules précédents ont produit une application qui fonctionne
+> **sur cette machine**. Le module 13 traite de tout ce qui manque pour
+> qu'elle fonctionne ailleurs, et pour qu'un tiers puisse la reprendre.
+
+### 13.0 Le problème central — un projet qui ne tourne que chez son auteur
+
+Rien de ce qui suit n'ajoute une fonctionnalité. Tout y répond à la même
+question : **qu'est-ce qui casse quand quelqu'un d'autre ouvre ce dépôt ?**
+
+- [x] **Aucun README.** Le projet demande Node 24, Docker, un replica set
+      MongoDB, des clés Cloudinary, des clés Stripe et le CLI Stripe. Rien de
+      tout cela ne se devine en lisant le code.
+- [x] **Aucune façon de lancer « les tests ».** Il y en a quinze, réparties
+      sur deux paquets, avec des prérequis différents — et deux d'entre elles
+      échouent en cascade si un relais n'est pas actif.
+- [x] **Des prérequis qui échouent sans le dire.** `stripe listen` absent →
+      treize vérifications rouges qui accusent le code. Un compte admin
+      manquant → deux autres. Le diagnostic doit précéder l'échec.
+
+### 13.1 README
+- [x] [`README.md`](../README.md) — ce que fait l'application, module par module
+- [x] Prérequis exacts, avec versions (Node 24, Docker, MongoDB 8, Stripe CLI)
+- [x] **Le replica set expliqué** : MongoDB refuse les transactions sur une
+      instance autonome, et le projet en utilise partout. C'est le piège
+      d'installation le plus fréquent — tout marche jusqu'à la première
+      écriture transactionnelle, qui échoue sur un message parlant de
+      « replica set » sans dire quoi faire.
+- [x] Installation depuis un dépôt vierge, commande par commande
+- [x] Variables d'environnement : à quoi sert chacune, **et ce qui se dégrade
+      quand elle manque** — sans Cloudinary le stockage bascule en local,
+      sans Stripe tout fonctionne sauf les abonnements
+- [x] Pourquoi il n'existe aucune route de création d'administrateur
+- [x] Les quatre pièges d'environnement rencontrés, réunis en un endroit
+- [x] Structure des dossiers et quatre décisions techniques structurantes
+
+### 13.2 Une commande pour tout tester
+- [x] `npm test` à la racine — [`scripts/test-tout.mjs`](../scripts/test-tout.mjs)
+- [x] **Vérification des prérequis AVANT de lancer quoi que ce soit** :
+      `.env` présent, API vivante, MongoDB connecté, Vite joignable, **proxy
+      Vite fonctionnel**, compte admin présent, rappel du relais Stripe
+- [x] Chaque manque donne une **commande à copier**, pas une description :
+      « lancez le serveur » oblige à chercher comment, `cd server && npm run
+      dev` se colle dans un terminal
+- [x] Les suites s'exécutent **une par une**, avec une pause entre elles
+- [x] **Un seul réessai, et seulement sur une panne de TRANSPORT.** Une
+      vérification qui échoue est un résultat : la rejouer masquerait ce que
+      la suite mesure. Une panne réseau n'est pas un résultat — la suite n'a
+      rien pu mesurer. Constaté en conditions réelles : une coupure de
+      quelques secondes a fait tomber huit suites d'affilée sur
+      `fetch failed / ECONNRESET`, sans qu'une ligne de code ait bougé.
+- [x] Récapitulatif final, extrait des échecs, commande pour rejouer la suite
+      fautive seule, code de sortie exploitable en CI
+- [x] Les API d'abord, plus rapides : une régression de fond se signale en
+      quelques secondes plutôt qu'après huit minutes de Playwright
+
+### 13.3 Audit responsive
+- [x] Tous les écrans en 375, 768 et 1440 px — couvert par les neuf suites
+      navigateur, qui vérifient l'absence de débordement écran par écran
+- [x] **La navigation à six entrées tient à chaque palier** : le basculement
+      est passé de `md` à `lg` au module 12, la sixième entrée ne tenant plus
+      à 768 px
+
+### 13.4 Audit d'accessibilité et de console
+- [x] Chaque `<img>` porte un `alt` ; chaque bouton-pictogramme, un libellé
+      réservé aux lecteurs d'écran
+- [x] **Distinction faite entre image de contenu et image décorative.** Le
+      média d'une publication EST le contenu : `alt=""` le retirait
+      entièrement de la lecture d'écran. L'affiche d'un événement, elle, garde
+      un `alt` vide — son titre est annoncé juste après, dans le même lien.
+- [x] Aucune information portée par la seule couleur : les pastilles doublent
+      leur nombre d'un libellé, les états d'événement s'écrivent en toutes
+      lettres
+- [x] Console propre sur tous les écrans, vérifiée par chaque suite
+
+#### La correction qui a cassé l'application — et que rien n'a vu venir
+
+- [x] L'amélioration du texte alternatif de `PostCard` a été écrite dans le
+      sous-composant `Carrousel({ medias })`, où **`post` n'existe pas**.
+      Chaque publication levait une `ReferenceError` au rendu, et l'article
+      n'apparaissait jamais.
+- [x] **`npm run lint` ET `npm run build` sont passés dessus sans rien
+      signaler.** ESLint ne relève pas une variable inconnue dans une
+      configuration React moderne, et esbuild la traite comme un global
+      potentiel. Le défaut n'existait qu'au premier rendu réel.
+- [x] Cinq suites navigateur l'ont attrapé — c'est exactement ce à quoi elles
+      servent. Le message disait `waiting for locator('article')` : il
+      désignait la cause, et la première hypothèse (« la machine est
+      chargée ») était fausse. La seconde campagne, lancée sans rien d'autre,
+      a rendu **les mêmes échecs aux mêmes endroits** : c'est ce qui a
+      tranché entre l'aléa et la régression.
+- [x] Corrigé en passant `titre` en propriété
+
+### 13.5 Déploiement
+- [x] `server/.env.example` complété — **`MONGOOSE_DEBUG` et `RATE_LIMIT_DEV`
+      manquaient**, découverts en comparant les `process.env` du code aux
+      clés documentées
+- [x] `client/.env.example` à jour ; seules les variables `VITE_` sortent au
+      navigateur, et tout ce qui s'y trouve est public
+- [x] Ce qui change en production, déjà en place : `secure` et
+      `sameSite: 'none'` sur les cookies hors développement, origines CORS
+      lues dans `CLIENT_URL`, limiteurs de débit neutralisés en local
+- [x] **Build client vérifié, poids des fragments contrôlé** : principal
+      360 ko (103 ko gzip), Leaflet confiné au fragment cartographique —
+      `grep -c leaflet dist/assets/index-*.js` rend bien `0`. Socket.io est
+      dans le principal, et c'est voulu : il se connecte sur toutes les pages
+      pour les pastilles de messages et de notifications.
+- [x] **Procédure de déploiement écrite** — tableau de ce que `NODE_ENV`
+      bascule (cookies, limiteurs, CORS, stockage), sonde de santé à donner à
+      l'hébergeur, renvoi de `index.html` sur les routes inconnues (sans quoi
+      un rafraîchissement sur `/evenements/abc` rend un 404), et déclaration
+      des webhooks Stripe — `capability.updated` compris, dont l'absence a
+      déjà bloqué un coach en « en attente »
+
+### 13.6 Revue de sécurité
+- [x] **Aucun `.env` n'a jamais été commité** — vérifié sur tout l'historique
+      git, pas seulement sur l'état courant
+- [x] Aucune clé Stripe, secret de webhook ou URI Mongo dans les fichiers
+      suivis
+- [x] `helmet`, `express-mongo-sanitize`, limiteur global et limiteurs
+      spécifiques en place
+- [x] **Les quatre niveaux de visibilité revérifiés** : ni
+      `versionPublique()` ni `versionCarte()` ne laissent passer email, mot
+      de passe, données Stripe ou version de session. Cinq suites vérifient
+      explicitement l'absence d'adresse email dans les réponses.
+- [x] **Les verrous premium revérifiés** : les cinq contrôleurs qui servent du
+      contenu (publications, commentaires, stories, événements, messages)
+      passent tous par `versionPour()` et `aAccesPremium()`, jamais par une
+      règle réécrite localement
+
+### 13.7 Vérification finale
+- [x] **Les dix-neuf suites au vert en une seule commande : 770/770**
+
+| Commande | Résultat |
+|---|---|
+| `npm run test:api` (serveur) | 73/73 |
+| `npm run test:stripe` (serveur) | 50/50 |
+| `npm run test:evenements` (serveur) | 76/76 |
+| `npm run test:recherche` (serveur) | 54/54 |
+| `npm run test:messagerie` (serveur) | 62/62 |
+| `npm run test:notifications` (serveur) | 47/47 |
+| `npm run test:ui` (client) | 45/45 |
+| `npm run test:premium` (client) | 18/18 |
+| `npm run test:paiement` (client) | 46/46 |
+| `npm run test:carte` (client) | 50/50 |
+| `npm run test:evenements` (client) | 38/38 |
+| `npm run test:recherche` (client) | 36/36 |
+| `npm run test:messagerie` (client) | 25/25 |
+| `npm run test:parcours-10-11` (client) | 35/35 |
+| `npm run test:notifications` (client) | 32/32 |
+
+- [x] `npm run lint` et `npm run build` sans erreur
+- [~] **Le README reste à éprouver sur une machine vierge.** Les commandes
+      citées ont été vérifiées une à une contre les scripts réellement
+      déclarés, et les variables documentées contre les `process.env` du
+      code. Mais l'installation complète — dépôt cloné, `node_modules`
+      absents, base vide — n'a pas été rejouée : elle demande une machine où
+      rien n'est déjà en place. C'est la seule vérification du projet qui
+      repose sur une relecture plutôt que sur une exécution.
+
+> **Trois campagnes ont été nécessaires, et les deux premières ont appris
+> quelque chose.** La première est tombée sur une coupure réseau — d'où le
+> réessai sur panne de transport. La deuxième a révélé la régression de
+> `PostCard`, que le lint et la compilation avaient laissée passer. Une suite
+> qui échoue mérite qu'on lise son message avant de blâmer la machine :
+> ici, il désignait la cause dès le premier essai.

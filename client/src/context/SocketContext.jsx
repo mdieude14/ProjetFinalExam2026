@@ -32,10 +32,33 @@ export function SocketProvider({ children }) {
   const socketRef = useRef(null);
   const [connecte, setConnecte] = useState(false);
 
+  /**
+   * Le socket est AUSSI dans un état, pas seulement dans une référence.
+   *
+   * LA RAISON EST UN PIÈGE D'ORDRE DE MONTAGE, et il coûte cher à diagnostiquer.
+   * React exécute les effets des ENFANTS avant ceux du parent. Un contexte
+   * placé sous celui-ci — `NotificationProvider`, par exemple — appelle donc
+   * `ecouter()` alors que ce provider n'a pas encore créé son socket : la
+   * référence vaut `null`, l'abonnement part dans le vide, et plus rien
+   * n'arrive jamais.
+   *
+   * Le symptôme est particulièrement trompeur : tout fonctionne dans les
+   * composants montés PLUS TARD — une page de conversation ouverte après
+   * navigation trouve un socket bien vivant. Seuls les abonnements posés au
+   * premier rendu échouent, et ce sont précisément ceux des compteurs
+   * globaux, qu'on regarde le moins.
+   *
+   * En passant le socket par un état, `ecouter` change d'identité quand le
+   * socket apparaît, l'effet des consommateurs se rejoue, et l'abonnement se
+   * pose pour de bon.
+   */
+  const [socket, setSocket] = useState(null);
+
   useEffect(() => {
     if (!estConnecte) {
       socketRef.current?.close();
       socketRef.current = null;
+      setSocket(null);
       setConnecte(false);
       return;
     }
@@ -60,6 +83,7 @@ export function SocketProvider({ children }) {
     });
 
     socketRef.current = socket;
+    setSocket(socket);
 
     socket.on('connect', () => setConnecte(true));
     socket.on('disconnect', () => setConnecte(false));
@@ -76,6 +100,7 @@ export function SocketProvider({ children }) {
     return () => {
       socket.close();
       socketRef.current = null;
+      setSocket(null);
     };
   }, [estConnecte, utilisateur?._id]);
 
@@ -89,13 +114,15 @@ export function SocketProvider({ children }) {
    * chaque composant, l'oubli produit deux abonnements et chaque message
    * s'affiche en double.
    */
-  const ecouter = useCallback((evenement, gestionnaire) => {
-    const socket = socketRef.current;
-    if (!socket) return () => {};
+  const ecouter = useCallback(
+    (evenement, gestionnaire) => {
+      if (!socket) return () => {};
 
-    socket.on(evenement, gestionnaire);
-    return () => socket.off(evenement, gestionnaire);
-  }, []);
+      socket.on(evenement, gestionnaire);
+      return () => socket.off(evenement, gestionnaire);
+    },
+    [socket]
+  );
 
   /** Émet un événement éphémère (indicateur de saisie). */
   const emettre = useCallback((evenement, charge) => {
@@ -107,5 +134,24 @@ export function SocketProvider({ children }) {
     [connecte, ecouter, emettre]
   );
 
-  return <SocketContext.Provider value={valeur}>{children}</SocketContext.Provider>;
+  /*
+   * L'ÉTAT DE LA CONNEXION EST EXPOSÉ DANS LE DOM.
+   *
+   * Le temps réel est la seule partie de l'application dont on ne peut pas
+   * observer l'état depuis l'extérieur : une page peut être entièrement
+   * chargée et son socket encore en train de s'authentifier. Un banc d'essai
+   * qui envoie un message à cet instant conclut à une panne de diffusion,
+   * alors que le destinataire n'écoutait tout simplement pas encore.
+   *
+   * Cet attribut rend la précondition VÉRIFIABLE au lieu de la supposer. Il
+   * ne coûte rien en production et évite des heures passées à chercher un
+   * défaut de diffusion qui n'existe pas.
+   */
+  return (
+    <SocketContext.Provider value={valeur}>
+      <div data-socket={connecte ? 'connecte' : 'deconnecte'} style={{ display: 'contents' }}>
+        {children}
+      </div>
+    </SocketContext.Provider>
+  );
 }

@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 
 import { AuthProvider } from '@/context/AuthContext';
 import { SocketProvider } from '@/context/SocketContext';
+import { NotificationProvider } from '@/context/NotificationContext';
 import App from './App';
 import './index.css';
 
@@ -35,7 +36,15 @@ createRoot(document.getElementById('root')).render(
           reconnexions refusees.
         */}
         <SocketProvider>
-          <App />
+          {/*
+            NotificationProvider est SOUS SocketProvider : il ecoute les
+            notifications qui arrivent par le socket. Place au-dessus, il
+            n'aurait aucun socket a ecouter et la pastille ne bougerait
+            jamais en direct.
+          */}
+          <NotificationProvider>
+            <App />
+          </NotificationProvider>
         </SocketProvider>
       </AuthProvider>
     </BrowserRouter>

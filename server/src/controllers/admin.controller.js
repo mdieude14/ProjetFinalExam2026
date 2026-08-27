@@ -2,6 +2,7 @@ import User from '../models/User.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { lirePagination, reponsePaginee } from '../utils/pagination.js';
+import * as notifications from '../services/notification.service.js';
 
 /**
  * ===========================================================================
@@ -93,8 +94,20 @@ export const deciderDiplome = asyncHandler(async (req, res) => {
 
   await coach.save();
 
-  // A brancher au module 12 : notifier le coach de la decision.
-  // Un refus dont il n'est pas informe le laisserait attendre indefiniment.
+  /*
+   * SANS EMETTEUR, et c'est le seul type dans ce cas : la decision vient de
+   * l'administration, pas d'une personne dont on afficherait l'avatar. Le
+   * champ `emetteur` est facultatif precisement pour cette situation.
+   *
+   * On notifie AUSSI un refus : un coach qui n'en est pas informe attendrait
+   * indefiniment une reponse deja rendue.
+   */
+  await notifications.creer({
+    destinataire: coach._id,
+    type: 'diplome_verifie',
+    cibleType: 'User',
+    cible: coach._id,
+  });
 
   return res.json({
     succes: true,

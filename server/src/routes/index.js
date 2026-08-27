@@ -14,6 +14,7 @@ import geoRoutes from './geo.routes.js';
 import eventRoutes from './event.routes.js';
 import searchRoutes from './search.routes.js';
 import messageRoutes from './message.routes.js';
+import notificationRoutes from './notification.routes.js';
 
 const router = Router();
 
@@ -54,6 +55,7 @@ router.use('/geo', geoRoutes); //         module 8 — carte et proximité
 router.use('/events', eventRoutes); //     module 9 — événements sportifs
 router.use('/search', searchRoutes); //     module 10 — recherche
 router.use('/messages', messageRoutes); //  module 11 — messagerie
+router.use('/notifications', notificationRoutes); // module 12
 
 
 export default router;

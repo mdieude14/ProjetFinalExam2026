@@ -15,7 +15,10 @@
     "test:evenements": "node tests/evenements.mjs",
     "test:recherche": "node tests/recherche.mjs",
     "test:messagerie": "node tests/messagerie.mjs",
-    "test:parcours-10-11": "node tests/parcours-10-11.mjs"
+    "test:parcours-10-11": "node tests/parcours-10-11.mjs",
+    "test:notifications": "node tests/notifications.mjs",
+    "test:perf": "node tests/performance.mjs",
+    "test:relations": "node tests/relations.mjs"
   },
   "dependencies": {
     "axios": "^1.19.0",

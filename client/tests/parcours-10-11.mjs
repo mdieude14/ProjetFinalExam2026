@@ -405,7 +405,10 @@ await page.goto(BASE + `/profile/${inconnu.pseudo}`, { waitUntil: 'domcontentloa
 await page.waitForTimeout(1800);
 
 await page.getByRole('button', { name: 'Envoyer un message' }).click();
-await page.waitForURL('**/messages**', { timeout: 20000 });
+// Ouvrir une conversation demande un aller-retour serveur : on laisse plus
+// de marge qu'a un simple changement d'ecran, la machine pouvant etre
+// chargee par les suites precedentes.
+await page.waitForURL('**/messages**', { timeout: 40000 });
 await page.waitForTimeout(2500);
 
 const saisieInconnu = page.getByLabel('Votre message');

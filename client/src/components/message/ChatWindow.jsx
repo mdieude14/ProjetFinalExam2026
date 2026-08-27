@@ -76,7 +76,7 @@ function Bulle({ message, deMoi }) {
 }
 
 export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
-  const { ecouter, emettre } = useSocket();
+  const { ecouter, emettre, connecte } = useSocket();
 
   const [messages, setMessages] = useState([]);
   const [chargement, setChargement] = useState(false);
@@ -119,6 +119,43 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
       annule = true;
     };
   }, [idConversation]);
+
+  /* ---------------------- Rattrapage à la connexion ---------------------- */
+
+  /*
+   * LE SOCKET NE RACONTE QUE CE QUI S'EST PASSÉ PENDANT QU'IL ÉCOUTAIT.
+   *
+   * Entre l'affichage de la page et l'authentification du socket — qui fait
+   * un aller-retour en base — il existe une fenêtre de quelques centaines de
+   * millisecondes, parfois davantage sur une machine chargée. Un message
+   * envoyé dans cette fenêtre n'est jamais diffusé à ce client : il n'était
+   * pas encore dans sa salle.
+   *
+   * En temps normal l'écart se comble tout seul, à la prochaine ouverture du
+   * fil. Mais pour quelqu'un qui laisse sa conversation ouverte, le message
+   * resterait invisible indéfiniment.
+   *
+   * On relit donc le fil à chaque fois que la connexion s'établit — y compris
+   * après une coupure réseau, où le trou peut être bien plus large.
+   */
+  useEffect(() => {
+    if (!idConversation || !connecte) return;
+
+    let annule = false;
+    messageApi
+      .messages(idConversation)
+      .then((reponse) => {
+        if (annule) return;
+        setMessages(reponse.data.messages || []);
+      })
+      .catch(() => {
+        // Sans conséquence : le fil déjà chargé reste affiché.
+      });
+
+    return () => {
+      annule = true;
+    };
+  }, [idConversation, connecte]);
 
   /* ------------------------- Temps réel ------------------------- */
 

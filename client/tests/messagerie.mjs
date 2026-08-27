@@ -226,13 +226,39 @@ ok('la conversation avec Bob figure dans la liste',
 
 section('Temps réel — Alice écrit, Bob reçoit');
 
+/**
+ * Attend que le socket de la page soit REELLEMENT connecte.
+ *
+ * SANS CETTE PRECONDITION, LA VERIFICATION MESURE AUTRE CHOSE.
+ * Une page peut etre entierement chargee alors que son socket s'authentifie
+ * encore — la poignee de main fait un aller-retour en base. Un message envoye
+ * dans cette fenetre n'est pas diffuse a ce client : il n'est pas encore dans
+ * sa salle. Le test concluait alors a une panne de diffusion, ce qui etait
+ * faux : le destinataire n'ecoutait pas encore.
+ *
+ * Constate trois fois en campagne complete, jamais en execution isolee — la
+ * machine chargee allongeait simplement la poignee de main au-dela du delai
+ * d'attente fixe a l'aveugle.
+ */
+async function attendreSocket(page, libelle) {
+  await page.locator('[data-socket="connecte"]').waitFor({ state: 'attached', timeout: 20000 });
+  return libelle;
+}
+
 // Bob ouvre la conversation avec Alice et n'y touche plus.
 await pageBob.goto(BASE + `/messages?c=${idBob}`, { waitUntil: 'domcontentloaded' });
-await pageBob.waitForTimeout(2000);
+await attendreSocket(pageBob, 'Bob');
 
 // Alice ouvre la même conversation.
 await pageAlice.goto(BASE + `/messages?c=${idBob}`, { waitUntil: 'domcontentloaded' });
-await pageAlice.waitForTimeout(2000);
+await attendreSocket(pageAlice, 'Alice');
+
+ok('**les deux sockets sont connectés avant toute mesure**', true,
+  'précondition explicite, plus supposée');
+
+// Laisser le fil se peupler et les abonnements se poser.
+await pageBob.waitForTimeout(800);
+await pageAlice.waitForTimeout(800);
 
 const champ = pageAlice.getByLabel('Votre message');
 ok('le champ de saisie est accessible', (await champ.count()) === 1);
@@ -245,7 +271,11 @@ await pageAlice.getByRole('button', { name: 'Envoyer' }).click();
 const bulleChezBob = pageBob.getByText(TEXTE, { exact: false });
 let recuEnDirect = true;
 try {
-  await bulleChezBob.waitFor({ state: 'visible', timeout: 10000 });
+  // Marge large a dessein : la machine peut etre chargee par les suites
+  // precedentes. Elargir le delai n affaiblit pas la verification — elle
+  // prouve toujours que rien n a ete recharge — mais evite un echec qui
+  // accuserait la diffusion temps reel a la place du banc d essai.
+  await bulleChezBob.waitFor({ state: 'visible', timeout: 25000 });
 } catch {
   recuEnDirect = false;
 }

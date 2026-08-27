@@ -280,9 +280,20 @@ async function majCompteurs(idFollower, idFollowing, delta, session) {
  * mais un compteur trop haut resterait invisible sans recomptage.
  */
 export async function recompter(idUtilisateur) {
+  /*
+   * ON COMPTE CE QUI EST AFFICHABLE, pas les documents bruts.
+   *
+   * Un `countDocuments` sur la collection compte aussi les relations vers des
+   * comptes desactives ou supprimes — que la liste, elle, n'affiche pas. Le
+   * profil annoncait alors « 25 abonnes » au-dessus d'une liste de 23, et
+   * l'ecart etait impossible a comprendre depuis l'interface.
+   *
+   * Les deux passent desormais par `compterRelations`, donc par le meme
+   * pipeline que la liste : ils ne peuvent plus diverger.
+   */
   const [followers, following] = await Promise.all([
-    Follow.countDocuments({ following: idUtilisateur, statut: 'accepte' }),
-    Follow.countDocuments({ follower: idUtilisateur, statut: 'accepte' }),
+    compterRelations(idUtilisateur, 'abonnes'),
+    compterRelations(idUtilisateur, 'abonnements'),
   ]);
 
   await User.updateOne(
@@ -402,4 +413,120 @@ export async function suggestions(utilisateur, limite = 6) {
     ...c.versionPublique(),
     memeVille: Boolean(utilisateur.ville) && c.ville === utilisateur.ville,
   }));
+}
+
+/* ================================================================== *
+ *  LISTES D'ABONNES ET D'ABONNEMENTS
+ * ================================================================== */
+
+/**
+ * Etapes communes a la liste ET au comptage.
+ *
+ * C'EST LA CORRECTION D'UN DEFAUT REEL, ET LA RAISON D'ETRE DE CE BLOC.
+ *
+ * Le code precedent paginait d'abord, puis ecartait les comptes desactives
+ * avec un `.filter()` en JavaScript. Trois consequences, toutes visibles a
+ * l'ecran :
+ *
+ *   1. UNE PAGE POUVAIT RENDRE MOINS D'ELEMENTS QUE DEMANDE. Vingt relations
+ *      lues, trois vers des comptes desactives : dix-sept lignes affichees.
+ *
+ *   2. LE TOTAL NE CORRESPONDAIT PAS A LA LISTE. Il venait d'un
+ *      `countDocuments` sur le filtre BRUT, sans le tri par compte actif :
+ *      le profil annoncait « 25 abonnes » et la liste en montrait 23.
+ *
+ *   3. UNE RELATION ORPHELINE — dont l'utilisateur a ete supprime — passait
+ *      le `countDocuments` mais disparaissait de la liste, le `populate`
+ *      rendant `null`. C'est le cas le plus frequent en pratique, et le plus
+ *      deroutant : rien dans l'interface ne laisse deviner que la personne
+ *      n'existe plus.
+ *
+ * En placant le tri AVANT la pagination, dans la base, les trois disparaissent
+ * ensemble. `$unwind` sans `preserveNullAndEmptyArrays` ecarte les relations
+ * orphelines ; `$match` sur `isActive` ecarte les comptes desactives.
+ */
+function etapesRelations(idCible, sens) {
+  const champLie = sens === 'abonnes' ? 'follower' : 'following';
+
+  const filtre =
+    sens === 'abonnes'
+      ? { following: idCible, statut: 'accepte' }
+      : { follower: idCible, statut: 'accepte' };
+
+  return [
+    { $match: filtre },
+    {
+      $lookup: {
+        from: 'users',
+        localField: champLie,
+        foreignField: '_id',
+        as: 'personne',
+      },
+    },
+    // Pas de `preserveNullAndEmptyArrays` : une relation dont l'utilisateur a
+    // disparu doit sortir du decompte, pas seulement de l'affichage.
+    { $unwind: '$personne' },
+    { $match: { 'personne.isActive': true } },
+  ];
+}
+
+/**
+ * Une page de relations, et le total correspondant.
+ *
+ * `$facet` calcule les deux DEPUIS LE MEME PIPELINE. C'est ce qui garantit
+ * qu'ils ne peuvent plus diverger : le total n'est pas un second comptage
+ * ecrit ailleurs, c'est le meme filtre compte au lieu d'etre pagine.
+ */
+export async function listerRelations(idCible, sens, { saut = 0, limite = 20 } = {}) {
+  const etapes = etapesRelations(idCible, sens);
+
+  const [resultat] = await Follow.aggregate([
+    ...etapes,
+    {
+      $facet: {
+        elements: [
+          { $sort: { createdAt: -1 } },
+          { $skip: saut },
+          { $limit: limite },
+          {
+            $project: {
+              createdAt: 1,
+              dateAcceptation: 1,
+              'personne._id': 1,
+              'personne.pseudo': 1,
+              'personne.nom': 1,
+              'personne.prenom': 1,
+              'personne.avatar': 1,
+              'personne.type': 1,
+              'personne.ville': 1,
+              'personne.diplome': 1,
+              'personne.stats': 1,
+            },
+          },
+        ],
+        total: [{ $count: 'valeur' }],
+      },
+    },
+  ]);
+
+  return {
+    relations: resultat?.elements || [],
+    total: resultat?.total?.[0]?.valeur || 0,
+  };
+}
+
+/**
+ * Compte les relations REELLEMENT affichables.
+ *
+ * Utilise la meme definition que la liste, pour la meme raison : un compteur
+ * qui ne correspond pas a ce qu'on voit est pire qu'un compteur absent — il
+ * fait chercher des personnes qui n'existent plus.
+ */
+export async function compterRelations(idCible, sens) {
+  const [resultat] = await Follow.aggregate([
+    ...etapesRelations(idCible, sens),
+    { $count: 'valeur' },
+  ]);
+
+  return resultat?.valeur || 0;
 }

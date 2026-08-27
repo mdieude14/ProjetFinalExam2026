@@ -18,6 +18,7 @@ import Premium from '@/pages/coach/Premium';
 import Abonnements from '@/pages/Abonnements';
 import Search from '@/pages/Search';
 import Messages from '@/pages/Messages';
+import Notifications from '@/pages/Notifications';
 /**
  * La carte est chargee A LA DEMANDE, contrairement aux autres pages.
  *
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="/abonnements" element={<Abonnements />} />
           <Route path="/recherche" element={<Search />} />
           <Route path="/messages" element={<Messages />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route
             path="/carte"
             element={
@@ -130,7 +132,6 @@ export default function App() {
 
           {/*
             A venir :
-              <Route path="/notifications" element={<Notifications />} /> module 12
           */}
         </Route>
       </Route>

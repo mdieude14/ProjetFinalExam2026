@@ -14,8 +14,16 @@ import CommentList from './CommentList';
  * commentaires et la suppression.
  */
 
-/** Carrousel de medias, avec pastilles de navigation. */
-function Carrousel({ medias }) {
+/**
+ * Carrousel de medias, avec pastilles de navigation.
+ *
+ * `titre` sert UNIQUEMENT au texte alternatif des images. Il est passe en
+ * propriete plutot que lu depuis la publication : ce composant ne connait pas
+ * `post`, et l'y supposer accessible a coute une panne — `post is not
+ * defined` a l'execution, sur du code que le lint et la compilation avaient
+ * tous deux laisse passer.
+ */
+function Carrousel({ medias, titre }) {
   const [index, setIndex] = useState(0);
   const media = medias[index];
 
@@ -40,7 +48,15 @@ function Carrousel({ medias }) {
       ) : (
         <img
           src={media.url}
-          alt=""
+          /*
+           * LE MEDIA EST LE CONTENU, PAS UNE DECORATION.
+           * `alt=""` le retire entierement de la lecture d'ecran : la
+           * publication devient alors un cadre vide, sans que rien ne dise
+           * qu'il s'y trouvait une image. Faute d'un texte alternatif saisi
+           * par l'auteur, on annonce au moins de quoi il s'agit, en
+           * s'appuyant sur le titre quand il existe.
+           */
+          alt={titre ? `Image de la publication « ${titre} »` : 'Image de la publication'}
           loading="lazy"
           className="h-full w-full object-cover"
         />
@@ -197,7 +213,7 @@ export default function PostCard({ post, onSupprime }) {
       {post.verrouille ? (
         <PremiumLock post={post} auteur={post.auteur} />
       ) : (
-        post.medias?.length > 0 && <Carrousel medias={post.medias} />
+        post.medias?.length > 0 && <Carrousel medias={post.medias} titre={post.titre} />
       )}
 
       {/* ---------- Actions ---------- */}

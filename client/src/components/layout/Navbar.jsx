@@ -4,6 +4,7 @@ import useAuth from '@/hooks/useAuth';
 import followApi from '@/api/follow.api';
 import messageApi from '@/api/message.api';
 import useSocket from '@/hooks/useSocket';
+import useNotifications from '@/hooks/useNotifications';
 import Avatar from '@/components/ui/Avatar';
 
 /**
@@ -23,6 +24,7 @@ const LIENS = [
   { to: '/evenements', libelle: 'Événements', icone: '▤' }, // module 9
   { to: '/recherche', libelle: 'Recherche', icone: '⌕' }, // module 10
   { to: '/messages', libelle: 'Messages', icone: '✉' }, // module 11
+  { to: '/notifications', libelle: 'Notifications', icone: '⌾' }, // module 12
 ];
 
 function LienNav({ to, libelle, icone, bientot, mobile, pastille = 0 }) {
@@ -89,6 +91,7 @@ function LienNav({ to, libelle, icone, bientot, mobile, pastille = 0 }) {
 export default function Navbar() {
   const { utilisateur, deconnexion, estAdmin, estCoach } = useAuth();
   const { ecouter } = useSocket();
+  const { nonLues: nbNotifications } = useNotifications();
   const naviguer = useNavigate();
   const emplacement = useLocation();
   const [menuOuvert, setMenuOuvert] = useState(false);
@@ -200,12 +203,26 @@ export default function Navbar() {
           </Link>
 
           {/* Liens horizontaux, masques sous 768 px */}
-          <nav className="hidden items-center gap-1 md:flex" aria-label="Navigation principale">
+          {/*
+            LE BASCULEMENT SE FAIT A 1024 px (`lg`), PAS A 768 px.
+            Le module 12 a porte la navigation a six entrees. A 768 px, les
+            six liens horizontaux plus le logo et l'avatar depassent la
+            largeur : la page se met a defiler lateralement, ce qui ne se voit
+            sur aucun ecran large. On repousse donc le seuil, et la barre du
+            bas — deja prevue pour le mobile — sert aussi la tablette.
+          */}
+          <nav className="hidden items-center gap-1 lg:flex" aria-label="Navigation principale">
             {LIENS.map((lien) => (
               <LienNav
                 key={lien.to}
                 {...lien}
-                pastille={lien.to === '/messages' ? nbMessages : 0}
+                pastille={
+                  lien.to === '/messages'
+                    ? nbMessages
+                    : lien.to === '/notifications'
+                      ? nbNotifications
+                      : 0
+                }
               />
             ))}
           </nav>
@@ -345,7 +362,7 @@ export default function Navbar() {
 
       {/* ---------- Barre inferieure, mobile uniquement ---------- */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-20 flex border-t border-ardoise-200 bg-white md:hidden"
+        className="fixed inset-x-0 bottom-0 z-20 flex border-t border-ardoise-200 bg-white lg:hidden"
         aria-label="Navigation mobile"
       >
         {LIENS.map((lien) => (
@@ -353,7 +370,13 @@ export default function Navbar() {
             key={lien.to}
             {...lien}
             mobile
-            pastille={lien.to === '/messages' ? nbMessages : 0}
+            pastille={
+                  lien.to === '/messages'
+                    ? nbMessages
+                    : lien.to === '/notifications'
+                      ? nbNotifications
+                      : 0
+                }
           />
         ))}
       </nav>

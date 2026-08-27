@@ -6,6 +6,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { lirePagination, reponsePaginee } from '../utils/pagination.js';
 import { relationAvec, peutVoirContenu } from '../services/access.service.js';
 import * as followService from '../services/follow.service.js';
+import * as notifications from '../services/notification.service.js';
 
 /**
  * Resout un identifiant d'URL — ObjectId ou pseudo — en document User.
@@ -39,8 +40,22 @@ export const suivre = asyncHandler(async (req, res) => {
 
   const resultat = await followService.suivre(req.user, cible);
 
-  // A brancher au module 12 : notifier la cible d'un nouvel abonne ou d'une
-  // demande a traiter.
+  /*
+   * Deux types distincts, parce que deux actions distinctes sont attendues.
+   * « X vous suit » ne demande rien ; « X demande a vous suivre » appelle une
+   * decision. Les confondre sous un seul libelle laisserait des demandes en
+   * attente indefiniment, faute d'avoir compris qu'il fallait repondre.
+   *
+   * `creerOuRegrouper` plutot que `creer` : suivre puis se desabonner puis
+   * resuivre est un geste d'hesitation, pas trois evenements.
+   */
+  await notifications.creerOuRegrouper({
+    destinataire: cible._id,
+    emetteur: req.user._id,
+    type: resultat.statut === 'accepte' ? 'follow' : 'demande_follow',
+    cibleType: 'User',
+    cible: req.user._id,
+  });
 
   const messages = {
     accepte: resultat.deja
@@ -151,7 +166,18 @@ export const nombreDemandes = asyncHandler(async (req, res) => {
 export const accepterDemande = asyncHandler(async (req, res) => {
   const resultat = await followService.accepter(req.user, req.params.id);
 
-  // A brancher au module 12 : prevenir le demandeur que c'est accepte.
+  /*
+   * ON NOTIFIE LE DEMANDEUR, pas celui qui accepte : c'est lui qui attendait
+   * une reponse. Se notifier soi-meme de sa propre acceptation n'apprendrait
+   * rien — et le service l'ecarterait de toute facon.
+   */
+  await notifications.creer({
+    destinataire: resultat.follower,
+    emetteur: req.user._id,
+    type: 'follow',
+    cibleType: 'User',
+    cible: req.user._id,
+  });
 
   return res.json({
     succes: true,
@@ -219,29 +245,26 @@ function listerRelations(sens) {
 
     const { page, limite, saut } = lirePagination(req);
 
-    // « abonnes » : les documents ou la cible est suivie.
-    // « abonnements » : ceux ou elle est suiveuse.
-    const filtre =
-      sens === 'abonnes'
-        ? { following: cible._id, statut: 'accepte' }
-        : { follower: cible._id, statut: 'accepte' };
-
-    const champPeuple = sens === 'abonnes' ? 'follower' : 'following';
-
-    const [relations, total] = await Promise.all([
-      Follow.find(filtre)
-        .sort({ createdAt: -1 })
-        .skip(saut)
-        .limit(limite)
-        .populate(champPeuple, 'pseudo nom prenom avatar type ville diplome stats isActive'),
-      Follow.countDocuments(filtre),
-    ]);
+    /*
+     * LE TRI DES COMPTES INACCESSIBLES SE FAIT DANS LA BASE, pas ici.
+     *
+     * La version precedente paginait puis ecartait en JavaScript les comptes
+     * desactives et les relations orphelines. Une page de vingt pouvait alors
+     * rendre dix-sept lignes, et le total — issu d'un comptage separe — ne
+     * correspondait plus a ce qui s'affichait.
+     *
+     * `listerRelations` du service calcule la page ET le total depuis le meme
+     * pipeline : ils ne peuvent plus diverger.
+     */
+    const { relations, total } = await followService.listerRelations(
+      cible._id,
+      sens,
+      { saut, limite }
+    );
 
     // Etat de MA relation avec chaque personne listee, pour afficher le bon
     // libelle de bouton sans une requete par ligne.
-    const idsListes = relations
-      .map((r) => r[champPeuple]?._id)
-      .filter(Boolean);
+    const idsListes = relations.map((r) => r.personne._id);
 
     const mesRelations = req.user
       ? await Follow.find({ follower: req.user._id, following: { $in: idsListes } })
@@ -251,28 +274,60 @@ function listerRelations(sens) {
 
     const carte = new Map(mesRelations.map((r) => [String(r.following), r.statut]));
 
-    const elements = relations
-      .filter((r) => r[champPeuple]?.isActive)
-      .map((r) => {
-        const u = r[champPeuple];
-        return {
-          _id: u._id,
-          pseudo: u.pseudo,
-          nom: u.nom,
-          prenom: u.prenom,
-          avatar: u.avatar,
-          type: u.type,
-          ville: u.ville,
-          estCertifie: u.estCertifie,
-          stats: u.stats,
-          depuis: r.dateAcceptation || r.createdAt,
-          maRelation: req.user
-            ? memeUtilisateur(req.user._id, u._id)
-              ? 'soi'
-              : carte.get(String(u._id)) || 'aucune'
-            : 'aucune',
-        };
+    const elements = relations.map((r) => {
+      const u = r.personne;
+
+      return {
+        _id: u._id,
+        pseudo: u.pseudo,
+        nom: u.nom,
+        prenom: u.prenom,
+        avatar: u.avatar,
+        type: u.type,
+        ville: u.ville,
+        // L'agregation ne construit pas les virtuels de Mongoose : on
+        // reconstitue `estCertifie` a partir des memes champs que le modele.
+        estCertifie: u.type === 'coach' && u.diplome?.statut === 'verifie',
+        stats: u.stats,
+        depuis: r.dateAcceptation || r.createdAt,
+        maRelation: req.user
+          ? memeUtilisateur(req.user._id, u._id)
+            ? 'soi'
+            : carte.get(String(u._id)) || 'aucune'
+          : 'aucune',
+      };
+    });
+
+    /*
+     * RECALAGE OPPORTUNISTE DU COMPTEUR AFFICHÉ.
+     *
+     * LE PROBLÈME QUE CELA RÉSOUT, ET POURQUOI IL N'A PAS DE SOLUTION SIMPLE.
+     * `stats.followersCount` est dénormalisé : il s'incrémente à chaque
+     * relation créée. Mais quand un compte est DÉSACTIVÉ ou SUPPRIMÉ, toutes
+     * les personnes qui le suivaient — ou qu'il suivait — voient leur compteur
+     * devenir faux. Les recalculer sur-le-champ voudrait dire parcourir des
+     * milliers de profils pour une seule désactivation : un travail non borné,
+     * déclenché par une action anodine.
+     *
+     * On répare donc AU MOMENT OÙ L'ÉCART DEVIENT VISIBLE. Le total vient
+     * d'être calculé pour cette réponse ; s'il diffère du compteur stocké,
+     * c'est ce dernier qui a tort — la liste est la source de vérité. Ouvrir
+     * la liste suffit alors à remettre le profil d'aplomb.
+     *
+     * L'écriture ne bloque pas la réponse : l'utilisateur a déjà sa liste
+     * juste, et un échec de recalage n'a aucune conséquence — la prochaine
+     * ouverture réessaiera.
+     */
+    const champCompteur = sens === 'abonnes' ? 'followersCount' : 'followingCount';
+
+    if (cible.stats?.[champCompteur] !== total) {
+      User.updateOne(
+        { _id: cible._id },
+        { $set: { [`stats.${champCompteur}`]: total } }
+      ).catch((erreur) => {
+        console.error('[FOLLOW] Recalage du compteur impossible :', erreur.message);
       });
+    }
 
     return res.json(reponsePaginee(elements, total, { page, limite }));
   });

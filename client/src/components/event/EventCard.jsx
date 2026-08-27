@@ -87,6 +87,12 @@ export default function EventCard({ evenement, actif = false, surSurvol }) {
         {evenement.image?.url && (
           <img
             src={evenement.image.url}
+            /*
+             * ALT VIDE, ET C'EST LE BON CHOIX ICI — contrairement au media
+             * d'une publication. Le titre de l'evenement est annonce juste
+             * en dessous, dans le meme lien : decrire l'affiche ferait
+             * entendre deux fois la meme information.
+             */
             alt=""
             loading="lazy"
             className="h-32 w-full object-cover sm:h-40"

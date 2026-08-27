@@ -19,7 +19,10 @@
     "test:evenements": "node tests/evenements.mjs",
     "reindexer-recherche": "node scripts/reindexerRecherche.js",
     "test:recherche": "node tests/recherche.mjs",
-    "test:messagerie": "node tests/messagerie.mjs"
+    "test:messagerie": "node tests/messagerie.mjs",
+    "test:notifications": "node tests/notifications.mjs",
+    "test:perf": "node tests/performance.mjs",
+    "test:relations": "node tests/relations.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

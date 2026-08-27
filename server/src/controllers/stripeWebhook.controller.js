@@ -4,6 +4,7 @@ import User from '../models/User.js';
 import Subscription from '../models/Subscription.js';
 import ProcessedWebhook from '../models/ProcessedWebhook.js';
 import * as stripeService from '../services/stripe.service.js';
+import * as notifications from '../services/notification.service.js';
 
 /**
  * ===========================================================================
@@ -217,6 +218,23 @@ async function paiementInitialReussi(session) {
   );
 
   await majCompteurAbonnes(coachId);
+
+  /*
+   * ON PREVIENT LE COACH DE SON NOUVEL ABONNE (module 12).
+   *
+   * La notification est creee ICI, dans le webhook, et non au moment ou le
+   * sportif clique sur « s'abonner ». C'est le webhook qui porte la verite :
+   * un clic n'est qu'une intention de payer, et la moitie des sessions
+   * Checkout sont abandonnees. Notifier au clic annoncerait des abonnes qui
+   * n'ont jamais paye.
+   */
+  await notifications.creer({
+    destinataire: coachId,
+    emetteur: utilisateurId,
+    type: 'nouvel_abonne_premium',
+    cibleType: 'User',
+    cible: utilisateurId,
+  });
 
   console.log(`[WEBHOOK] Abonnement créé : ${utilisateurId} → ${coachId}`);
   return true;

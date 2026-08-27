@@ -5,6 +5,7 @@ import User from '../models/User.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { televerserPlusieurs, supprimerPlusieurs } from '../services/storage.service.js';
+import * as notifications from '../services/notification.service.js';
 import {
   construireFeed,
   postsDeUtilisateur,
@@ -231,7 +232,22 @@ export const basculerLike = asyncHandler(async (req, res) => {
     { new: true, select: 'likes' }
   );
 
-  // A brancher au module 12 : notifier l'auteur d'un nouveau like.
+  /*
+   * ON NE NOTIFIE QUE LA POSE DU LIKE, jamais son retrait : « X n'aime plus
+   * votre publication » n'a aucun usage, et serait blessant pour rien.
+   *
+   * Le regroupement traite le cas du clic hesitant : aimer, retirer, re-aimer
+   * en quelques secondes ne doit produire qu'une seule ligne.
+   */
+  if (!dejaLike) {
+    await notifications.creerOuRegrouper({
+      destinataire: post.auteur._id,
+      emetteur: req.user._id,
+      type: 'like',
+      cibleType: 'Post',
+      cible: post._id,
+    });
+  }
 
   return res.json({
     succes: true,
