@@ -137,16 +137,56 @@ export default function Home() {
       ))}
 
       {/* ---------- Publication ---------- */}
-      {formulaireOuvert ? (
-        <PostForm onPublie={surPublication} />
-      ) : (
+      {/*
+        BASCULE OUVERT / FERME.
+        Le bouton reste affiche dans les deux etats : c'est LUI qui bascule,
+        au meme endroit a l'ecran. Rendre le formulaire ouvert cliquable pour
+        le refermer serait plus direct a lire, mais le rendrait inutilisable —
+        cliquer dans la zone de texte pour ecrire le fermerait aussi.
+      */}
+      <div>
         <button
-          onClick={() => setFormulaireOuvert(true)}
-          className="w-full rounded-carte border border-ardoise-200 bg-white p-4 text-left text-sm text-ardoise-400 hover:border-ardoise-300"
+          type="button"
+          onClick={() => setFormulaireOuvert((ouvert) => !ouvert)}
+          aria-expanded={formulaireOuvert}
+          aria-controls="formulaire-publication"
+          data-test="bascule-publication"
+          className={`w-full cursor-pointer rounded-carte border p-4 text-left text-sm transition-colors duration-200 ${
+            formulaireOuvert
+              ? 'border-marque-300 bg-marque-50 font-medium text-marque-700 hover:border-marque-400'
+              : 'border-ardoise-200 bg-white text-ardoise-400 hover:border-ardoise-300'
+          }`}
         >
-          Partagez votre séance, {utilisateur.prenom}...
+          {formulaireOuvert
+            ? 'Fermer la publication'
+            : `Ajouter un post, partagez votre séance, ${utilisateur.prenom}...`}
         </button>
-      )}
+
+        {/*
+          TRANSITION SANS HAUTEUR CONNUE.
+          `grid-rows-[0fr]` vers `[1fr]` anime le depliement sans avoir a
+          mesurer le formulaire : une `max-height` arbitraire saccaderait des
+          qu'un apercu de media rendrait le contenu plus haut que prevu.
+
+          Le formulaire reste MONTE une fois ouvert puis referme : un brouillon
+          en cours de saisie survit a une fermeture accidentelle. `inert` le
+          met alors hors d'atteinte du clavier et des lecteurs d'ecran — sans
+          lui, on tabulerait dans un formulaire invisible.
+        */}
+        <div
+          id="formulaire-publication"
+          inert={!formulaireOuvert}
+          className={`grid transition-all duration-300 ease-out ${
+            formulaireOuvert ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+          }`}
+        >
+          <div className="overflow-hidden">
+            <div className="pt-4">
+              <PostForm onPublie={surPublication} />
+            </div>
+          </div>
+        </div>
+      </div>
 
       {erreur && <Alert variante="erreur">{erreur}</Alert>}
 

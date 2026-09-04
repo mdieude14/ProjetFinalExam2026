@@ -416,6 +416,56 @@ Base nettoyée des comptes de test. Le compte réel `mdieude14` a été préserv
 - [x] `scripts/nettoyerMedias.js` — mode simulation par défaut, `--confirmer`
       pour agir ; gère les deux modes de stockage
 
+#### 5.6 bis — Prise de photo par la caméra *(ajout après clôture du module)*
+
+- [x] Le « + » ouvre un **choix de source** : importer un fichier, ou prendre
+      une photo. L'import existant est inchangé.
+- [x] Les deux boutons sont **blancs au repos (`#ffffff`), marque au survol
+      (`#f97316`)**, avec curseur main. Portés par une variante `choix`
+      ajoutée à `components/ui/Button.jsx` plutôt que par des classes
+      surchargées à l'appel : deux utilitaires Tailwind de même spécificité se
+      contrediraient, et c'est l'ordre de la feuille générée qui trancherait —
+      invisible dans le JSX. Les deux sources étant de rang égal, aucune n'est
+      présentée comme la bonne.
+- [x] `components/story/CapturePhoto.jsx` — aperçu en direct, déclencheur,
+      relecture avec « Reprendre », bascule avant/arrière quand l'appareil a
+      plusieurs caméras
+- [x] **Le flux est coupé dès la photo prise, et au démontage.** C'est le
+      défaut classique de ce composant : la modale se ferme, le voyant de la
+      caméra reste allumé. Fermer le `<video>` ne suffit pas — il faut arrêter
+      les pistes. Couvert par un test dédié.
+- [x] **Photo bornée à 1920 px** sur son plus grand côté, encodée en JPEG 0,9.
+      Sans ce cadrage, une caméra 4K produit un fichier que le serveur refuse
+      (10 Mo) — après un téléversement complet, donc après l'attente.
+- [x] **L'aperçu de la caméra frontale est miroité, la photo aussi** : sinon
+      le résultat ne correspond pas au cadrage que l'on vient de voir.
+- [x] Causes d'échec distinguées et assorties d'une consigne : permission
+      refusée, aucune caméra, caméra déjà utilisée, page non sécurisée. Un
+      message unique laisserait l'utilisateur sans rien à faire.
+- [x] **Le « + » est devenu un bouton à part**, hors du bouton d'avatar.
+      Imbriqué, il produisait du HTML invalide et devenait inatteignable dès
+      qu'une story existait : le bouton unique ouvrait alors le lecteur, et
+      publier une seconde story était impossible depuis la barre.
+- [x] Voie d'envoi unique : fichier importé et photo prise passent par la même
+      fonction — deux chemins finiraient par diverger sur la gestion d'erreur.
+- [x] Aucune modification du serveur : `image/jpeg` était déjà dans la liste
+      blanche MIME du module 5.2.
+- [x] **Libellés des pastilles recentrés.** Le bloc avatar mesure 88 px, le
+      paragraphe `w-16` en fait 64 : `text-center` centrait le texte *dans*
+      le paragraphe, mais la boîte restait calée à gauche — décalage mesuré de
+      `(88 − 64) / 2 = 12 px`. Corrigé par `mx-auto`, sur « Ma story » et
+      sur les comptes suivis, qui portaient le même défaut. Vérifié au
+      `getBoundingClientRect` : centres alignés, écart 0 px.
+- [x] Motif du compositeur rendu insensible à la casse dans `parcours.mjs` —
+      le libellé « Partagez votre séance… » est devenu « Ajouter un post,
+      partagez… », et l'assertion porte sur la présence du prénom, pas sur la
+      phrase d'accroche.
+
+> **Contrainte de déploiement.** `getUserMedia` n'est disponible qu'en
+> contexte sécurisé. En développement `localhost` suffit ; **en production, la
+> prise de photo exige HTTPS**. Sans lui, le composant l'annonce et renvoie
+> vers l'import de fichier plutôt que d'échouer sans explication.
+
 ### 5.7 Dépendance du module 4
 - [x] `POST /users/me/diplome/justificatif` — image ou PDF
 - [x] `PATCH /users/me/avatar` — l'ancienne image est effacée du stockage
@@ -436,6 +486,35 @@ Base nettoyée des comptes de test. Le compte réel `mdieude14` a été préserv
 - [x] `pages/Profile.jsx` — publications du profil, chargement indépendant
 - [x] Avatar dans `pages/Settings.jsx`
 - [x] Justificatif dans `pages/coach/Diplome.jsx`
+
+#### 5.9 bis — Bascule du compositeur *(ajout après clôture du module)*
+
+Le bouton d'invitation n'ouvrait que dans un sens ; il **bascule** désormais.
+
+- [x] Un clic ouvre le formulaire, un second le referme. Le bouton reste
+      affiché au même endroit dans les deux états, et change de libellé
+      (« Ajouter un post, partagez votre séance, X… » ↔ « Fermer la
+      publication ») et d'apparence (gris discret ↔ orange marque).
+- [x] **La bascule est portée par le bouton, pas par la surface du
+      formulaire.** La demande initiale était « cliquer sur le formulaire
+      ouvert le referme » ; appliquée telle quelle, cliquer dans la zone de
+      texte pour écrire l'aurait fermé aussi, rendant la publication
+      impossible. Un test dédié verrouille ce point.
+- [x] **Transition par `grid-rows-[0fr] → [1fr]`**, et non par une
+      `max-height`. La hauteur du formulaire varie dès qu'un aperçu de média
+      s'ajoute : une valeur arbitraire saccaderait. Mesuré : 280 px à
+      mi-course pour 408 px à l'arrivée.
+- [x] **`inert` sur le bloc replié.** Le formulaire reste monté pour pouvoir
+      s'animer ; sans `inert`, on tabulerait au clavier dans un formulaire
+      invisible. `aria-expanded` et `aria-controls` sur le bouton.
+- [x] Le brouillon en cours survit à une fermeture accidentelle — le
+      formulaire restant monté, la saisie n'est pas perdue. Vérifié que
+      `PostForm` se vide bien lui-même après publication réussie, donc aucun
+      résidu après envoi.
+- [x] Le bouton « Publier » du fil vide continue d'**ouvrir** sans basculer :
+      c'est un appel à l'action, pas un interrupteur.
+- [x] `data-test="bascule-publication"` : le libellé changeant avec l'état, un
+      test ne peut pas s'y accrocher par le texte.
 
 ### 5.10 Corrections issues des tests
 
@@ -494,6 +573,60 @@ le seul moyen fiable de distinguer une image affichée d'un lien mort.
 
 Base nettoyée, 32 médias orphelins supprimés par le script de nettoyage.
 Le compte réel `mdieude14` est préservé.
+
+### 5.12 Story par la caméra — 31 vérifications
+
+`npm run test:story-camera` — suite dédiée, ajoutée au lanceur `npm test`.
+La caméra est **simulée par Chromium** (`--use-fake-device-for-media-stream`) :
+la prise de vue est donc réellement exécutée, sans matériel.
+
+- [x] Le « + » ouvre le choix de source ; les deux options sont proposées
+- [x] **Styles lus dans le style calculé, pas dans les classes** : blanc
+      `rgb(255,255,255)` au repos, `rgb(249,115,22)` au survol, curseur
+      `pointer` — pour les deux boutons
+- [x] Le flux s'ouvre et **fournit de vraies images** (`videoWidth > 0`) —
+      déclencher avant la première trame produirait une photo noire, et un
+      test qui se contenterait de vérifier la présence du `<video>` passerait
+- [x] La photo prise s'affiche en relecture (`naturalWidth > 0`), bornée à
+      1920 px, et « Reprendre » est proposé
+- [x] **Le déclencheur « Prendre la photo » affiche le curseur main**, vérifié
+      sur le style calculé et dans l'état actif — Tailwind 4 pose
+      `cursor: default` sur les boutons, et l'oubli ne se voit sur aucune
+      capture d'écran
+- [x] **La caméra est relâchée dès la photo prise**, et après fermeture par
+      Échap : aucune piste ne reste en `live`
+- [x] La story arrive **en base** ; son image **se charge réellement** —
+      l'URL correcte dans une réponse JSON ne prouve rien, c'est la leçon
+      du §5.10
+- [x] Le « + » reste atteignable alors qu'une story existe, et ouvre le choix
+      de source et non le lecteur *(régression corrigée par cet ajout)*
+- [x] La voie « import de fichier » publie toujours — non régressée
+- [x] Console propre ; le 401 attendu de `/auth/refresh` au démarrage est
+      écarté nommément, pas par un filtre général sur les 401
+
+### 5.13 Bascule du compositeur — 19 vérifications
+
+`npm run test:publication-toggle` — suite dédiée, ajoutée au lanceur.
+
+- [x] État replié : hauteur nulle, `aria-expanded=false`, bloc `inert`, et le
+      champ **refuse réellement le focus** — seul un test qui tente le focus
+      le montre
+- [x] Ouverture : formulaire déplié, `aria-expanded=true`, `inert` retiré,
+      libellé du bouton inversé
+- [x] **Le dépliement est animé** — 280 px à mi-course pour 408 px à
+      l'arrivée. Une capture d'écran ne distinguerait pas une transition d'un
+      affichage instantané
+- [x] **Le piège : cliquer et écrire dans le formulaire ne le referme pas**,
+      ni cliquer sur son titre. C'est la vérification centrale : sans elle,
+      une « simplification » rendant toute la surface cliquable casserait la
+      publication sans qu'aucun autre test ne bronche
+- [x] Fermeture : repli complet, libellé d'invitation retrouvé, `inert`
+      rétabli, brouillon conservé
+- [x] Console propre
+
+**Régression du module 5 rejouée après modification : `npm run test:ui` — 45/45.**
+
+Le paquet client passe de **100 à 105 ko compressés** (budget : 150 ko).
 
 ---
 

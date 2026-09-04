@@ -222,7 +222,7 @@ export default function PostCard({ post, onSupprime }) {
           onClick={basculerLike}
           disabled={post.verrouille}
           aria-pressed={aLike}
-          className={`flex items-center gap-1.5 text-sm font-medium transition-colors disabled:opacity-40 ${
+          className={`cursor-pointer flex items-center gap-1.5 text-sm font-medium transition-colors disabled:opacity-40 ${
             aLike ? 'text-erreur' : 'text-ardoise-500 hover:text-ardoise-800'
           }`}
         >
@@ -237,7 +237,7 @@ export default function PostCard({ post, onSupprime }) {
           onClick={() => setCommentairesOuverts((v) => !v)}
           disabled={post.verrouille}
           aria-expanded={commentairesOuverts}
-          className="flex items-center gap-1.5 text-sm font-medium text-ardoise-500 hover:text-ardoise-800 disabled:opacity-40"
+          className=" cursor-pointer flex items-center gap-1.5 text-sm font-medium text-ardoise-500 hover:text-ardoise-800 disabled:opacity-40"
         >
           <span aria-hidden="true" className="text-lg">💬</span>
           <span className="tabular-nums">{commentsCount}</span>

@@ -18,7 +18,9 @@
     "test:parcours-10-11": "node tests/parcours-10-11.mjs",
     "test:notifications": "node tests/notifications.mjs",
     "test:perf": "node tests/performance.mjs",
-    "test:relations": "node tests/relations.mjs"
+    "test:relations": "node tests/relations.mjs",
+    "test:story-camera": "node tests/story-camera.mjs",
+    "test:publication-toggle": "node tests/publication-toggle.mjs"
   },
   "dependencies": {
     "axios": "^1.19.0",

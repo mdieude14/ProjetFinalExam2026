@@ -175,7 +175,7 @@ ok('**session restaurée après F5**', coach.url().endsWith('/home'));
 // Le prénom apparaît dans l'invite de publication : sa présence prouve que
 // l'utilisateur a bien été rechargé, pas seulement que l'URL est la bonne.
 ok('utilisateur toujours identifié après F5',
-  await visible(coach.getByRole('button', { name: /Partagez votre séance, Marc/ })));
+  await visible(coach.getByRole('button', { name: /partagez votre séance, Marc/i })));
 
 await alice.goto(BASE + '/register', { waitUntil: 'networkidle' });
 await inscrire(alice, { type: 'utilisateur', prenom: 'Alice', pseudo: alicePseudo });
@@ -211,7 +211,7 @@ await bdd.collection('users').updateOne(
 );
 await coach.reload({ waitUntil: 'networkidle' });
 
-await coach.getByRole('button', { name: /Partagez votre séance/ }).click();
+await coach.getByRole('button', { name: /partagez votre séance/i }).click();
 await coach.waitForTimeout(300);
 await coach.locator('#choix-medias').setInputFiles([fichier('a.png'), fichier('b.png')]);
 await coach.waitForTimeout(400);
@@ -265,7 +265,7 @@ await bdd.collection('users').updateOne(
 );
 await coach.reload({ waitUntil: 'networkidle' });
 
-await coach.getByRole('button', { name: /Partagez votre séance/ }).click();
+await coach.getByRole('button', { name: /partagez votre séance/i }).click();
 await coach.waitForTimeout(400);
 await coach.locator('#choix-medias').setInputFiles(fichier('p.png'));
 await coach.getByLabel('Titre (facultatif)').fill('Programme exclusif');

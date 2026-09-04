@@ -7,10 +7,10 @@
  *
  * POURQUOI CE SCRIPT EXISTE.
  *
- * Le projet compte quinze suites réparties sur deux paquets, avec des
+ * Le projet compte vingt-et-une suites réparties sur deux paquets, avec des
  * prérequis différents. Un correcteur qui ouvre le dépôt et tape `npm test`
  * doit obtenir une réponse — pas une erreur « missing script », et pas une
- * liste de quinze commandes à recopier.
+ * liste de vingt-et-une commandes à recopier.
  *
  * DEUX CHOSES QUE CE LANCEUR FAIT, ET QU'UN SIMPLE ENCHAÎNEMENT NE FERAIT PAS :
  *
@@ -62,6 +62,8 @@ const SUITES = [
   { paquet: 'server', script: 'test:perf', libelle: 'API — performance' },
 
   { paquet: 'client', script: 'test:ui', libelle: 'Navigateur — parcours général' },
+  { paquet: 'client', script: 'test:story-camera', libelle: 'Navigateur — story par la caméra' },
+  { paquet: 'client', script: 'test:publication-toggle', libelle: 'Navigateur — bascule du compositeur' },
   { paquet: 'client', script: 'test:relations', libelle: 'Navigateur — abonnés et abonnements' },
   { paquet: 'client', script: 'test:premium', libelle: 'Navigateur — écrans premium' },
   { paquet: 'client', script: 'test:paiement', libelle: 'Navigateur — paiement réel' },
