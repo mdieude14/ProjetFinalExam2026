@@ -70,10 +70,20 @@ export default function Modal({
       aria-modal="true"
       aria-label={titre}
     >
+      {/*
+        LES DEUX FONDS S'EXCLUENT, ILS NE SE SUPERPOSENT PAS.
+        Le code precedent concatenait `bg-white` puis, pour la taille pleine,
+        `bg-transparent`. Deux utilitaires Tailwind de meme specificite : c'est
+        l'ordre de la feuille generee qui tranche, pas celui des classes dans
+        le JSX. `bg-white` gagnait, et la taille pleine affichait un panneau
+        blanc sur tout l'ecran au lieu de laisser voir le fond sombre.
+      */}
       <div
-        className={`${tailles[taille]} max-h-full w-full overflow-y-auto rounded-carte bg-white shadow-xl ${
-          taille === 'plein' ? 'rounded-none bg-transparent' : ''
-        }`}
+        className={[
+          tailles[taille],
+          'max-h-full w-full overflow-y-auto',
+          taille === 'plein' ? 'bg-transparent' : 'rounded-carte bg-white shadow-xl',
+        ].join(' ')}
       >
         {titre && (
           <div className="sticky top-0 flex items-center justify-between border-b border-ardoise-200 bg-white px-5 py-3">

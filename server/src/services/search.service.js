@@ -32,6 +32,29 @@ const LIMITE_DEFAUT = 20;
 const LIMITE_MAX = 50;
 const LIMITE_SUGGESTIONS = 8;
 
+/**
+ * PERSONNES INTERROGEABLES — le filtre de base de toute recherche de comptes.
+ *
+ * Deux exclusions, et la seconde demande une justification.
+ *
+ * `isActive` écarte les comptes désactivés : règle du module 4.
+ *
+ * `type !== 'admin'` RETIRE LE COMPTE D'ADMINISTRATION DES RÉSULTATS.
+ * L'administrateur vérifie les diplômes : c'est lui qui décide qui peut
+ * vendre. C'est donc le compte le plus intéressant à attaquer de toute
+ * l'application. Le module 3 a déjà refusé d'exposer une route de création
+ * d'administrateur pour cette raison ; le laisser trouvable par son nom
+ * défaisait la moitié de cette précaution, puisque la recherche est ouverte
+ * SANS COMPTE (`protectOptionnel`) : n'importe qui pouvait énumérer le pseudo
+ * exact à viser, et il ne restait plus qu'à en chercher le mot de passe.
+ *
+ * Le filtre est posé ici, en amont de la requête, et non à l'affichage :
+ * masquer côté client laisserait les données partir dans la réponse HTTP, où
+ * l'onglet réseau les montre en clair. C'est la règle du module 5 — ce qui
+ * est inaccessible doit être absent, pas caché.
+ */
+const PERSONNES_INTERROGEABLES = { isActive: true, type: { $ne: 'admin' } };
+
 const borner = (valeur, defaut, max) =>
   Math.min(Math.max(Number(valeur) || defaut, 1), max);
 
@@ -60,7 +83,7 @@ export async function suggestions(saisie, { limite = LIMITE_SUGGESTIONS } = {}) 
   if (!motif) return [];
 
   const utilisateurs = await User.find({
-    isActive: true,
+    ...PERSONNES_INTERROGEABLES,
     termesRecherche: motif,
   })
     .select('pseudo nom prenom avatar type diplome stats ville')
@@ -104,8 +127,15 @@ export async function suggestions(saisie, { limite = LIMITE_SUGGESTIONS } = {}) 
  * introuvable. Seule sa version publique sort d'ici.
  */
 export async function utilisateurs(saisie, { type, ville, limite = LIMITE_DEFAUT } = {}) {
-  const requis = { isActive: true };
-  if (type) requis.type = type;
+  const requis = { ...PERSONNES_INTERROGEABLES };
+
+  /*
+   * Le validateur borne déjà `type` à `utilisateur` ou `coach`, mais on le
+   * revérifie ici : ce filtre écrase `type: { $ne: 'admin' }`, et il ne doit
+   * pas devenir la porte par laquelle l'exclusion se perd si la validation
+   * change un jour.
+   */
+  if (type && type !== 'admin') requis.type = type;
   if (ville) requis.ville = new RegExp(`^${normaliser(ville).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
   const plafond = borner(limite, LIMITE_DEFAUT, LIMITE_MAX);

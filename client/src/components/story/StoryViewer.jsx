@@ -115,13 +115,27 @@ export default function StoryViewer({ groupes, indexGroupeInitial, onFermer }) {
 
   return (
     <Modal ouvert onFermer={onFermer} taille="plein" fondSombre>
-      <div className="relative mx-auto flex h-full max-w-md flex-col">
+      {/*
+        LA CARTE EST BORNEE, ELLE NE REMPLIT PLUS L'ECRAN.
+        Elle occupait 448 x 918 px sur une fenetre de 950 : toute la hauteur,
+        dans un rapport 1:2,05 plus allonge que le 9:16 d'une story — l'image
+        etait donc cernee de vide en haut et en bas.
+
+        `aspect-[9/16]` lui donne le format reel d'une story ; `max-h` la
+        garde entiere sur une fenetre courte, ou le rapport cede la place a la
+        hauteur disponible.
+      */}
+      <div className="flex h-full items-center justify-center">
+        <div
+          data-test="carte-story"
+          className="relative flex aspect-[9/16] max-h-[80vh] w-full max-w-[400px] flex-col overflow-hidden rounded-carte bg-white"
+        >
         {/* ---------- Barres de progression ---------- */}
         <div className="flex gap-1 p-2">
           {groupe.stories.map((_, i) => (
-            <div key={i} className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/30">
+            <div key={i} className="h-0.5 flex-1 overflow-hidden rounded-full bg-transparent/30">
               <div
-                className="h-full bg-white transition-[width] duration-75"
+                className="h-full bg-black transition-[width] duration-75"
                 style={{
                   width:
                     i < indexStory ? '100%' : i === indexStory ? `${progression}%` : '0%',
@@ -138,11 +152,11 @@ export default function StoryViewer({ groupes, indexGroupeInitial, onFermer }) {
             <Link
               to={`/profile/${groupe.auteur.pseudo}`}
               onClick={onFermer}
-              className="truncate text-sm font-semibold text-white hover:underline"
+              className="truncate text-sm font-semibold text-black hover:underline"
             >
               {groupe.auteur.prenom} {groupe.auteur.nom}
             </Link>
-            <p className="text-xs text-white/60">
+            <p className="text-xs text-black/60">
               il y a {heures < 1 ? "moins d'1" : heures} h
               {story.vuesCount !== undefined && ` · ${story.vuesCount} vue${story.vuesCount > 1 ? 's' : ''}`}
             </p>
@@ -151,7 +165,7 @@ export default function StoryViewer({ groupes, indexGroupeInitial, onFermer }) {
           <button
             onClick={onFermer}
             aria-label="Fermer"
-            className="px-2 text-2xl leading-none text-white/80 hover:text-white"
+            className=" cursor-pointer px-2 text-2xl leading-none text-black/80 hover:text-red"
           >
             ×
           </button>
@@ -201,12 +215,13 @@ export default function StoryViewer({ groupes, indexGroupeInitial, onFermer }) {
           />
         </div>
 
-        {/* ---------- Legende ---------- */}
-        {story.texte && (
-          <p className="bg-black/40 px-4 py-3 text-center text-sm text-white">
-            {story.texte}
-          </p>
-        )}
+          {/* ---------- Legende ---------- */}
+          {story.texte && (
+            <p className="bg-black/40 px-4 py-3 text-center text-sm text-white">
+              {story.texte}
+            </p>
+          )}
+        </div>
       </div>
     </Modal>
   );

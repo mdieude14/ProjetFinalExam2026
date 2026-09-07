@@ -89,7 +89,7 @@ export const listeMessages = asyncHandler(async (req, res) => {
   return res.json({
     succes: true,
     conversation: conversation.versionPour(req.user._id),
-    messages: messages.map((m) => m.versionPublique()),
+    messages: messages.map((m) => m.versionPublique(req.user)),
     curseurSuivant,
   });
 });
@@ -133,7 +133,7 @@ export const envoyer = asyncHandler(async (req, res) => {
   }
 
   const { message, conversation } = resultat;
-  const vue = message.versionPublique();
+  const vue = message.versionPublique(req.user);
 
   /*
    * DIFFUSION VERS LES DEUX PARTICIPANTS, y compris l'expéditeur.
@@ -309,4 +309,88 @@ export const supprimer = asyncHandler(async (req, res) => {
   });
 
   return res.json({ succes: true, message: 'Message supprimé' });
+});
+
+/* ================================================================== *
+ *  POST /api/messages/:id/like
+ * ================================================================== */
+
+/**
+ * Aime ou retire son like d'un message, comme sur une publication.
+ *
+ * TROIS DIFFÉRENCES AVEC LE LIKE D'UNE PUBLICATION, ET ELLES COMPTENT.
+ *
+ * 1. L'ACCÈS SE VÉRIFIE PAR LA CONVERSATION, pas par la visibilité d'un
+ *    profil. Un message n'a pas d'audience : il appartient à un fil, et seuls
+ *    ses deux participants peuvent le voir — donc l'aimer. Sans ce contrôle,
+ *    connaître un identifiant de message suffirait à aimer dans le fil des
+ *    autres, et à leur signaler qu'on l'a lu.
+ *
+ * 2. UN MESSAGE SUPPRIMÉ NE S'AIME PLUS. On ne peut pas aimer ce qu'on ne
+ *    voit plus, et le contraire ferait réapparaître un compteur sous
+ *    « Message supprimé ».
+ *
+ * 3. AUCUNE NOTIFICATION. Une publication est lue plus tard, la notification
+ *    y est le seul moyen d'apprendre le like. Dans une conversation ouverte,
+ *    l'autre voit le cœur apparaître en direct : notifier en plus ferait
+ *    sonner deux fois pour le même geste.
+ */
+export const basculerLikeMessage = asyncHandler(async (req, res) => {
+  const Message = (await import('../models/Message.js')).default;
+
+  const message = await Message.findById(req.params.id);
+  if (!message) throw ApiError.notFound('Message introuvable');
+
+  const conversation = await Conversation.findById(message.conversation)
+    .populate('participants', 'pseudo nom prenom avatar type diplome isActive');
+
+  /*
+   * 404 ET NON 403 pour un fil qui n'est pas le sien : un 403 confirmerait
+   * l'existence du message. Même règle qu'au module 1.
+   */
+  const participe = idsDe(conversation).some((id) => String(id) === String(req.user._id));
+  if (!conversation || !participe) throw ApiError.notFound('Message introuvable');
+
+  if (message.supprime) {
+    throw ApiError.badRequest('Ce message a été supprimé');
+  }
+
+  const dejaLike = (message.likes || []).some(
+    (id) => String(id) === String(req.user._id)
+  );
+
+  /*
+   * `$addToSet` / `$pull` SONT ATOMIQUES : deux clics simultanés ne peuvent
+   * pas produire un doublon ni un retrait partiel. Le `dejaLike` calculé
+   * au-dessus ne fait que choisir l'opération, il ne garantit rien.
+   */
+  const majour = await Message.findByIdAndUpdate(
+    message._id,
+    dejaLike
+      ? { $pull: { likes: req.user._id } }
+      : { $addToSet: { likes: req.user._id } },
+    { new: true, select: 'likes' }
+  );
+
+  const likesCount = majour.likes.length;
+
+  /*
+   * DIFFUSION AUX DEUX PARTICIPANTS, expéditeur compris : ses autres onglets
+   * doivent voir le même état. Le socket ne fait que notifier — l'écriture
+   * vient de passer par HTTP, comme tout le reste du module.
+   */
+  diffuserA(idsDe(conversation), 'message:like', {
+    conversation: String(conversation._id),
+    message: String(message._id),
+    likesCount,
+    // Qui a aimé, pour que chaque destinataire calcule SON propre `aLike`
+    // sans qu'on lui livre la liste complète.
+    par: String(req.user._id),
+    ajoute: !dejaLike,
+  });
+
+  return res.json({
+    succes: true,
+    donnees: { likesCount, aLike: !dejaLike },
+  });
 });

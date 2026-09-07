@@ -68,6 +68,9 @@ export const messageApi = {
   nonLus: () => api.get('/messages/non-lus'),
 
   supprimer: (idMessage) => api.delete(`/messages/${idMessage}`),
+
+  /** Aime un message, ou retire son like. Le serveur decide du sens. */
+  basculerLike: (idMessage) => api.post(`/messages/${idMessage}/like`),
 };
 
 export default messageApi;

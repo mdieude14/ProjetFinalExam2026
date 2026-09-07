@@ -51,6 +51,20 @@ const messageSchema = new Schema(
     media: { type: mediaSchema, default: undefined },
 
     /**
+     * Personnes ayant aimé ce message, comme pour une publication.
+     *
+     * ON STOCKE LA LISTE, PAS UN COMPTEUR. Un compteur seul ne saurait pas
+     * dire si MOI j'ai déjà aimé, et deux clics rapides le feraient dériver.
+     * `$addToSet` garantit l'unicité côté base : le contrôle applicatif ne
+     * fait qu'éviter un aller-retour, il ne porte pas la garantie.
+     *
+     * Une conversation n'a que deux participants : la liste ne peut donc pas
+     * dépasser deux entrées. C'est ce qui rend ce choix tenable ici, là où il
+     * demanderait réflexion sur une publication très suivie.
+     */
+    likes: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+
+    /**
      * `lu` porte sur LE MESSAGE, le compteur `nonLus` de la conversation
      * porte sur le FIL. Les deux existent parce qu'ils répondent à deux
      * questions différentes : « dois-je afficher une double coche sur cette
@@ -130,7 +144,12 @@ messageSchema.index({ conversation: 1, expediteur: 1, lu: 1 });
  * pour le contenu premium : une URL laissée dans la charge utile est lisible
  * dans l'onglet réseau, et « supprimé » ne voudrait alors plus rien dire.
  */
-messageSchema.methods.versionPublique = function () {
+/**
+ * @param {object} [visiteur] Sert uniquement à calculer `aLike`. Sans lui, le
+ *   nombre reste juste et `aLike` vaut `false` — un appelant qui l'oublie
+ *   affiche donc un cœur vide, jamais une donnée fausse sur quelqu'un d'autre.
+ */
+messageSchema.methods.versionPublique = function (visiteur) {
   const auteur = this.populated('expediteur') ? this.expediteur : null;
 
   const base = {
@@ -148,10 +167,26 @@ messageSchema.methods.versionPublique = function () {
     lu: this.lu,
     supprime: this.supprime,
     createdAt: this.createdAt,
+
+    /*
+     * LE NOMBRE ET MON PROPRE ÉTAT, JAMAIS LA LISTE.
+     * Renvoyer les identifiants de ceux qui ont aimé n'apporterait rien à
+     * l'affichage et exposerait une information de plus. Même règle qu'au
+     * module 5 pour les publications.
+     */
+    likesCount: this.likes?.length || 0,
+    aLike: visiteur
+      ? (this.likes || []).some((id) => String(id) === String(visiteur._id))
+      : false,
   };
 
   if (this.supprime) {
-    return { ...base, contenu: null, media: null };
+    /*
+     * UN MESSAGE SUPPRIMÉ PERD AUSSI SES LIKES À L'AFFICHAGE.
+     * Laisser « 1 ❤ » sous « Message supprimé » ferait subsister une trace de
+     * ce qu'il contenait, et l'on ne peut plus aimer ce qu'on ne voit pas.
+     */
+    return { ...base, contenu: null, media: null, likesCount: 0, aLike: false };
   }
 
   return { ...base, contenu: this.contenu, media: this.media };

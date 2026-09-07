@@ -7,8 +7,17 @@ import Avatar from '@/components/ui/Avatar';
 import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
 import Spinner from '@/components/ui/Spinner';
+import Modal from '@/components/ui/Modal';
+import CapturePhoto from '@/components/story/CapturePhoto';
 import ChatRequestBanner from './ChatRequestBanner';
 import { formaterDateHeure } from '@/utils/dates';
+
+/* Plafonds du serveur, rappelés ici pour refuser AVANT de téléverser. */
+const MO = 1024 * 1024;
+const TAILLE_MAX_IMAGE = 5 * MO;
+const TAILLE_MAX_VIDEO = 25 * MO;
+const TYPES_ACCEPTES =
+  'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime';
 
 /**
  * Fil d'une conversation.
@@ -27,7 +36,7 @@ import { formaterDateHeure } from '@/utils/dates';
  */
 
 /** Une bulle. */
-function Bulle({ message, deMoi }) {
+function Bulle({ message, deMoi, surLike }) {
   return (
     <li className={`flex ${deMoi ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -43,14 +52,33 @@ function Bulle({ message, deMoi }) {
           </p>
         ) : (
           <>
-            {message.media?.url && (
-              <img
-                src={message.media.url}
-                alt="Pièce jointe"
-                loading="lazy"
-                className="mb-1.5 max-h-64 w-full rounded-lg object-cover"
-              />
-            )}
+            {/*
+              UNE VIDÉO NE S'AFFICHE PAS COMME UNE IMAGE.
+              `<img>` sur une URL de vidéo ne rend rien du tout — pas d'erreur,
+              juste une bulle vide. On choisit donc la balise d'après le type
+              renvoyé par le serveur, et non d'après l'extension de l'URL.
+
+              `preload="metadata"` charge la première image et la durée, pas la
+              vidéo entière : un fil qui en contient dix ne doit pas déclencher
+              dix téléchargements complets à l'ouverture.
+            */}
+            {message.media?.url &&
+              (message.media.type === 'video' ? (
+                <video
+                  src={message.media.url}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="mb-1.5 max-h-64 w-full rounded-lg bg-black"
+                />
+              ) : (
+                <img
+                  src={message.media.url}
+                  alt="Pièce jointe"
+                  loading="lazy"
+                  className="mb-1.5 max-h-64 w-full rounded-lg object-cover"
+                />
+              ))}
             {message.contenu && (
               // `whitespace-pre-wrap` conserve les retours à la ligne saisis.
               // Sans lui, un message écrit en plusieurs paragraphes s'affiche
@@ -71,6 +99,35 @@ function Bulle({ message, deMoi }) {
           {deMoi && (message.lu ? ' ✓✓' : ' ✓')}
         </p>
       </div>
+
+      {/*
+        LE CŒUR EST HORS DE LA BULLE, PAS DEDANS.
+        À l'intérieur, il se confondrait avec le contenu — et sur une bulle
+        de marque, un cœur rouge sur fond orange est illisible. Placé à côté,
+        il reste lisible quel que soit le fond, et n'élargit pas la bulle.
+
+        Un message supprimé n'en a pas : on ne peut pas aimer ce qu'on ne
+        voit plus.
+      */}
+      {!message.supprime && (
+        <button
+          type="button"
+          onClick={() => surLike?.(message._id)}
+          data-test="like-message"
+          aria-pressed={Boolean(message.aLike)}
+          aria-label={message.aLike ? 'Retirer mon like' : 'Aimer ce message'}
+          className={`mx-1 flex shrink-0 cursor-pointer items-end gap-0.5 self-end pb-1 text-xs transition-colors ${
+            message.aLike ? 'text-erreur' : 'text-ardoise-300 hover:text-ardoise-500'
+          }`}
+        >
+          <span aria-hidden="true">{message.aLike ? '❤' : '♡'}</span>
+          {message.likesCount > 0 && (
+            <span className="tabular-nums" data-test="compteur-like">
+              {message.likesCount}
+            </span>
+          )}
+        </button>
+      )}
     </li>
   );
 }
@@ -83,6 +140,12 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
   const [saisie, setSaisie] = useState('');
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState(null);
+
+  /* Pièce jointe en attente d'envoi : { fichier, url, type }. */
+  const [jointe, setJointe] = useState(null);
+  const [choixOuvert, setChoixOuvert] = useState(false);
+  const [cameraOuverte, setCameraOuverte] = useState(false);
+  const champFichier = useRef(null);
   const [ecrit, setEcrit] = useState(false);
 
   const basDuFil = useRef(null);
@@ -196,7 +259,35 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
         if (String(idRecu) !== String(idConversation)) return;
         setMessages((precedents) =>
           precedents.map((m) =>
-            m._id === message ? { ...m, supprime: true, contenu: null, media: null } : m
+            m._id === message
+              ? { ...m, supprime: true, contenu: null, media: null, likesCount: 0, aLike: false }
+              : m
+          )
+        );
+      }),
+
+      /*
+       * LE SERVEUR ENVOIE QUI A AIMÉ, PAS MON PROPRE ÉTAT.
+       * Il diffuse le même message aux deux participants : il ne peut pas y
+       * mettre un `aLike` qui vaudrait pour l'un et pas pour l'autre. Chacun
+       * le calcule donc de son côté, en comparant `par` à son identifiant.
+       *
+       * Mon propre like m'est renvoyé aussi : c'est ce qui synchronise mes
+       * autres onglets. La réponse HTTP a déjà mis à jour celui-ci, et
+       * réappliquer la même valeur ne change rien.
+       */
+      ecouter('message:like', ({ conversation: idRecu, message, likesCount, par, ajoute }) => {
+        if (String(idRecu) !== String(idConversation)) return;
+
+        setMessages((precedents) =>
+          precedents.map((m) =>
+            m._id === message
+              ? {
+                  ...m,
+                  likesCount,
+                  aLike: String(par) === String(moi) ? ajoute : m.aLike,
+                }
+              : m
           )
         );
       }),
@@ -237,17 +328,120 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
 
   /* ---------------------------- Envoi ---------------------------- */
 
+  /*
+   * CHOIX D'UNE PIÈCE JOINTE — ON REFUSE AVANT DE TÉLÉVERSER.
+   * Laisser partir un fichier de 40 Mo pour le voir rejeté à l'arrivée fait
+   * attendre pour rien, sur la connexion la plus lente qui soit. Les plafonds
+   * du serveur sont donc rappelés ici — sans le remplacer : c'est lui qui
+   * décide, le client ne fait qu'éviter l'aller-retour.
+   */
+  const retenir = (fichier) => {
+    if (!fichier) return;
+
+    const estVideo = fichier.type.startsWith('video/');
+    const limite = estVideo ? TAILLE_MAX_VIDEO : TAILLE_MAX_IMAGE;
+
+    if (fichier.size > limite) {
+      setErreur(
+        `Fichier trop lourd : ${Math.round(limite / MO)} Mo au maximum pour ${
+          estVideo ? 'une vidéo' : 'une image'
+        }.`
+      );
+      return;
+    }
+
+    // L'URL de l'aperçu précédent est libérée : sans cela, choisir cinq
+    // fichiers de suite retient cinq blobs jusqu'au rechargement de la page.
+    if (jointe) URL.revokeObjectURL(jointe.url);
+
+    setErreur(null);
+    setJointe({
+      fichier,
+      url: URL.createObjectURL(fichier),
+      type: estVideo ? 'video' : 'image',
+    });
+  };
+
+  const retirerJointe = () => {
+    if (jointe) URL.revokeObjectURL(jointe.url);
+    setJointe(null);
+  };
+
+  /*
+   * LIKE OPTIMISTE, CORRIGÉ PAR LA RÉPONSE.
+   * Le cœur doit répondre au doigt sans attendre le réseau. On applique donc
+   * le changement tout de suite, puis on recale sur ce que dit le serveur —
+   * c'est lui qui tranche, notamment si deux appareils cliquent en même
+   * temps. En cas d'échec, on remet l'état d'avant : laisser un cœur rouge
+   * sur un like qui n'a pas été enregistré serait pire que ne rien afficher.
+   */
+  const basculerLike = useCallback(
+    async (idMessage) => {
+      let precedent = null;
+
+      setMessages((liste) =>
+        liste.map((m) => {
+          if (m._id !== idMessage) return m;
+          precedent = { aLike: Boolean(m.aLike), likesCount: m.likesCount || 0 };
+          return {
+            ...m,
+            aLike: !m.aLike,
+            likesCount: (m.likesCount || 0) + (m.aLike ? -1 : 1),
+          };
+        })
+      );
+
+      try {
+        const reponse = await messageApi.basculerLike(idMessage);
+        const { likesCount, aLike } = reponse.data.donnees;
+        setMessages((liste) =>
+          liste.map((m) => (m._id === idMessage ? { ...m, likesCount, aLike } : m))
+        );
+      } catch (e) {
+        if (precedent) {
+          setMessages((liste) =>
+            liste.map((m) => (m._id === idMessage ? { ...m, ...precedent } : m))
+          );
+        }
+        setErreur(e.message);
+      }
+    },
+    []
+  );
+
+  const surFichierChoisi = (evenement) => {
+    const fichier = evenement.target.files?.[0];
+    // Vidé avant traitement : sans cela, rechoisir le même fichier de suite
+    // ne déclencherait pas de second `change`.
+    evenement.target.value = '';
+    retenir(fichier);
+  };
+
+  /* Les URL d'objet sont libérées au démontage du fil. */
+  useEffect(() => {
+    return () => {
+      if (jointe) URL.revokeObjectURL(jointe.url);
+    };
+  }, [jointe]);
+
   const envoyer = async (evenement) => {
     evenement.preventDefault();
     const texte = saisie.trim();
-    if (!texte || envoi) return;
+
+    // Un message peut n'être QU'une pièce jointe : le serveur accepte l'un ou
+    // l'autre. Exiger du texte interdirait d'envoyer une photo seule.
+    if ((!texte && !jointe) || envoi) return;
 
     setEnvoi(true);
     setErreur(null);
 
     try {
-      const reponse = await messageApi.envoyer(idConversation, { contenu: texte });
+      const reponse = await messageApi.envoyer(idConversation, {
+        contenu: texte || undefined,
+        media: jointe?.fichier,
+      });
       setSaisie('');
+      retirerJointe();
       emettre('saisie:fin', { conversation: idConversation });
 
       // On ajoute localement sans attendre le socket : sur une connexion
@@ -367,6 +561,7 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
               key={message._id}
               message={message}
               deMoi={String(message.expediteur?._id) === String(moi)}
+              surLike={basculerLike}
             />
           ))}
         </ul>
@@ -388,8 +583,87 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
       )}
 
       {peutEcrire ? (
-        <form onSubmit={envoyer} className="flex items-end gap-2 border-t border-ardoise-200 p-3">
-          <textarea
+        <form onSubmit={envoyer} className="border-t border-ardoise-200 p-3">
+          {/* ---------- Aperçu de la pièce jointe ---------- */}
+          {jointe && (
+            <div
+              data-test="apercu-jointe"
+              className="relative mb-2 inline-block rounded-xl border border-ardoise-200 p-1"
+            >
+              {jointe.type === 'video' ? (
+                <video
+                  src={jointe.url}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  className="h-24 w-24 rounded-lg bg-black object-cover"
+                />
+              ) : (
+                <img
+                  src={jointe.url}
+                  alt="Pièce jointe à envoyer"
+                  className="h-24 w-24 rounded-lg object-cover"
+                />
+              )}
+
+              <button
+                type="button"
+                onClick={retirerJointe}
+                data-test="retirer-jointe"
+                aria-label="Retirer la pièce jointe"
+                className="absolute -right-2 -top-2 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-ardoise-700 text-sm leading-none text-white hover:bg-ardoise-900"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-end gap-2">
+            <input
+              ref={champFichier}
+              type="file"
+              accept={TYPES_ACCEPTES}
+              onChange={surFichierChoisi}
+              className="lecteur-ecran-seulement"
+              id="piece-jointe-message"
+            />
+
+            {/* Même geste que la barre de stories : le « + » propose les deux
+                sources plutôt que d'ouvrir directement le sélecteur. */}
+            <button
+              type="button"
+              onClick={() => {
+                setErreur(null);
+                setChoixOuvert(true);
+              }}
+              disabled={envoi}
+              data-test="ajouter-jointe"
+              aria-label="Ajouter une photo ou une vidéo"
+              className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border border-ardoise-200 text-ardoise-500 hover:border-marque-400 hover:bg-marque-50 hover:text-marque-600 disabled:opacity-60"
+            >
+              {/*
+                UN « + » DESSINÉ, PAS UN CARACTÈRE.
+                `items-center` centre la BOÎTE DE LIGNE, pas l'encre du
+                glyphe : dans la plupart des polices, le « + » se cale sur
+                l'axe mathématique, au-dessus du milieu du cadratin. Le
+                caractère paraissait donc trop haut, et l'écart aurait changé
+                avec la police de repli d'une autre machine.
+
+                Un tracé dans un `viewBox` carré est centré par construction :
+                les deux traits se croisent en 12,12 d'une grille de 24.
+              */}
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+                <path
+                  d="M12 5.5v13M5.5 12h13"
+                  stroke="currentColor"
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+              </svg>
+            </button>
+
+            <textarea
             value={saisie}
             onChange={(e) => {
               setSaisie(e.target.value);
@@ -406,9 +680,15 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
             aria-label="Votre message"
             className="max-h-32 flex-1 resize-none rounded-xl border border-ardoise-200 px-3 py-2 text-sm focus:border-marque-500 focus:outline-none focus:ring-2 focus:ring-marque-500/30"
           />
-          <Button type="submit" chargement={envoi} disabled={!saisie.trim()}>
-            Envoyer
-          </Button>
+            <Button
+              type="submit"
+              chargement={envoi}
+              disabled={!saisie.trim() && !jointe}
+              className="cursor-pointer"
+            >
+              Envoyer
+            </Button>
+          </div>
         </form>
       ) : (
         conversation.statut === 'en_attente' &&
@@ -418,6 +698,56 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
           </p>
         )
       )}
+
+      {/* ---------- Choix de la source ---------- */}
+      <Modal
+        ouvert={choixOuvert}
+        onFermer={() => setChoixOuvert(false)}
+        titre="Ajouter à votre message"
+        taille="sm"
+      >
+        <div className="flex flex-col gap-3 p-5" data-test="choix-source-message">
+          <Button
+            pleineLargeur
+            variante="choix"
+            data-test="source-fichier-message"
+            onClick={() => {
+              setChoixOuvert(false);
+              champFichier.current?.click();
+            }}
+          >
+            Importer une photo ou une vidéo
+          </Button>
+
+          <Button
+            pleineLargeur
+            variante="choix"
+            data-test="source-camera-message"
+            onClick={() => {
+              setChoixOuvert(false);
+              setCameraOuverte(true);
+            }}
+          >
+            Prendre une photo
+          </Button>
+
+          <p className="text-center text-xs text-ardoise-500">
+            Images jusqu’à 5 Mo, vidéos jusqu’à 25 Mo.
+          </p>
+        </div>
+      </Modal>
+
+      {/*
+        LE MÊME COMPOSANT QUE LES STORIES, RÉUTILISÉ TEL QUEL.
+        Il rend un fichier JPEG ; la messagerie n'a donc rien de particulier à
+        savoir de la caméra, et les correctifs faits d'un côté profitent à
+        l'autre — arrêt du flux, bornage à 1920 px, causes d'échec distinguées.
+      */}
+      <CapturePhoto
+        ouvert={cameraOuverte}
+        onFermer={() => setCameraOuverte(false)}
+        onValider={retenir}
+      />
     </div>
   );
 }

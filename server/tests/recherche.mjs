@@ -497,6 +497,104 @@ ok('**une apostrophe n’est pas échappée en entité HTML**',
  *  ORDRE DES ROUTES
  * ================================================================== */
 
+/* ================================================================== *
+ *  LE COMPTE D'ADMINISTRATION RESTE INTROUVABLE
+ * ================================================================== */
+
+section("Le compte d'administration est hors recherche");
+
+/*
+ * ON PROMEUT UN COMPTE ORDINAIRE PLUTÔT QUE D'EN CRÉER UN.
+ * Il n'existe aucune route de création d'administrateur — c'est une décision
+ * du module 3, et la contourner ici pour les besoins du test reviendrait à
+ * tester autre chose que le produit. On passe donc par la base, exactement
+ * comme le fait `npm run creer-admin`.
+ *
+ * Le compte garde le `termesRecherche` calculé à son inscription : il EST
+ * donc indexé et trouvable. Si les vérifications qui suivent passent, c'est
+ * bien le filtre du service qui l'écarte, et non un défaut d'indexation qui
+ * masquerait le vrai comportement.
+ */
+const motAdmin = `zadminsecret${S}`;
+const futurAdmin = await inscrire({
+  pseudo: motAdmin,
+  nom: 'Zadminsecret',
+  prenom: 'Racine',
+  ville: 'Lyon',
+});
+
+/* Un compte ordinaire au MÊME préfixe : il doit, lui, rester trouvable. */
+const temoin = await inscrire({
+  pseudo: `zadminsecretbis${S}`,
+  nom: 'Zadminsecret',
+  prenom: 'Temoin',
+  ville: 'Lyon',
+});
+
+await bdd.collection('users').updateOne(
+  { _id: new (requireLocal('mongodb').ObjectId)(futurAdmin.id) },
+  { $set: { type: 'admin' } }
+);
+
+const estIndexe = await bdd.collection('users').findOne(
+  { _id: new (requireLocal('mongodb').ObjectId)(futurAdmin.id) },
+  { projection: { termesRecherche: 1, type: 1 } }
+);
+ok('le compte promu est bien de type admin et reste indexé',
+  estIndexe?.type === 'admin' && (estIndexe.termesRecherche || []).length > 0,
+  `type=${estIndexe?.type}, ${(estIndexe?.termesRecherche || []).length} terme(s)`);
+
+const contient = (liste, pseudo) =>
+  (liste || []).some((u) => u.pseudo === pseudo);
+
+/* ---- Autocomplétion ---- */
+const sugg = await appel(`/search/suggestions?q=${motAdmin.slice(0, 12)}`);
+ok('suggestions : le compte admin est absent',
+  sugg.statut === 200 && !contient(sugg.json?.suggestions, motAdmin));
+ok('suggestions : le témoin au même préfixe est bien présent',
+  contient(sugg.json?.suggestions, temoin.pseudo),
+  `${(sugg.json?.suggestions || []).length} suggestion(s)`);
+
+/* ---- Recherche validée ---- */
+const parPseudo = await appel(`/search/utilisateurs?q=${motAdmin}`);
+ok('recherche par pseudo exact : le compte admin est absent',
+  parPseudo.statut === 200 && !contient(parPseudo.json?.utilisateurs, motAdmin));
+
+const parNom = await appel('/search/utilisateurs?q=Zadminsecret');
+ok('recherche par nom : le compte admin est absent',
+  parNom.statut === 200 && !contient(parNom.json?.utilisateurs, motAdmin));
+ok('recherche par nom : le témoin sort toujours',
+  contient(parNom.json?.utilisateurs, temoin.pseudo));
+
+/* ---- Recherche globale ---- */
+/*
+ * ON INTERROGE PAR LE NOM, PAS PAR LE PSEUDO.
+ * La réponse renvoie `terme: req.query.q`, l'écho de ce qui a été tapé :
+ * chercher le pseudo exact ferait forcément apparaître cette chaîne dans le
+ * corps, et la vérification échouerait sans qu'il y ait la moindre fuite.
+ * En cherchant « Zadminsecret », le pseudo complet — horodaté — ne peut
+ * venir que de la base.
+ */
+const globaleAdmin = await appel('/search?q=Zadminsecret');
+ok('recherche globale : le compte admin est absent',
+  globaleAdmin.statut === 200 && !contient(globaleAdmin.json?.utilisateurs, motAdmin));
+ok('recherche globale : le témoin remonte bien',
+  contient(globaleAdmin.json?.utilisateurs, temoin.pseudo));
+
+/*
+ * LE PSEUDO NE DOIT PAS DAVANTAGE FUIR DANS LE CORPS BRUT.
+ * Vérifier la liste désérialisée ne suffirait pas : le compte pourrait sortir
+ * par un autre champ de la réponse — auteur d'une publication, organisateur
+ * d'un événement.
+ */
+ok("aucune trace du pseudo admin dans le corps brut de la réponse",
+  !globaleAdmin.texte.includes(motAdmin));
+
+/* ---- Le filtre par type ne rouvre pas la porte ---- */
+const parType = await appel(`/search/utilisateurs?q=Zadminsecret&type=admin`);
+ok('le paramètre `type=admin` est refusé par la validation',
+  parType.statut === 400, `statut ${parType.statut}`);
+
 section('Ordre des routes');
 
 const suggestionsRoute = await appel('/search/suggestions?q=mar');

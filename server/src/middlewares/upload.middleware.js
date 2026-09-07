@@ -168,18 +168,59 @@ export const uploadAfficheEvenement = multer({
   fileFilter: filtre(TYPES_IMAGE, 'une affiche'),
 }).single('affiche');
 
-/**
- * Piece jointe d'un message prive (module 11).
+/*
+ * Plafonds propres a la messagerie, plus bas qu'ailleurs.
  *
- * UNE SEULE IMAGE, ET PLUS PETITE QU'AILLEURS.
- * Une conversation accumule des centaines de pieces jointes la ou une
- * publication en compte dix. Le meme plafond qu'un post ferait grossir le
- * stockage bien plus vite, pour des images qui s'affichent dans une bulle de
- * quelques centaines de pixels. La video est ecartee pour la meme raison
- * qu'au module 9 : elle imposerait un lecteur par bulle.
+ * UNE CONVERSATION ACCUMULE DES CENTAINES DE PIECES JOINTES la ou une
+ * publication en compte dix. Appliquer les memes plafonds ferait grossir le
+ * stockage bien plus vite, pour des medias qui s'affichent dans une bulle de
+ * quelques centaines de pixels.
+ */
+export const TAILLE_MAX_JOINTE_IMAGE = 5 * MO;
+export const TAILLE_MAX_JOINTE_VIDEO = 25 * MO;
+
+/**
+ * Piece jointe d'un message prive (module 11) : une image OU une video.
+ *
+ * LA VIDEO ETAIT ECARTEE, ELLE NE L'EST PLUS.
+ * Le motif d'origine tenait : une video par bulle impose un lecteur par
+ * bulle, et le fil s'alourdit. La demande produit reste plus forte — on
+ * n'envoie pas une video de seance a quelqu'un en la publiant sur son profil.
+ * Le compromis est le plafond : 25 Mo, entre les 5 Mo d'une image de
+ * conversation et les 100 Mo d'une video de publication. Assez pour un
+ * extrait de quelques dizaines de secondes, trop peu pour servir de stockage.
+ *
+ * Multer n'applique qu'une limite globale : on prend donc la plus haute des
+ * deux, et `verifierTaillePieceJointe` affine ensuite selon le type reel.
  */
 export const uploadPieceJointe = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 10 },
-  fileFilter: filtre(TYPES_IMAGE, 'une piece jointe'),
+  limits: { fileSize: TAILLE_MAX_JOINTE_VIDEO, files: 1, fields: 10 },
+  fileFilter: filtre([...TYPES_IMAGE, ...TYPES_VIDEO], 'une piece jointe'),
 }).single('media');
+
+/**
+ * Affine le plafond d'une piece jointe selon son type.
+ *
+ * Sans ce second passage, une image de 20 Mo passerait : Multer l'aurait
+ * comparee au plafond video. La verification doit donc suivre l'upload, une
+ * fois le type de fichier connu.
+ */
+export function verifierTaillePieceJointe(req, res, next) {
+  if (!req.file) return next();
+
+  const estVideo = req.file.mimetype.startsWith('video/');
+  const limite = estVideo ? TAILLE_MAX_JOINTE_VIDEO : TAILLE_MAX_JOINTE_IMAGE;
+
+  if (req.file.size > limite) {
+    return next(
+      ApiError.badRequest(
+        `« ${req.file.originalname} » depasse la limite de ${Math.round(
+          limite / MO
+        )} Mo pour ${estVideo ? 'une video' : 'une image'} en message`
+      )
+    );
+  }
+
+  next();
+}

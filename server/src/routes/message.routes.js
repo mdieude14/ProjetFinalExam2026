@@ -9,6 +9,7 @@ import {
   marquerLu,
   nonLus,
   supprimer,
+  basculerLikeMessage,
 } from '../controllers/message.controller.js';
 
 import {
@@ -23,7 +24,10 @@ import {
 
 import { validate } from '../middlewares/validate.middleware.js';
 import { protect } from '../middlewares/auth.middleware.js';
-import { uploadPieceJointe } from '../middlewares/upload.middleware.js';
+import {
+  uploadPieceJointe,
+  verifierTaillePieceJointe,
+} from '../middlewares/upload.middleware.js';
 
 const router = Router();
 
@@ -76,6 +80,9 @@ router.post(
   '/conversations/:id/messages',
   protect,
   uploadPieceJointe,
+  // Le plafond depend du type, que seul l'upload fait connaitre : ce controle
+  // ne peut donc pas etre porte par Multer, qui n'en applique qu'un seul.
+  verifierTaillePieceJointe,
   reglesEnvoi,
   validate,
   envoyer
@@ -98,6 +105,13 @@ router.post(
 );
 
 /* ---------------------------- Un message ---------------------------- */
+
+/*
+ * SEGMENT FIXE AVANT LE PARAMETRE : `/:id/like` doit precede `/:id` en DELETE,
+ * mais ici les methodes different, l'ordre n'est donc pas contraignant. On le
+ * respecte quand meme, par coherence avec les modules 6, 7, 9 et 10.
+ */
+router.post('/:id/like', protect, reglesIdMessage, validate, basculerLikeMessage);
 
 router.delete('/:id', protect, reglesIdMessage, validate, supprimer);
 

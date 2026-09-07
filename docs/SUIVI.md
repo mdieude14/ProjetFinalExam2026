@@ -1672,6 +1672,21 @@ Or une barre de recherche moderne doit répondre dès la troisième lettre.
 
 ### 10.3 Règles de visibilité
 - [x] Les comptes **désactivés** n'apparaissent jamais
+- [x] **Le compte d'administration n'apparaît jamais non plus** *(ajout après
+      clôture du module)*. L'administrateur vérifie les diplômes : il décide
+      qui peut vendre, c'est donc le compte le plus intéressant à attaquer.
+      Le module 3 refuse déjà d'exposer une route de création
+      d'administrateur ; le laisser trouvable par son nom défaisait la moitié
+      de cette précaution, la recherche étant ouverte **sans compte**
+      (`protectOptionnel`) — n'importe qui pouvait énumérer le pseudo exact à
+      viser. Filtre `type: { $ne: 'admin' }` posé **en amont de la requête**
+      dans `PERSONNES_INTERROGEABLES`, appliqué à `suggestions()` et
+      `utilisateurs()`. Masquer côté client aurait laissé les données partir
+      dans la réponse HTTP, lisibles dans l'onglet réseau.
+- [x] Le paramètre `?type=` ne rouvre pas la porte : le validateur le borne à
+      `utilisateur|coach`, et le service revérifie — ce filtre écrase la
+      condition d'exclusion, il ne doit pas devenir l'endroit par lequel elle
+      se perd si la validation change.
 - [x] Un profil **privé** reste trouvable mais ne livre que sa version
       publique : être trouvable et être lisible sont deux choses différentes
 - [x] Les auteurs interrogeables sont restreints **en amont** de la requête :
@@ -1682,6 +1697,16 @@ Or une barre de recherche moderne doit répondre dès la troisième lettre.
 - [x] Un événement **privé** garde son adresse masquée, comme au module 9
 - [x] La recherche n'est **pas** une porte dérobée : chaque verrou des modules
       4, 7 et 9 a sa vérification dédiée dans la suite
+- [x] **10 vérifications dédiées au compte d'administration** dans
+      `server/tests/recherche.mjs` — la suite passe de 54 à **64**. Le compte
+      est promu depuis la base, comme le fait `npm run creer-admin` : il garde
+      donc le `termesRecherche` calculé à son inscription et **reste indexé**,
+      ce que le test vérifie d'abord. Sans ce contrôle, un défaut
+      d'indexation ferait passer les suivants pour la mauvaise raison.
+      Absent des suggestions, de la recherche par pseudo, par nom, de la
+      recherche globale, et **du corps brut de la réponse** — un témoin au
+      même préfixe reste trouvable, ce qui prouve que le filtre vise le bon
+      compte et n'a pas cassé la recherche.
 
 ### 10.4 Endpoints
 - [x] `GET /api/search` — recherche globale
@@ -1931,6 +1956,83 @@ poignée de main**, et les destinataires sont relus **en base**.
       conversation accumule des centaines de pièces jointes là où une
       publication en compte dix
 
+#### 11.3 bis — Pièces jointes depuis l'interface *(ajout après clôture)*
+
+Le serveur acceptait déjà les pièces jointes et `ChatWindow` affichait déjà
+`message.media` ; **rien ne permettait d'en choisir une**. Le compositeur
+n'avait qu'un champ de texte.
+
+- [x] Un bouton **« + »** dans le compositeur, du même geste que la barre de
+      stories : il propose **importer un fichier** ou **prendre une photo**,
+      plutôt que d'ouvrir directement le sélecteur
+- [x] `CapturePhoto` **réutilisé tel quel** depuis le module 5 — il rend un
+      fichier JPEG, la messagerie n'a donc rien de particulier à savoir de la
+      caméra, et les correctifs faits d'un côté profitent à l'autre (arrêt du
+      flux, bornage à 1920 px, causes d'échec distinguées)
+- [x] **Aperçu avant envoi**, avec retrait possible ; les `objectURL` sont
+      libérées au remplacement et au démontage
+- [x] **Un message peut n'être qu'une pièce jointe** : exiger du texte
+      interdirait d'envoyer une photo seule
+- [x] **La vidéo n'est plus écartée.** Le motif d'origine tenait — une vidéo
+      par bulle impose un lecteur par bulle — mais la demande produit est plus
+      forte. Le compromis est le plafond : **25 Mo**, entre les 5 Mo d'une
+      image de conversation et les 100 Mo d'une vidéo de publication. Assez
+      pour un extrait de quelques dizaines de secondes, trop peu pour servir
+      de stockage.
+- [x] `verifierTaillePieceJointe` — Multer n'applique **qu'une** limite
+      globale ; on prend la plus haute des deux, puis on affine selon le type
+      réel. Sans ce second passage, une image de 20 Mo passerait, comparée au
+      plafond vidéo.
+- [x] **Le rendu choisit la balise d'après le `type` renvoyé par le serveur**,
+      jamais d'après l'extension de l'URL : un `<img>` sur une vidéo ne rend
+      rien du tout — pas d'erreur, juste une bulle vide. `preload="metadata"`
+      pour qu'un fil de dix vidéos ne déclenche pas dix téléchargements
+      complets à l'ouverture.
+- [x] Les plafonds sont **rappelés côté client pour refuser avant de
+      téléverser** — sans remplacer le serveur, qui reste seul juge : laisser
+      partir 40 Mo pour les voir rejetés à l'arrivée fait attendre pour rien,
+      sur la connexion la plus lente qui soit
+
+#### 11.3 ter — Like d'un message *(ajout après clôture)*
+
+Le même geste que sur une publication, transposé à une conversation.
+
+- [x] `Message.likes[]` — on stocke **la liste, pas un compteur** : un
+      compteur seul ne saurait pas dire si *moi* j'ai déjà aimé, et deux clics
+      rapides le feraient dériver. Une conversation n'ayant que deux
+      participants, la liste ne dépasse jamais deux entrées — c'est ce qui
+      rend ce choix tenable ici.
+- [x] `POST /api/messages/:id/like` — bascule ; `$addToSet` / `$pull`
+      **atomiques**, le contrôle applicatif n'évite qu'un aller-retour et ne
+      porte aucune garantie
+- [x] `versionPublique(visiteur)` expose `likesCount` et `aLike`, **jamais la
+      liste** — même règle qu'au module 5. Sans visiteur, le nombre reste juste
+      et `aLike` vaut `false` : un appelant qui l'oublie affiche un cœur vide,
+      jamais une donnée fausse sur quelqu'un d'autre.
+- [x] **L'accès se vérifie par la conversation**, pas par la visibilité d'un
+      profil : un message n'a pas d'audience, il appartient à un fil. Sans ce
+      contrôle, connaître un identifiant de message suffirait à aimer dans le
+      fil des autres — et à leur signaler qu'on l'a lu. Un tiers reçoit **404
+      et non 403**, qui confirmerait l'existence du message.
+- [x] **Un message supprimé ne s'aime plus**, et perd son compteur à
+      l'affichage : laisser « 1 ❤ » sous « Message supprimé » ferait subsister
+      une trace de ce qu'il contenait.
+- [x] **Aucune notification.** Une publication est lue plus tard, la
+      notification y est le seul moyen d'apprendre le like ; dans une
+      conversation ouverte, l'autre voit le cœur apparaître en direct.
+      Notifier en plus ferait sonner deux fois pour le même geste.
+- [x] Diffusion `message:like` aux deux participants, expéditeur compris —
+      ses autres onglets doivent voir le même état. Le socket **notifie**,
+      l'écriture reste passée par HTTP.
+- [x] **Le serveur diffuse `par`, pas `aLike`** : il envoie le même message
+      aux deux participants et ne peut pas y mettre une valeur qui vaudrait
+      pour l'un et pas pour l'autre. Chacun calcule le sien en comparant.
+- [x] Like **optimiste** côté client, recalé sur la réponse du serveur, et
+      remis à son état d'avant en cas d'échec — un cœur rouge sur un like non
+      enregistré serait pire que rien.
+- [x] Le cœur est **hors de la bulle** : à l'intérieur, il se confondrait avec
+      le contenu, et un cœur rouge sur une bulle de marque est illisible.
+
 ### 11.4 Temps réel
 - [x] `sockets/index.js` — attaché au serveur HTTP d'Express, pas sur un
       second port : un port distinct imposerait une seconde configuration
@@ -2018,6 +2120,30 @@ poignée de main**, et les destinataires sont relus **en base**.
 ### 11.6 Vérifications
 
 Suite serveur `npm run test:messagerie` — **62/62**.
+Suite navigateur `npm run test:messagerie` — **26/26**.
+
+**Ajouts vérifiés à part, en deux navigateurs simultanés :**
+
+*Pièces jointes — 19 vérifications.* Le « + » propose les deux sources ;
+l'aperçu précède l'envoi et peut être retiré ; une pièce jointe **seule, sans
+texte**, part bien ; l'image arrive en base **et se charge réellement** dans
+la bulle (`naturalWidth > 0`, la leçon du §5.10) ; une image de 6 Mo est
+refusée **sans qu'aucune requête ne parte** ; la caméra fonctionne depuis la
+messagerie et sa fenêtre se referme.
+
+*Like d'un message — 19 vérifications.* Un tiers reçoit **404** ; un anonyme
+**401** ; **le cœur d'Alice apparaît chez Bob sans qu'il touche à rien**, mais
+**le sien reste vide** — c'est la vérification qui prouve que `aLike` est
+calculé par destinataire et non diffusé tel quel ; deux likes se cumulent ;
+plusieurs bascules ne créent **aucun doublon** ; la liste des personnes ayant
+aimé **n'apparaît pas** dans la réponse ; un message supprimé ne s'aime plus
+et perd son compteur.
+
+> **Un échec à ne pas mal lire.** Enchaîner la suite serveur puis la suite
+> navigateur sans pause a fait échouer « le message apparaît chez Bob sans
+> rechargement ». Relancée seule : 26/26. C'est le cas que le lanceur
+> `npm test` évite en espaçant les suites — le symptôme accuse le temps réel,
+> la cause est le banc d'essai.
 
 - [x] Socket refusé sans jeton, avec un jeton falsifié, **avec un jeton
       expiré** (le cas qu'un contrôle naïf laisse passer, la signature étant
