@@ -230,15 +230,36 @@ export const repondreDemande = asyncHandler(async (req, res) => {
 export const marquerLu = asyncHandler(async (req, res) => {
   const marques = await messageService.marquerLu(req.params.id, req.user);
 
-  const conversation = await Conversation.findById(req.params.id);
+  /*
+   * LE `populate` N'EST PAS FACULTATIF ICI, et son absence produisait un
+   * défaut visible : `versionPour()` renvoie l'entrée brute de `participants`,
+   * donc un simple ObjectId sans lui. Cette conversation appauvrie était
+   * ensuite diffusée en `conversation:maj`, et le client — qui remplace
+   * l'objet entier — perdait le pseudo de son interlocuteur. L'en-tête
+   * affichait « ? » et le lien menait vers /profile/undefined.
+   *
+   * Le défaut se déclenchait à l'OUVERTURE du fil, puisque c'est elle qui
+   * appelle cette route : lire une conversation cassait son propre en-tête.
+   * Les quatre autres émetteurs de `conversation:maj` peuplaient déjà.
+   */
+  const conversation = await Conversation.findById(req.params.id)
+    .populate('participants', 'pseudo nom prenom avatar type diplome isActive');
 
   /*
    * ON PRÉVIENT L'EXPÉDITEUR QUE SES MESSAGES ONT ÉTÉ LUS.
    * C'est la double coche. Sans cette diffusion, elle n'apparaîtrait qu'au
    * rechargement de la page — c'est-à-dire jamais, dans un onglet resté
    * ouvert sur la conversation.
+   *
+   * `?._id` EST INDISPENSABLE DEPUIS LE `populate` CI-DESSUS. `interlocuteurDe`
+   * renvoie désormais un document, et `String(document)` ne rend pas un
+   * identifiant mais sa représentation entière — la diffusion partirait vers
+   * une salle inexistante et la double coche cesserait d'apparaître, sans la
+   * moindre erreur pour le signaler.
    */
-  const autre = String(conversation.interlocuteurDe(req.user._id));
+  const interlocuteur = conversation.interlocuteurDe(req.user._id);
+  const autre = String(interlocuteur?._id || interlocuteur);
+
   diffuserA([autre], 'messages:lus', {
     conversation: String(conversation._id),
     par: String(req.user._id),

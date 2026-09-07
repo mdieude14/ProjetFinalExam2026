@@ -267,8 +267,24 @@ const TEXTE = `bonjour en direct ${S}`;
 await champ.fill(TEXTE);
 await pageAlice.getByRole('button', { name: 'Envoyer' }).click();
 
+/*
+ * ON CADRE LE SELECTEUR SUR LE FIL, ET C'EST INDISPENSABLE.
+ *
+ * `getByText` sans cadrage trouve DEUX elements : la bulle du fil, et
+ * l'extrait du dernier message affiche dans la liste des conversations.
+ * Playwright refuse alors d'agir — « strict mode violation » —, le `catch`
+ * ci-dessous transforme l'exception en « pas recu », et la suite accuse la
+ * diffusion temps reel alors que le message est bien arrive.
+ *
+ * L'echec dependait de l'ordre d'arrivee de `message:nouveau` et de
+ * `conversation:maj` : tant que l'extrait n'etait pas encore peint, un seul
+ * element repondait et le test passait. D'ou une suite qui passait une fois
+ * sur deux, pour une raison etrangere a ce qu'elle mesure.
+ */
 // Aucun rechargement côté Bob : on attend simplement que le texte paraisse.
-const bulleChezBob = pageBob.getByText(TEXTE, { exact: false });
+const bulleChezBob = pageBob
+  .getByTestId('fil-messages')
+  .getByText(TEXTE, { exact: false });
 let recuEnDirect = true;
 try {
   // Marge large a dessein : la machine peut etre chargee par les suites

@@ -2051,6 +2051,52 @@ Le même geste que sur une publication, transposé à une conversation.
 - [x] La diffusion vient **après** l'écriture et la réponse HTTP : si le temps
       réel est indisponible, le message est déjà en base
 
+#### 11.4 bis — Le pseudo disparaissait à l'ouverture d'un fil *(défaut signalé, corrigé)*
+
+**Symptôme.** En entrant dans une conversation, le pseudo de l'interlocuteur
+laissait place à « ? », et cliquer dessus menait à « Profil introuvable ».
+Reproduit : `href="/profile/undefined"`, texte `"? @"`.
+
+**Cause.** `marquerLu` chargeait la conversation **sans `populate`** —
+le seul des cinq émetteurs de `conversation:maj` dans ce cas.
+`versionPour()` renvoie l'entrée brute de `participants` : sans peuplement,
+un simple `ObjectId`. Cette conversation appauvrie était diffusée, et
+`Messages.jsx` — qui **remplaçait l'objet entier** — perdait l'identité.
+
+Le défaut se déclenchait donc **parce que** l'on ouvrait le fil : c'est
+l'ouverture qui appelle cette route. Lire une conversation cassait son propre
+en-tête.
+
+- [x] `populate('participants', …)` ajouté dans `marquerLu`
+- [x] **Et `?._id` sur la ligne au-dessus, sans quoi la correction en
+      introduisait une autre.** `interlocuteurDe()` renvoie désormais un
+      document, et `String(document)` ne rend pas un identifiant mais sa
+      représentation entière — vérifié :
+      `{ pseudo: 'bob', …, _id: new ObjectId('6a9f38…') }` au lieu de
+      `6a9f38…`. La diffusion `messages:lus` serait partie vers une salle
+      inexistante et **la double coche aurait cessé d'apparaître**, sans la
+      moindre erreur pour le signaler.
+- [x] `Messages.jsx` **fusionne au lieu de remplacer**, et conserve
+      l'interlocuteur connu quand la charge utile n'en apporte pas de complet.
+      La cause est corrigée côté serveur, où elle devait l'être ; ceci est la
+      ceinture en plus de la bretelle.
+
+**11 vérifications dédiées, en deux navigateurs** (un coach et un sportif,
+le défaut ayant été signalé sur les deux) : l'en-tête porte le pseudo à
+l'ouverture **et y survit après `conversation:maj`** ; le lien mène au profil
+et non à « Profil introuvable » ; **la double coche apparaît toujours en
+direct** ; le compteur de non-lus retombe à zéro.
+
+> **Un test faussement accusateur, corrigé au passage.** La suite navigateur
+> échouait sur « le message apparaît chez Bob sans rechargement ». Le message
+> arrivait pourtant bien : `getByText` trouvait **deux** éléments — la bulle
+> du fil *et* l'extrait du dernier message dans la liste des conversations —,
+> Playwright refusait d'agir (« strict mode violation »), et le `catch`
+> transformait l'exception en « pas reçu ». L'échec dépendait de l'ordre
+> d'arrivée de `message:nouveau` et de `conversation:maj` : la suite passait
+> une fois sur deux, pour une raison étrangère à ce qu'elle mesure. Le
+> sélecteur est désormais cadré sur `fil-messages`.
+
 ### 11.5 Front
 - [x] `socket.io-client`, `context/SocketContext.jsx`, `hooks/useSocket.js`
 - [x] **Un seul socket pour toute l'application** — un par écran multiplierait
@@ -2190,6 +2236,23 @@ Parcours navigateur `npm run test:messagerie` côté client — **25/25**,
 > texte y figure légitimement deux fois — dans la bulle, et dans l'extrait de
 > la liste à gauche. Le banc d'essai signalait donc un doublon qui n'existait
 > pas. Corrigé en ciblant le fil (`data-testid="fil-messages"`).
+
+#### 11.6 bis — Campagne complète du 8 septembre
+
+`npm test` — **21 suites, 783/797 vérifications**. Les 18 suites de fond
+passent ; trois échecs, dont **aucun imputable au code** :
+
+| Suite | Résultat | Cause |
+|---|---|---|
+| `test:messagerie` client | 25/26 puis **26/26** | Sélecteur ambigu dans la suite — corrigé, voir §11.4 bis |
+| `test:ui` | échec puis **45/45** | Saturation mémoire : `ERR_INSUFFICIENT_RESOURCES`, point de rupture différent à chaque exécution. Repassée avec 2,9 Go de marge |
+| `test:paiement` | 18/31 | **Non exécutable** : la CLI Stripe de l'environnement n'est pas authentifiée (`stripe login` passe par un navigateur). Ni vérifiée, ni infirmée. |
+
+> **La mémoire est le premier suspect d'un échec de suite navigateur, pas le
+> code.** Trois exécutions de `test:ui` ont rompu sur trois points
+> différents — un clic, un `boundingBox`, un `goto` — alors que chaque
+> élément visé répondait en 1 à 2 secondes isolément. Regarder la marge de
+> validation avant de suspecter une régression fait gagner du temps.
 
 ### 11.7 Parcours utilisateur de bout en bout — modules 10 et 11
 

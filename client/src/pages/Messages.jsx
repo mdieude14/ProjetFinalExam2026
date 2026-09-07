@@ -65,10 +65,36 @@ export default function Messages() {
      */
     const arret = ecouter('conversation:maj', ({ conversation }) => {
       setConversations((precedentes) => {
+        const connue = precedentes.find((c) => c._id === conversation._id);
         const autres = precedentes.filter((c) => c._id !== conversation._id);
+
+        /*
+         * ON FUSIONNE, ON NE REMPLACE PAS.
+         *
+         * Remplacer l'objet entier fait perdre tout ce que la diffusion
+         * n'apporte pas. C'est exactement ce qui est arrivé : un émetteur
+         * envoyait un `interlocuteur` réduit à son identifiant, et l'en-tête
+         * du fil affichait « ? » avec un lien vers /profile/undefined.
+         *
+         * La cause a été corrigée côté serveur, où elle devait l'être. Cette
+         * fusion est la ceinture en plus de la bretelle : un futur émetteur
+         * incomplet dégradera peut-être un compteur, il ne fera plus
+         * disparaître l'identité de l'interlocuteur.
+         */
+        const fusionnee = {
+          ...connue,
+          ...conversation,
+          interlocuteur:
+            // Un identifiant nu n'a pas de `pseudo` : c'est le signe d'une
+            // charge utile appauvrie, on garde alors ce qu'on savait déjà.
+            conversation.interlocuteur?.pseudo
+              ? conversation.interlocuteur
+              : connue?.interlocuteur || conversation.interlocuteur,
+        };
+
         // La conversation qui bouge remonte en tête : c'est le tri du
         // serveur, reproduit localement pour rester cohérent.
-        return [conversation, ...autres];
+        return [fusionnee, ...autres];
       });
     });
 
