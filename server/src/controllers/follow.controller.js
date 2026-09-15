@@ -259,7 +259,9 @@ function listerRelations(sens) {
     const { relations, total } = await followService.listerRelations(
       cible._id,
       sens,
-      { saut, limite }
+      // Le visiteur est transmis pour que les comptes avec lesquels il est en
+      // blocage sortent du pipeline — de la page comme du total.
+      { saut, limite, visiteur: req.user }
     );
 
     // Etat de MA relation avec chaque personne listee, pour afficher le bon

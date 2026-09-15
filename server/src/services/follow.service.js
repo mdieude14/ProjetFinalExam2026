@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import Follow from '../models/Follow.js';
 import User from '../models/User.js';
+import Relation from '../models/Relation.js';
+import { idsMasquesPour } from './access.service.js';
 import { ApiError } from '../utils/ApiError.js';
 
 /**
@@ -64,6 +66,25 @@ export async function suivre(demandeur, cible) {
   }
 
   if (!cible.isActive) {
+    throw ApiError.notFound('Profil introuvable');
+  }
+
+  /*
+   * UN BLOCAGE INTERDIT DE (RE)SUIVRE — LE TROU LE PLUS BETE DU MODULE.
+   *
+   * Bloquer rompt les suivis existants, mais rien n'empechait d'en creer un
+   * nouveau juste apres : il suffisait de rouvrir le profil, qui reste
+   * identifiable par conception, et de recliquer sur « Suivre ». Le blocage
+   * se defaisait donc en un clic, par la personne meme qu'il visait.
+   *
+   * Pire, l'effet survivait au deblocage : le suivi recree restait en base,
+   * et « debloquer ne retablit pas les suivis » devenait faux dans les faits.
+   *
+   * 404 ET NON 403, comme partout ailleurs : un 403 confirmerait le blocage a
+   * celui qui le subit, et signalerait a celui qui bloque que l'autre vient
+   * d'essayer.
+   */
+  if (await Relation.blocageEntre(demandeur._id, cible._id)) {
     throw ApiError.notFound('Profil introuvable');
   }
 
@@ -291,6 +312,19 @@ export async function recompter(idUtilisateur) {
    * Les deux passent desormais par `compterRelations`, donc par le meme
    * pipeline que la liste : ils ne peuvent plus diverger.
    */
+  /*
+   * AUCUN VISITEUR N'EST PASSE ICI, ET C'EST VOLONTAIRE.
+   *
+   * compterRelations accepte desormais un visiteur, pour ecarter de la LISTE
+   * les comptes bloques. Mais ce compteur-ci est stocke sur le document
+   * utilisateur : il est le meme pour tout le monde. Le calculer du point de
+   * vue de quelqu'un ecrirait en base un total valable pour lui seul, et le
+   * profil afficherait a chacun le nombre d'abonnes du dernier a avoir
+   * declenche un recomptage.
+   *
+   * L'ecart entre ce total absolu et la liste filtree est assume : c'est
+   * exactement ce que fait Instagram.
+   */
   const [followers, following] = await Promise.all([
     compterRelations(idUtilisateur, 'abonnes'),
     compterRelations(idUtilisateur, 'abonnements'),
@@ -378,7 +412,16 @@ export async function suggestions(utilisateur, limite = 6) {
     follower: utilisateur._id,
   });
 
-  const exclus = [...dejaEnRelation, utilisateur._id];
+  /*
+   * ON N'A PAS BESOIN D'AJOUTER LES BLOQUES A `dejaEnRelation` : bloquer
+   * rompt les suivis, ils n'y figurent donc plus. C'est precisement pour ca
+   * qu'il faut les rajouter ici — sans cette ligne, bloquer un coach le ferait
+   * REAPPARAITRE en suggestion, la rupture du suivi le rendant de nouveau
+   * eligible. Le blocage aurait alors l'effet exactement inverse du sien.
+   */
+  const masques = await idsMasquesPour(utilisateur);
+
+  const exclus = [...dejaEnRelation, ...masques, utilisateur._id];
 
   const filtreBase = {
     _id: { $nin: exclus },
@@ -445,13 +488,24 @@ export async function suggestions(utilisateur, limite = 6) {
  * ensemble. `$unwind` sans `preserveNullAndEmptyArrays` ecarte les relations
  * orphelines ; `$match` sur `isActive` ecarte les comptes desactives.
  */
-function etapesRelations(idCible, sens) {
+function etapesRelations(idCible, sens, masques = []) {
   const champLie = sens === 'abonnes' ? 'follower' : 'following';
 
   const filtre =
     sens === 'abonnes'
       ? { following: idCible, statut: 'accepte' }
       : { follower: idCible, statut: 'accepte' };
+
+  /*
+   * LES COMPTES BLOQUES SORTENT DU PIPELINE, DONC DE LA LISTE ET DU TOTAL.
+   *
+   * C'est la raison d'etre de ce parametre plutot qu'un filtre pose plus
+   * haut : `etapesRelations` est partagee par la page et par le comptage,
+   * et l'en-tete ci-dessus rappelle ce qu'un total desaccorde produit —
+   * « 25 abonnes » au-dessus d'une liste qui en montre 23. Filtrer d'un seul
+   * cote reintroduirait exactement ce defaut.
+   */
+  if (masques.length) filtre[champLie] = { $nin: masques };
 
   return [
     { $match: filtre },
@@ -477,8 +531,8 @@ function etapesRelations(idCible, sens) {
  * qu'ils ne peuvent plus diverger : le total n'est pas un second comptage
  * ecrit ailleurs, c'est le meme filtre compte au lieu d'etre pagine.
  */
-export async function listerRelations(idCible, sens, { saut = 0, limite = 20 } = {}) {
-  const etapes = etapesRelations(idCible, sens);
+export async function listerRelations(idCible, sens, { saut = 0, limite = 20, visiteur } = {}) {
+  const etapes = etapesRelations(idCible, sens, await idsMasquesPour(visiteur));
 
   const [resultat] = await Follow.aggregate([
     ...etapes,
@@ -522,9 +576,9 @@ export async function listerRelations(idCible, sens, { saut = 0, limite = 20 } =
  * qui ne correspond pas a ce qu'on voit est pire qu'un compteur absent — il
  * fait chercher des personnes qui n'existent plus.
  */
-export async function compterRelations(idCible, sens) {
+export async function compterRelations(idCible, sens, visiteur) {
   const [resultat] = await Follow.aggregate([
-    ...etapesRelations(idCible, sens),
+    ...etapesRelations(idCible, sens, await idsMasquesPour(visiteur)),
     { $count: 'valeur' },
   ]);
 

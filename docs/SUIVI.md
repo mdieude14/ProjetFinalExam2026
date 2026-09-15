@@ -2708,3 +2708,592 @@ question : **qu'est-ce qui casse quand quelqu'un d'autre ouvre ce dépôt ?**
 > `PostCard`, que le lint et la compilation avaient laissée passer. Une suite
 > qui échoue mérite qu'on lise son message avant de blâmer la machine :
 > ici, il désignait la cause dès le premier essai.
+
+---
+
+## Module 14 — Modération personnelle  `TERMINÉ`
+
+> Bloquer, restreindre et signaler un compte, depuis un menu « ⋯ » posé sur
+> le profil et dans la conversation.
+>
+> Ce que les modules précédents rendent possible ici : le **service d'accès**
+> du module 4, seul endroit qui décide « qui voit quoi » ; les **transactions**
+> du module 6, indispensables pour rompre des suivis sans fausser les
+> compteurs ; le **sas de conversation** du module 11, que la restriction
+> réutilise au lieu d'inventer un second mécanisme ; et le **back-office** du
+> module 3, où les signalements atterrissent.
+
+### 14.0 Le problème central — une règle, sept endroits qui doivent l'appliquer
+
+Bloquer n'est pas une fonctionnalité qui vit quelque part. C'est une **règle
+de visibilité**, et la visibilité se décide dans chaque point d'entrée qui
+produit une liste : recherche, autocomplétion, publications, événements,
+carte, suggestions, listes d'abonnés.
+
+Deux conceptions ont été écartées :
+
+- **Filtrer côté client.** Un fichier touché au lieu de dix-sept — mais les
+  données partent quand même dans la réponse HTTP, où l'onglet réseau les
+  montre en clair. C'est la règle posée au module 5 : *ce qui est inaccessible
+  doit être absent, pas caché.*
+- **Un middleware global.** Impossible : le champ à exclure diffère selon la
+  collection (`_id` pour une personne, `auteur` pour une publication,
+  `organisateur` pour un événement), et deux des surfaces sont des pipelines
+  d'agrégation, pas des `find()`.
+
+D'où le compromis retenu : **une fonction, `idsMasquesPour()`, et N appels.**
+Le N est le prix de la correction.
+
+### 14.1 Trois actions qui ne sont pas des degrés d'une même échelle
+
+|  | Effet | Visible ? | Rompt les suivis ? |
+|---|---|---|---|
+| **Bloquer** | coupe l'accès **dans les deux sens** | oui, constatable | oui, dans les deux sens |
+| **Restreindre** | messages en demande, commentaires en attente | **jamais** | non |
+| **Signaler** | ouvre un dossier pour l'administration | non | non |
+
+- [x] La restriction est la **sortie discrète**, quand bloquer serait un
+      esclandre. Chaque décision du module en découle : une restriction qui se
+      remarque ne vaut pas mieux qu'un blocage franc.
+- [x] On peut signaler quelqu'un qu'on continue de suivre — c'est même le cas
+      ordinaire d'un abonné qui alerte sur une dérive.
+
+### 14.2 Modèles
+
+- [x] [`models/Relation.js`](../server/src/models/Relation.js) — blocage
+      **et** restriction dans une seule collection : les deux décrivent un
+      lien **orienté** entre deux comptes, seul l'effet diffère. Deux
+      collections dupliqueraient index, requêtes et purges.
+  - [x] **Unicité sur le TRIPLET** `{ source, cible, type }`, pas sur la
+        paire. Poser l'unicité sur la paire interdirait de restreindre
+        quelqu'un qu'on a déjà bloqué, et le second appel échouerait sur une
+        erreur de doublon incompréhensible.
+  - [x] C'est l'unicité qui rend l'action **idempotente** : bloquer deux fois
+        ne crée pas deux documents, et le contrôleur n'a pas à vérifier avant
+        d'écrire — c'est la base qui refuse.
+  - [x] `blocageEntre()` interroge **les deux sens** ; `estRestreintPar()` est
+        orientée ; `idsBloquesAvec()` sert les requêtes de liste
+  - [x] Index `{ cible: 1, type: 1 }` : « qui m'a bloqué ? » se pose aussi
+        souvent que « qui ai-je bloqué ? »
+
+- [x] [`models/Signalement.js`](../server/src/models/Signalement.js) —
+      collection à part, car un signalement a un **cycle de vie** (déposé,
+      instruit, tranché) et non un état binaire
+  - [x] Motifs **fermés** : « combien de comptes signalés pour usurpation ce
+        mois-ci » n'a de réponse que si le motif est une valeur, pas une phrase
+  - [x] **Index unique PARTIEL** sur `statut: 'ouvert'`. Sans la condition, on
+        ne pourrait jamais signaler deux fois le même compte, même des mois
+        après un premier dossier tranché — or la récidive est précisément ce
+        qu'il faut pouvoir remonter. Il empêche en revanche le clic répété
+        d'inonder la file.
+  - [x] `versionAdmin()` — **jamais renvoyée au signaleur ni à la cible** :
+        apprendre qui vous a signalé ouvrirait la porte aux représailles
+
+- [x] [`models/Comment.js`](../server/src/models/Comment.js) — champ
+      `enAttenteApprobation`, **figé à l'écriture** et non recalculé à la
+      lecture : lever une restriction ne doit pas publier d'un coup des mois
+      de commentaires que l'auteur n'a jamais vus
+  - [x] Index partiel sur les seuls commentaires en attente — ils sont une
+        infime minorité
+
+### 14.3 Le point unique — `access.service.js`
+
+Le fichier le plus important du module, et le plus court en code ajouté.
+
+- [x] `relationAvec()` teste le **blocage AVANT le suivi**. L'ordre n'est pas
+      indifférent : même avec un `Follow` résiduel laissé par une transaction
+      interrompue, la personne bloquée ne voit rien. Le verrou ne dépend pas
+      de la propreté d'une autre collection.
+- [x] `peutVoirContenu()` — `bloque` l'emporte **avant** le test
+      `visibilite === 'public'`, sinon le blocage n'aurait aucun effet là où
+      il est le plus souvent posé
+- [x] `peutVoirPremium()` — **un abonnement payé ne rouvre pas un blocage**,
+      sinon il serait contournable en payant
+- [x] `idsMasquesPour()` renvoie **un tableau**, pas une clause Mongo toute
+      faite : le champ à exclure n'est pas le même partout
+- [x] L'administration n'est jamais filtrée : elle doit pouvoir retrouver un
+      compte pour instruire un signalement, y compris un compte qui l'aurait
+      bloquée
+
+### 14.4 Les sept surfaces
+
+| Surface | Le piège propre à chacune |
+|---|---|
+| Autocomplétion | Ne recevait **pas** le visiteur : trois lettres du pseudo retrouvaient un compte bloqué |
+| Recherche validée | Interroge la base **deux fois** (`$text` puis préfixe) et fusionne — filtrer une seule branche laissait ressortir par l'autre |
+| Publications | Couvert par `auteursVisiblesPar` |
+| Événements | `organisateur: { $nin }` — rejoindre l'événement mettrait les deux personnes en présence |
+| Suggestions de comptes | Détaillé ci-dessous |
+| Carte | `$geoNear`, détaillé ci-dessous |
+| Listes d'abonnés | La page **et** le total, sinon ils divergent |
+
+- [x] **Dans `auteursVisiblesPar`, le blocage se retranche APRÈS la réunion.**
+      Un compte bloqué est presque toujours un compte *public*, donc déjà
+      présent dans la première source. Filtrer avant la réunion le laissait
+      rentrer par cette porte.
+- [x] **Le blocage produisait l'effet exactement inverse du sien dans les
+      suggestions.** Elles excluent les comptes déjà suivis ; or bloquer rompt
+      le suivi. Sans correctif, bloquer un coach le rendait de nouveau
+      éligible et le faisait **réapparaître en suggestion** — le blocage
+      servait à remettre la personne devant les yeux.
+- [x] **Sur la carte, la condition entre dans le `query` de `$geoNear`**, pas
+      dans un `$match` posé après : `$geoNear` applique sa limite *avant* les
+      étapes suivantes. Un `$match` postérieur aurait retiré le coach, mais
+      après qu'il a consommé une des cinquante places — la carte aurait affiché
+      quarante-neuf épingles sans raison visible.
+- [x] **`/api/geo/coachs` n'avait aucun middleware d'authentification.**
+      `req.user` restait vide, et l'exclusion, pourtant écrite dans le service,
+      ne se serait jamais déclenchée : une règle écrite mais morte.
+      `protectOptionnel` ajouté — la carte reste ouverte aux anonymes, mais
+      elle sait désormais qui regarde.
+- [x] **`recompter()` ne reçoit délibérément PAS de visiteur.** Ce compteur est
+      stocké sur le document utilisateur : le calculer du point de vue de
+      quelqu'un y écrirait un total valable pour lui seul, et le profil
+      afficherait à chacun le nombre d'abonnés du dernier à avoir déclenché un
+      recomptage. L'écart entre ce total absolu et la liste filtrée est assumé.
+- [x] Le fil (`construireFeed`) reçoit l'exclusion **en ceinture et
+      bretelles**, pour le seul cas d'un `Follow` résiduel
+
+### 14.5 Messagerie — le blocage ferme, la restriction range ailleurs
+
+- [x] `ouvrirConversation` refuse un fil quand un blocage existe, et répond
+      **404, pas 403**. Un 403 confirmerait l'existence du compte *et* du
+      blocage : celui qui bloque apprendrait que l'autre a essayé de le
+      joindre, et le bloqué saurait précisément qu'il l'est.
+- [x] **Le même contrôle est refait À CHAQUE ENVOI.** Le cas réel est la
+      conversation vieille de six mois où l'un bloque l'autre : le fil est déjà
+      ouvert, la porte déjà franchie. Sans ce second contrôle, tout fil
+      existant restait une porte dérobée.
+- [x] La restriction **rétrograde le fil vers les demandes**, y compris un fil
+      déjà accepté — sinon restreindre quelqu'un qui vous suit n'aurait aucun
+      effet sur la messagerie
+- [x] **Le plafond du sas est LEVÉ pour un expéditeur restreint**, et cette
+      dérogation est la condition du silence. Une demande limite son auteur à
+      un seul message ; appliquée telle quelle, la personne restreinte se
+      serait pris un **403 à son deuxième message** et aurait compris en une
+      seconde qu'on l'a mise à l'écart.
+- [x] **Aucune notification** : le message part, il est stocké, il attend —
+      mais il ne fait sonner personne
+- [x] **Les accusés de lecture fuyaient par DEUX chemins indépendants**, et
+      n'en boucher qu'un n'aurait servi à rien :
+
+| Chemin | Correctif |
+|---|---|
+| HTTP, à l'ouverture du fil | `lu: false` forcé **sur la vue**, jamais en base, et uniquement sur ses propres messages |
+| Socket, onglet déjà ouvert | `messages:lus` n'est plus diffusé vers un restreint |
+
+- [x] Le masquage porte **sur la vue et non sur la base** : le compteur de
+      non-lus de celui qui restreint reste juste, et lever la restriction
+      rétablit la coche sans qu'aucune donnée n'ait été perdue
+
+### 14.6 Commentaires — approbation
+
+- [x] Le commentaire d'une personne restreinte **n'est pas refusé : il
+      attend**. Le refuser produirait une erreur visible, et la restriction
+      cesserait d'être silencieuse au premier commentaire.
+- [x] Il n'est visible que de **deux personnes** : son auteur — qui ne doit se
+      douter de rien — et l'auteur de la publication, qui décide
+- [x] **Le filtre est posé en base, pas après coup.** Filtrer après lecture
+      fausserait `total` et donc la pagination (le défaut corrigé au module 6),
+      et surtout le texte serait déjà parti dans la réponse HTTP.
+- [x] `$ne: true` et non `false` : les commentaires écrits avant l'ajout du
+      champ n'ont pas l'attribut du tout, et une égalité stricte à `false` les
+      aurait **tous** exclus
+
+**Le vrai piège du palier, ce sont les compteurs.**
+
+- [x] `commentsCount` ne bouge pas tant que le commentaire est en attente.
+      Il aurait fait pire que mentir : il aurait **trahi la restriction**, le
+      commentateur voyant le total grimper alors que son texte n'apparaît chez
+      personne. L'incrément est reporté à l'approbation, dans la **même
+      transaction** que le changement d'état.
+- [x] **Effet de bord non prévu, corrigé.** L'auteur d'un commentaire en
+      attente — qui ignore qu'il est restreint — peut le supprimer lui-même par
+      la route `DELETE` existante. Celle-ci décrémentait de 1 : une unité
+      jamais ajoutée, et le total descendait d'un cran à chaque fois jusqu'à
+      passer sous zéro. `supprimerCommentaire` ne décrémente désormais que ce
+      qui a été compté.
+- [x] `PATCH /api/comments/:id/approbation` — réservé à l'auteur de la
+      publication et à l'administration. **Rejeter ne passe pas par le
+      `DELETE` existant**, précisément parce que celui-ci raisonne sur un
+      commentaire publié.
+- [x] **Pas de file d'attente séparée** : l'auteur voit les commentaires en
+      attente *à leur place*, sous sa publication, marqués. Un écran dédié
+      aurait été un endroit de plus à penser à consulter.
+- [x] **Aucune notification, ni à l'écriture ni à l'approbation** — à
+      l'approbation, l'auteur vient lui-même d'approuver, le prévenir de ce
+      qu'il vient de faire serait du bruit
+
+### 14.7 API
+
+| Route | Effet |
+|---|---|
+| `POST` / `DELETE` `/api/users/:id/blocage` | pose / retire |
+| `POST` / `DELETE` `/api/users/:id/restriction` | pose / retire |
+| `POST /api/users/:id/signalement` | ouvre un dossier — **pas de retrait** |
+| `GET /api/users/:id/moderation` | l'état, pour le menu hors page de profil |
+| `GET /api/users/me/bloques` · `/me/restreints` | les deux écrans |
+| `GET` / `PATCH` `/api/admin/signalements[/:id]` | la file et l'instruction |
+
+- [x] **Le verbe porte l'effet.** Un point d'entrée unique avec un drapeau
+      `{ bloquer: true/false }` rendrait un appel mal formé capable de
+      *dé*bloquer alors qu'on voulait bloquer.
+- [x] **Pas de `DELETE` sur le signalement** : il ne se retire pas, il est
+      instruit par l'administration qui le classe. Le retirer soi-même
+      effacerait la trace d'une alerte déjà en cours de traitement.
+- [x] Les routes fixes (`/me/bloques`) sont déclarées **avant**
+      `/:identifiant` — déclarée après, elle aurait été capturée comme un
+      profil dont le pseudo serait littéralement « me »
+- [x] `chargerCible()` refuse de viser un **administrateur** : sans quoi un
+      compte problématique deviendrait intouchable en bloquant la modération
+- [x] Le signalement créé **n'est jamais renvoyé**, même à son auteur : il
+      porte `statut` et la décision, dont l'exposition ouvrirait une lecture du
+      travail de modération
+- [x] Les motifs du validateur sont **importés du modèle**, jamais recopiés :
+      une seconde liste divergerait au premier motif ajouté, et l'erreur
+      remonterait en **500** au lieu d'un 400 explicite
+
+**Deux drapeaux distincts sur le profil, et il faut les deux :**
+
+| | Nature | Ce qu'il commande |
+|---|---|---|
+| `estBloque` | **symétrique** — vrai dans les deux sens | l'écran : pas de bouton « Suivre », pas de contenu |
+| `moderation.bloque` | **orienté** — vrai si c'est *moi* qui ai bloqué | le menu : on ne débloque que ce qu'on a bloqué |
+
+Les confondre aurait affiché « Débloquer » à quelqu'un qui vient de **se
+faire** bloquer — un bouton sans effet, et une fuite.
+
+### 14.8 Le menu « ⋯ »
+
+- [x] [`components/ui/MenuOptions.jsx`](../client/src/components/ui/MenuOptions.jsx)
+      — composant **générique**, placé dans `ui/` et non dans `moderation/` :
+      il ne sait rien de ce qu'il déroule. Le menu d'une publication s'y
+      branchera sans une ligne de plus.
+- [x] `mousedown` et non `click` pour la fermeture au clic extérieur : avec
+      `click`, l'événement du bouton qui vient d'ouvrir le menu remonterait
+      dans la même salve et le refermerait aussitôt — le menu ne s'ouvrirait
+      jamais
+- [x] Navigation aux flèches avec **« roving tabindex »** : une seule entrée
+      atteignable par Tab. Un menu n'est pas une pile de boutons ; sans cela,
+      dix options coûteraient dix coups de Tab.
+- [x] **Tab ferme sans rendre le focus** — le rendre ramènerait dans le menu au
+      coup de Tab suivant, une boucle dont on ne sort plus au clavier
+- [x] `aria-haspopup` / `aria-expanded` / `role="menu"` / `role="menuitem"`
+- [x] **Trois cercles SVG, pas le caractère « ⋯ ».** C'est la leçon du « + » de
+      la messagerie : un glyphe est centré sur sa boîte de ligne, pas sur son
+      encre, et son rendu varie d'une police à l'autre.
+- [x] [`components/moderation/MenuModeration.jsx`](../client/src/components/moderation/MenuModeration.jsx)
+      — **un seul composant pour les deux surfaces**, profil et conversation
+- [x] Les descriptions ne sont pas décoratives : « Restreindre » ne veut rien
+      dire seul, et la différence avec « Bloquer » est ce que l'utilisateur
+      doit comprendre **avant** de cliquer
+- [x] La confirmation de blocage **annonce la rupture des suivis, et qu'elle ne
+      se défait pas** — c'est la conséquence que personne n'anticipe
+- [x] **Un retour visible après coup** : restreindre et signaler ne changent
+      *rien* à l'écran, c'est leur raison d'être. Sans message de confirmation,
+      l'utilisateur referait l'action.
+- [x] Signaler deux fois est **grisé, pas masqué** : retirer l'entrée
+      laisserait croire que l'action n'existe pas
+- [x] Positionnement à droite, mesuré au navigateur : **aucune classe** sur le
+      profil (le bloc précédent porte `flex-1` et repousse le menu),
+      **`ml-auto`** dans la conversation (le lien porte `min-w-0` mais pas
+      `flex-1`, rien n'absorbe l'espace). Un positionnement absolu aurait
+      chevauché les badges sur un nom long.
+- [x] Aucun menu sur son propre profil
+
+### 14.9 Back-office des signalements
+
+- [x] Onglet **Signalements** dans
+      [`pages/admin/Moderation.jsx`](../client/src/pages/admin/Moderation.jsx),
+      avec pastille du nombre de dossiers ouverts
+- [x] **Le motif et les précisions passent avant les identités.** C'est ce que
+      l'administrateur doit lire pour décider s'il ouvre le profil visé :
+      afficher d'abord les noms le ferait juger la personne avant de savoir ce
+      qui lui est reproché.
+- [x] Le motif est affiché **en libellé lisible**, pas en valeur brute
+- [x] Les précisions sont affichées **sans troncature** — les couper
+      obligerait à ouvrir la base pour lire la fin d'une alerte
+- [x] Le **signaleur est affiché**, mais uniquement ici : il permet de repérer
+      un compte qui signale tout le monde, ce qui est en soi un signal
+- [x] Les plus **anciens d'abord**, comme la file des diplômes
+- [x] **On classe, on ne supprime pas.** Un compte signalé trois fois puis
+      blanchi trois fois n'est pas un compte jamais signalé, et c'est
+      l'historique qui permet de le voir.
+- [x] Le classement **rouvre la possibilité de signaler** — l'index partiel ne
+      porte que sur les dossiers ouverts
+- [x] **Personne n'est notifié d'une décision**, ni le signaleur ni la cible :
+      prévenir le signaleur transformerait le signalement en arme mesurable
+      (on saurait quels motifs « marchent ») ; prévenir la cible lui
+      apprendrait qu'elle a été signalée, et souvent par qui
+- [x] Changer de famille réinitialise l'onglet : les statuts n'ont pas les
+      mêmes noms d'un côté et de l'autre (`en_attente` contre `ouvert`)
+
+### 14.10 Ce que les tests ont trouvé
+
+Quatre défauts réels, qu'aucune relecture n'avait vus.
+
+- [x] **On pouvait re-suivre quelqu'un qui vous avait bloqué.** Bloquer rompt
+      les suivis, mais rien n'empêchait d'en créer un nouveau juste après : le
+      profil reste identifiable par conception, il suffisait de recliquer sur
+      « Suivre ». *Le blocage se défaisait en un clic, par la personne même
+      qu'il visait.* Pire, le suivi recréé survivait au déblocage — « débloquer
+      ne rétablit pas les suivis » devenait faux dans les faits.
+- [x] **Échap ne fermait pas le menu quand on l'ouvrait à la souris.**
+      L'écouteur clavier était posé sur le `div` du menu ; or ouvrir d'un clic
+      laisse le focus sur le **bouton**, l'événement ne traversait jamais le
+      menu. Au clavier tout marchait — ouvert par Entrée, le focus était déjà
+      dans le menu. Le défaut ne touchait donc **que le cas le plus fréquent**.
+      Corrigé en écoutant sur le `document`, comme `Modal.jsx` le fait déjà.
+- [x] **La file admin renvoyait 400 sur chaque appel.** La route réutilisait
+      `reglesPagination`, écrit pour les diplômes : son champ `statut`
+      n'accepte que `en_attente | verifie | refuse`, alors que les signalements
+      se filtrent sur `ouvert | traite | rejete`. *Un validateur se choisit sur
+      ce qu'il valide, pas sur ce que son nom laisse croire.*
+- [x] **Le curseur main manquait sur quatre variants de `Button` sur cinq.**
+      Depuis Tailwind 4, le preflight pose `cursor: default` sur les boutons ;
+      seul le variant `choix` portait la classe. « Annuler », « Envoyer »,
+      « Bloquer » et tous les autres boutons de l'**application entière**
+      affichaient la flèche ordinaire. Mesuré au navigateur sur le `cursor`
+      calculé, pas déduit des classes. Corrigé **dans la base de `Button.jsx`**,
+      avec `disabled:cursor-not-allowed` placé après pour l'emporter sur un
+      bouton désactivé — plus la croix de `Modal` et le bouton radio du
+      signalement, que le `label` parent ne couvrait pas.
+
+**Et trois erreurs de test, pas de produit** — notées parce qu'elles se
+reproduiront : Playwright cherche `data-testid` quand le projet écrit
+`data-test` (25 usages contre 4) ; un `countDocuments({})` mesurait les suivis
+de *toute* la base ; un localisateur cherchait le pseudo dans une liste qui
+affiche prénom et nom.
+
+### 14.11 Suites dédiées
+
+- [x] [`server/tests/moderation.mjs`](../server/tests/moderation.mjs) — 90
+      vérifications. Blocage dans les deux sens, silence de la restriction,
+      compteurs, réception par l'administration avec motif et précisions,
+      instruction, récidive après classement.
+- [x] [`client/tests/moderation.mjs`](../client/tests/moderation.mjs) — 48
+      vérifications, **par les vrais clics** : aucun appel HTTP n'est fait à la
+      place de l'interface, la base n'est lue qu'après pour vérifier que le
+      clic a produit l'écriture attendue.
+- [x] Les deux enregistrées dans `npm test` — **23 suites**
+
+### 14.12 Contrôle de non-régression
+
+Vingt-deux suites rejouées après le module :
+
+| Commande | Résultat |
+|---|---|
+| `npm run test:api` (serveur) | 73/73 |
+| `npm run test:stripe` (serveur) | 50/50 |
+| `npm run test:relations` (serveur) | 28/28 |
+| `npm run test:evenements` (serveur) | 76/76 |
+| `npm run test:recherche` (serveur) | 64/64 |
+| `npm run test:messagerie` (serveur) | 62/62 |
+| `npm run test:notifications` (serveur) | 47/47 |
+| `npm run test:perf` (serveur) | 18/18 |
+| **`npm run test:moderation` (serveur)** | **90/90** |
+| `npm run test:ui` (client) | 45/45 |
+| `npm run test:premium` (client) | 18/18 |
+| `npm run test:carte` (client) | 50/50 |
+| `npm run test:evenements` (client) | 38/38 |
+| `npm run test:recherche` (client) | 36/36 |
+| `npm run test:messagerie` (client) | 26/26 |
+| `npm run test:relations` (client) | 21/21 |
+| `npm run test:parcours-10-11` (client) | 35/35 |
+| `npm run test:notifications` (client) | 32/32 |
+| `npm run test:story-camera` (client) | 31/31 |
+| `npm run test:publication-toggle` (client) | 19/19 |
+| `npm run test:perf` (client) | 15/15 |
+| **`npm run test:moderation` (client)** | **48/48** |
+
+**922/922.**
+
+- [~] `npm run test:paiement` (client) **non rejouée** : elle exige un relais
+      `stripe listen` authentifié sur le compte Stripe du projet. Elle passait
+      à 46/46 au module 11 et aucune de ses dépendances n'a été touchée ici,
+      mais cela reste une déduction, pas une exécution.
+
+> **Le module a coûté 22 fichiers pour une fonctionnalité qui tient en trois
+> boutons.** C'est le prix d'une règle transverse : elle ne s'ajoute pas
+> quelque part, elle doit être respectée partout. Les quatre défauts trouvés
+> par les tests l'ont tous été sur des chemins secondaires — re-suivre après
+> blocage, Échap à la souris, un validateur mal choisi, un curseur — c'est-à-
+> dire exactement là où une relecture ne regarde pas.
+
+---
+
+## Correctif 9.8 — « Autour de moi » ne montrait aucun événement  `TERMINÉ`
+
+Signalé après recette : un événement créé à Castres depuis un compte coach
+n'apparaissait pas dans l'onglet « Autour de moi » d'un compte sportif
+pourtant localisé à Castres, sur un rayon de 25 km.
+
+### La cause, et pourquoi elle était invisible
+
+Les événements n'avaient **aucune coordonnée** : 0 sur 2 en base.
+
+Dans `EventForm.jsx`, les coordonnées ne partaient que si la case « Utiliser
+ma position actuelle » était cochée — non cochée par défaut. Sans elle, le
+lieu se résumait à une ville écrite, et `lieu.localisation` restait absent.
+
+**Un document sans point n'entre pas dans l'index `2dsphere`.** Ce n'est donc
+pas une affaire de filtre : `$geoNear` ne peut pas le voir, quel que soit le
+rayon. Vérifié en retirant le filtre `'lieu.localisation.coordinates': { $exists: true }`
+et en portant le rayon à 100 km — toujours zéro résultat, alors que la même
+recherche sans géo trouvait l'événement immédiatement.
+
+Le symptôme était muet : la création réussissait, la liste restait vide, et
+aucune erreur ne reliait les deux.
+
+- [x] Diagnostic reproduit en rejouant l'agrégation `$geoNear` du service
+      avec les coordonnées de Castres — 0 résultat avant, 1 après
+
+### 9.8.1 Le défaut de conception derrière le symptôme
+
+La position venait du **navigateur de l'organisateur**, jamais de l'adresse
+saisie. Un coach à Toulouse créant un événement à Castres aurait enregistré
+les coordonnées de Toulouse. Le projet ne contenait aucun géocodage.
+
+- [x] [`services/geocodage.service.js`](../server/src/services/geocodage.service.js)
+      — traduit `adresse + code postal + ville` en point GeoJSON via Nominatim
+- [x] Nominatim et non un service commercial : même fondation que les tuiles
+      OpenStreetMap déjà utilisées par Leaflet, sans clé ni facturation
+- [x] Politique d'usage respectée — `User-Agent` identifiant l'application,
+      verrou de cadence à 1,1 s entre deux appels, `countrycodes=fr`
+- [x] **La panne est silencieuse et c'est voulu** : sur échec, l'événement se
+      crée sans point. Faire échouer une création parce qu'un service tiers
+      est lent punirait l'organisateur pour une panne qui ne le concerne pas
+- [x] La position explicite garde la priorité : cocher la case reste plus sûr
+      qu'un géocodeur lisant une adresse approximative
+
+### 9.8.2 Deux pièges trouvés à l'exécution, pas à la relecture
+
+**Nominatim traite la chaîne en bloc.** `« park Gourjade, 81100, Castres »`
+ne rend **aucun** résultat : la faute de frappe sur le nom du parc fait
+échouer la ville avec elle. Réduite à `« 81100, Castres »`, la même adresse
+rend le bon point. D'où un repli progressif, du plus précis au plus général.
+
+**Et la ville seule est dangereuse.** `« Castres »` renvoie Castres dans
+l'**Aisne**, à 430 km de Castres dans le Tarn : Nominatim tranche les
+homonymes par importance, pas par proximité. Le code postal est le seul
+désambiguïsateur.
+
+- [x] Repli progressif : adresse + CP + ville → CP + ville → ville
+- [x] **La ville seule est interdite dès qu'un code postal existe** — un point
+      faux est pire qu'un point absent, parce qu'il ne se signale pas
+- [x] Coordonnées contrôlées avant écriture : `NaN` et bornes hors plage
+      refusés, sans quoi MongoDB rejetterait le document et l'erreur
+      remonterait comme un échec de création, à trois couches de sa cause
+
+### 9.8.3 Reprise des données existantes
+
+- [x] [`scripts/geocoderEvenements.js`](../server/scripts/geocoderEvenements.js)
+      — `npm run geocoder-evenements`
+- [x] Même dette que `reindexerRecherche.js` au module 10 : le géocodage à la
+      création ne concerne que les événements enregistrés **après**, et rien
+      ne force les autres à se réenregistrer
+- [x] Idempotent — ne touche que les événements dépourvus de point, ne déplace
+      jamais une position posée à la main
+- [x] `updateOne` plutôt que `save()` : `save()` relancerait la validation
+      complète du schéma, dont `dateDebut < dateFin`, et échouerait sur un
+      événement passé dont les dates n'ont plus à être défendues
+
+### 9.8.4 Regéocodage à la modification
+
+- [x] Le point suit la correction d'une adresse
+- [x] **Seulement si l'adresse a réellement changé** : le front renvoie le lieu
+      entier à chaque édition, et sans cette comparaison corriger un titre
+      déplacerait le point d'un événement dont personne n'a touché l'adresse
+- [x] Un événement créé pendant une panne du géocodeur récupère ses
+      coordonnées à la première édition
+
+### 9.8.5 Vérifications
+
+| Vérification | Résultat |
+|---|---|
+| Reprise des 2 événements existants | **2 placés**, 0 introuvable |
+| `$geoNear` depuis Castres, rayon 25 km | **trouvé à 2 331 m** (0 avant) |
+| Création sans coordonnées → point posé par le serveur | **43,6220 / 2,2590** |
+| Le point tombe dans le Tarn, pas dans l'Aisne | **confirmé** |
+| L'adresse fautive n'empêche pas la localisation | **confirmé** |
+| L'événement remonte dans « Autour de moi » | **confirmé** |
+| `npm run test:evenements` (serveur) | **76/76**, aucune régression |
+
+> **Le géocodage ne se vérifie pas sur une capitale.** « Paris » aurait
+> fonctionné du premier coup et masqué les deux défauts : c'est une adresse
+> réelle, avec sa faute de frappe et son homonyme, qui les a révélés.
+
+### 9.8.6 Reste à traiter
+
+- [ ] L'onglet « Autour de moi » dépend de `navigator.geolocation` seul : si
+      le navigateur refuse, la liste reste vide alors que le profil porte une
+      ville. Un repli sur `utilisateur.ville` demanderait de géocoder aussi
+      les profils — à décider séparément.
+
+### 9.8.7 Suite dédiée, et un défaut d'empilement révélé par le correctif
+
+- [x] [`server/tests/geocodage.mjs`](../server/tests/geocodage.mjs) — 19
+      vérifications, enregistrée dans `npm test` : **24 suites**
+- [x] Elle appelle **Nominatim pour de vrai**. Un faux géocodeur passerait
+      quelle que soit l'implémentation : les deux pièges corrigés viennent du
+      comportement réel du service, pas du nôtre
+- [x] Les adresses de test sont choisies difficiles — « Paris » aurait
+      fonctionné du premier coup et masqué l'homonyme comme la faute de frappe
+- [x] Témoin négatif : l'événement ne doit **pas** remonter depuis Paris, à
+      600 km. Sans lui, la vérification passerait même si la route rendait
+      toute la base
+
+**Une erreur de test, pas de produit** : la modification d'un événement est
+un `PATCH`, pas un `PUT`. La suite tombait sur un 404 — corrigé.
+
+#### Le défaut que le correctif a mis au jour
+
+La suite navigateur « événements » a commencé à échouer sur un clic, avec un
+message déroutant : le bouton « Confirmer l'annulation » d'une modale ouverte
+était présent, visible, actif et stable, mais un **cercle SVG de Leaflet
+interceptait le clic**.
+
+La cause n'est pas dans le géocodage. **Leaflet pose ses panneaux à
+`z-index: 400` et ses contrôles à `1000`** — des valeurs pensées pour
+l'intérieur d'une carte, mais qui s'appliquent au contexte d'empilement de la
+page entière. Elles dépassent les deux surfaces flottantes du projet : la
+fenêtre modale (`z-50`) et le menu « ⋯ » (`z-40`).
+
+**Le défaut préexistait, invisible.** Un événement créé sans position n'avait
+pas de coordonnées, donc pas de carte sur sa fiche, donc aucun conflit. En
+donnant un point à ces événements, le correctif a fait apparaître la carte —
+et le conflit avec elle.
+
+- [x] `isolation: isolate` sur `.leaflet-container` — un contexte d'empilement
+      propre à la carte, où ses 400 et ses 1000 ne se comparent plus qu'entre eux
+- [x] Corrigé **à un seul endroit** : surenchérir sur le z-index de chaque
+      calque obligerait à y penser à chaque nouveau composant flottant
+- [x] Le menu « ⋯ » du module 14 était touché par le même défaut — sa suite
+      navigateur échouait aussi, et repasse à 48/48
+
+> **Un correctif qui fait apparaître un écran fait apparaître ses défauts
+> d'affichage avec lui.** Trois suites sont tombées d'un coup sans qu'une
+> ligne de leur code ait bougé : ce n'était pas une régression du correctif,
+> mais un défaut plus ancien qui n'avait jamais eu l'occasion de se produire.
+
+### 9.8.8 Campagne complète
+
+| Suite | Résultat |
+|---|---|
+| 10 suites API | **527/527** |
+| 13 suites navigateur | **389/389** |
+| `npm run test:geocodage` | **19/19** |
+| `npm run test:evenements` (client) | **38/38** après correction de l'empilement |
+| `npm run test:moderation` (client) | **48/48** après la même correction |
+| `npm run test:parcours-10-11` (client) | **35/35** après la même correction |
+
+**916/916 sur 23 suites.**
+
+- [~] `npm run test:paiement` (client) **non exécutable** : elle exige un
+      relais `stripe listen` authentifié. `stripe login` ouvre un navigateur
+      sur le compte Stripe du projet — non lancé. Ni vérifiée, ni infirmée.
+
+> **La mémoire reste le premier suspect d'un échec de suite navigateur.** Une
+> première campagne a vu trois suites tomber d'affilée avec 0,4 Go de RAM
+> libre ; les mêmes, rejouées après redémarrage, passent sans qu'une ligne ait
+> changé. Le diagnostic a été fait en mesurant, pas en supposant.

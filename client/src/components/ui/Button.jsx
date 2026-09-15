@@ -22,8 +22,21 @@ export default function Button({
   ...props
 }) {
   const base =
-    'inline-flex items-center justify-center gap-2 rounded-xl font-semibold ' +
-    'transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60';
+    /*
+     * `cursor-pointer` EST DANS LA BASE, ET NON DANS UN SEUL VARIANT.
+     *
+     * Depuis Tailwind 4, le preflight pose `cursor: default` sur les boutons :
+     * un bouton ne se signale plus au survol tant qu'on ne le demande pas.
+     * Seul le variant `choix` portait la classe ; « Annuler », « Envoyer »,
+     * « Bloquer » et tous les autres boutons de l'application affichaient
+     * donc la fleche ordinaire — mesure faite au navigateur, pas devinee.
+     *
+     * L'ORDRE COMPTE : `disabled:cursor-not-allowed` vient APRES et l'emporte
+     * donc sur un bouton desactive, ou la main serait un mensonge.
+     */
+    'inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl ' +
+    'font-semibold transition-colors duration-150 ' +
+    'disabled:cursor-not-allowed disabled:opacity-60';
 
   const variantes = {
     principal: 'bg-marque-500 text-white hover:bg-marque-600 active:bg-marque-700',
@@ -36,11 +49,11 @@ export default function Button({
      * Sert quand plusieurs actions se valent et qu'aucune ne doit être
      * présentée comme la bonne : un bouton principal orienterait le choix.
      *
-     * `cursor-pointer` est explicite : depuis Tailwind 4, le preflight pose
-     * `cursor: default` sur les boutons, et le survol ne se signale plus.
+     * Le curseur main est desormais porte par la base, pour tous les
+     * variants — voir le commentaire ci-dessus.
      */
     choix:
-      'cursor-pointer bg-white text-ardoise-700 border border-ardoise-200 ' +
+      'bg-white text-ardoise-700 border border-ardoise-200 ' +
       'hover:bg-marque-500 hover:text-white hover:border-marque-500 ' +
       'active:bg-marque-600 active:border-marque-600',
   };

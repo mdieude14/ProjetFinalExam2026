@@ -76,6 +76,20 @@ export const reglesIdCommentaire = [
   param('id').isMongoId().withMessage('Identifiant de commentaire invalide'),
 ];
 
+/**
+ * Approbation d'un commentaire mis en attente par une restriction.
+ *
+ * L'ACTION EST UNE LISTE FERMEE, pas un booleen. `{ approuve: false }` et
+ * `{}` seraient indistinguables apres le passage par le corps JSON, et un
+ * corps vide envoye par erreur rejetterait le commentaire en silence.
+ */
+export const reglesApprobationCommentaire = [
+  param('id').isMongoId().withMessage('Identifiant de commentaire invalide'),
+  body('action')
+    .isIn(['approuver', 'rejeter'])
+    .withMessage("L'action doit valoir « approuver » ou « rejeter »"),
+];
+
 /* ------------------------------------------------------------------ *
  *  STORIES
  * ------------------------------------------------------------------ */

@@ -91,7 +91,9 @@ export default function Modal({
             <button
               onClick={onFermer}
               aria-label="Fermer"
-              className="rounded-lg px-2 py-1 text-xl leading-none text-ardoise-400 hover:bg-ardoise-100 hover:text-ardoise-700"
+              // Meme raison que dans Button : le preflight de Tailwind 4 pose
+              // cursor: default sur les boutons, et la croix ne se signalait pas.
+              className="cursor-pointer rounded-lg px-2 py-1 text-xl leading-none text-ardoise-400 hover:bg-ardoise-100 hover:text-ardoise-700"
             >
               ×
             </button>

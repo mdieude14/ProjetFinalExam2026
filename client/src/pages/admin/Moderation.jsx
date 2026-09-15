@@ -25,11 +25,40 @@ import Spinner from '@/components/ui/Spinner';
  *    travaille en meme temps.
  */
 
-const ONGLETS = [
-  { cle: 'en_attente', libelle: 'En attente' },
-  { cle: 'verifie', libelle: 'Vérifiés' },
-  { cle: 'refuse', libelle: 'Refusés' },
+/**
+ * DEUX FAMILLES DE DOSSIERS, PAS UNE LISTE UNIQUE.
+ *
+ * Un diplôme à vérifier et un compte signalé n'ont ni le même contenu, ni les
+ * mêmes issues, ni la même urgence. Les mêler dans une seule file obligerait
+ * à lire le type de chaque carte avant de savoir quoi en faire.
+ */
+const FAMILLES = [
+  { cle: 'diplomes', libelle: 'Diplômes' },
+  { cle: 'signalements', libelle: 'Signalements' },
 ];
+
+const ONGLETS = {
+  diplomes: [
+    { cle: 'en_attente', libelle: 'En attente' },
+    { cle: 'verifie', libelle: 'Vérifiés' },
+    { cle: 'refuse', libelle: 'Refusés' },
+  ],
+  signalements: [
+    { cle: 'ouvert', libelle: 'Ouverts' },
+    { cle: 'traite', libelle: 'Traités' },
+    { cle: 'rejete', libelle: 'Rejetés' },
+  ],
+};
+
+/** Libellés des motifs, alignés sur l'énumération du modèle serveur. */
+const LIBELLES_MOTIF = {
+  spam: 'Spam ou publicité',
+  harcelement: 'Harcèlement ou intimidation',
+  contenu_inapproprie: 'Contenu inapproprié',
+  usurpation: "Usurpation d'identité",
+  fausse_qualification: 'Fausse qualification de coach',
+  autre: 'Autre',
+};
 
 /** Tuile d'indicateur du tableau de bord. */
 function Indicateur({ libelle, valeur, accent = false }) {
@@ -190,7 +219,165 @@ function DossierCoach({ coach, onDecision, enCours }) {
   );
 }
 
+/**
+ * Carte d'un signalement.
+ *
+ * LE MOTIF ET LES PRÉCISIONS SONT MIS EN AVANT, avant même les deux comptes.
+ * C'est ce que l'administrateur doit lire pour décider s'il ouvre le profil
+ * visé : afficher d'abord les identités le ferait juger la personne avant de
+ * savoir ce qui lui est reproché.
+ *
+ * LE SIGNALEUR EST AFFICHÉ — mais UNIQUEMENT ici. Il permet de repérer un
+ * compte qui signale tout le monde, ce qui est en soi un signal. Cette
+ * information ne sort jamais de ce back-office.
+ */
+function DossierSignalement({ signalement, onDecision, enCours }) {
+  const [commentaire, setCommentaire] = useState('');
+  const { cible, signaleur } = signalement;
+
+  const date = (valeur) =>
+    valeur
+      ? new Date(valeur).toLocaleDateString('fr-FR', {
+          day: '2-digit',
+          month: 'long',
+          year: 'numeric',
+        })
+      : '—';
+
+  return (
+    <li className="rounded-carte border border-ardoise-200 bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variante="erreur">
+            {LIBELLES_MOTIF[signalement.motif] || signalement.motif}
+          </Badge>
+          {signalement.statut !== 'ouvert' && (
+            <Badge variante="neutre">
+              {signalement.statut === 'traite' ? 'Traité' : 'Rejeté'}
+            </Badge>
+          )}
+        </div>
+
+        <p className="text-xs text-ardoise-400">Déposé le {date(signalement.createdAt)}</p>
+      </div>
+
+      {/*
+        LES PRÉCISIONS SONT AFFICHÉES TELLES QUELLES, sans troncature.
+        Elles sont bornées à 500 caractères côté serveur ; les couper ici
+        obligerait à ouvrir la base pour lire la fin d'une alerte.
+      */}
+      {signalement.commentaire ? (
+        <blockquote className="mt-3 rounded-lg border-l-4 border-erreur/40 bg-ardoise-50 px-3 py-2 text-sm leading-relaxed text-ardoise-700">
+          {signalement.commentaire}
+        </blockquote>
+      ) : (
+        <p className="mt-3 text-xs italic text-ardoise-400">
+          Aucune précision n’a été fournie par le signaleur.
+        </p>
+      )}
+
+      <div className="mt-4 grid gap-3 border-t border-ardoise-100 pt-4 sm:grid-cols-2">
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ardoise-400">
+            Compte signalé
+          </p>
+          <div className="flex items-center gap-2.5">
+            <Avatar utilisateur={cible} taille="sm" />
+            <div className="min-w-0">
+              <Link
+                to={`/profile/${cible?.pseudo}`}
+                className="block truncate text-sm font-bold text-ardoise-900 hover:text-marque-600 hover:underline"
+              >
+                {cible?.prenom} {cible?.nom}
+              </Link>
+              <span className="block truncate text-xs text-ardoise-500">
+                @{cible?.pseudo}
+                {cible?.isActive === false && ' · désactivé'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ardoise-400">
+            Signalé par
+          </p>
+          <div className="flex items-center gap-2.5">
+            <Avatar utilisateur={signaleur} taille="sm" />
+            <div className="min-w-0">
+              <Link
+                to={`/profile/${signaleur?.pseudo}`}
+                className="block truncate text-sm font-medium text-ardoise-700 hover:text-marque-600 hover:underline"
+              >
+                {signaleur?.prenom} {signaleur?.nom}
+              </Link>
+              <span className="block truncate text-xs text-ardoise-500">
+                @{signaleur?.pseudo}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Historique, pour les dossiers déjà instruits */}
+      {signalement.traiteLe && (
+        <p className="mt-3 text-xs text-ardoise-500">
+          Instruit le {date(signalement.traiteLe)}
+          {signalement.traitePar?.pseudo && ` par @${signalement.traitePar.pseudo}`}
+        </p>
+      )}
+
+      {signalement.decision && (
+        <p className="mt-2 rounded-lg bg-ardoise-50 p-2 text-xs text-ardoise-700">
+          Décision : {signalement.decision}
+        </p>
+      )}
+
+      {/* Actions, uniquement sur les dossiers ouverts */}
+      {signalement.statut === 'ouvert' && (
+        <div className="mt-4 space-y-3 border-t border-ardoise-100 pt-4">
+          <Textarea
+            libelle="Note d’instruction (facultative)"
+            value={commentaire}
+            onChange={(e) => setCommentaire(e.target.value)}
+            maxLength={500}
+            rows={2}
+            aide="Interne au back-office : ni le signaleur ni la personne signalée ne la liront."
+            placeholder="Compte désactivé, avertissement envoyé, alerte non fondée…"
+          />
+
+          <div className="flex flex-wrap gap-2">
+            {/*
+              « Traiter » et « Rejeter » classent tous deux le dossier — la
+              différence est la trace laissée. Un compte trois fois signalé
+              puis trois fois blanchi n'est pas un compte jamais signalé, et
+              c'est l'historique qui permet de le voir.
+            */}
+            <Button
+              variante="danger"
+              taille="sm"
+              chargement={enCours === signalement._id}
+              onClick={() => onDecision(signalement._id, 'traiter', commentaire)}
+            >
+              Traiter (fondé)
+            </Button>
+            <Button
+              variante="secondaire"
+              taille="sm"
+              chargement={enCours === signalement._id}
+              onClick={() => onDecision(signalement._id, 'rejeter', commentaire)}
+            >
+              Rejeter (non fondé)
+            </Button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
 export default function Moderation() {
+  const [famille, setFamille] = useState('diplomes');
   const [onglet, setOnglet] = useState('en_attente');
   const [dossiers, setDossiers] = useState([]);
   const [stats, setStats] = useState(null);
@@ -202,22 +389,47 @@ export default function Moderation() {
     setChargement(true);
     try {
       // Les deux appels sont independants : en parallele.
-      const [reponseDiplomes, reponseStats] = await Promise.all([
-        adminApi.diplomes({ statut: onglet }),
+      const [reponseDossiers, reponseStats] = await Promise.all([
+        famille === 'diplomes'
+          ? adminApi.diplomes({ statut: onglet })
+          : adminApi.signalements({ statut: onglet }),
         adminApi.stats(),
       ]);
-      setDossiers(reponseDiplomes.data.elements);
+      setDossiers(reponseDossiers.data.elements);
       setStats(reponseStats.data.stats);
     } catch (erreur) {
       setMessage({ variante: 'erreur', texte: erreur.message });
     } finally {
       setChargement(false);
     }
-  }, [onglet]);
+  }, [famille, onglet]);
 
   useEffect(() => {
     charger();
   }, [charger]);
+
+  /**
+   * Instruction d'un signalement.
+   *
+   * FONCTION SEPAREE DE `decider`, malgre la ressemblance. Les deux appellent
+   * des routes differentes, avec des valeurs de decision differentes
+   * (« verifie »/« refuse » contre « traiter »/« rejeter »). Les fusionner
+   * derriere un `if` ferait porter a une seule fonction deux contrats que
+   * rien ne relie.
+   */
+  const deciderSignalement = async (idSignalement, decision, commentaire) => {
+    setEnCours(idSignalement);
+    setMessage(null);
+    try {
+      const reponse = await adminApi.deciderSignalement(idSignalement, decision, commentaire);
+      setMessage({ variante: 'succes', texte: reponse.data.message });
+      await charger();
+    } catch (erreur) {
+      setMessage({ variante: 'erreur', texte: erreur.message });
+    } finally {
+      setEnCours(null);
+    }
+  };
 
   const decider = async (idCoach, decision, motif) => {
     setEnCours(idCoach);
@@ -250,20 +462,58 @@ export default function Moderation() {
           <Indicateur libelle="Sportifs" valeur={stats?.utilisateurs} />
           <Indicateur libelle="Refusés" valeur={stats?.diplomesRefuses} />
           <Indicateur libelle="Désactivés" valeur={stats?.comptesDesactives} />
-          <Indicateur libelle="Inscrits (7 j)" valeur={stats?.inscriptions7j} />
+          <Indicateur
+            libelle="Signalements"
+            valeur={stats?.signalementsOuverts}
+            accent={stats?.signalementsOuverts > 0}
+          />
         </div>
       </section>
 
       {message && <Alert variante={message.variante}>{message.texte}</Alert>}
 
+      {/* ---------- Familles ---------- */}
+      {/*
+        CHANGER DE FAMILLE REINITIALISE L'ONGLET. Les statuts n'ont pas les
+        memes noms d'un cote et de l'autre (« en_attente » contre « ouvert ») :
+        conserver l'onglet courant demanderait au serveur un statut qui
+        n'existe pas, et la liste reviendrait vide sans explication.
+      */}
+      <div className="flex gap-2 border-b border-ardoise-200">
+        {FAMILLES.map((f) => (
+          <button
+            key={f.cle}
+            onClick={() => {
+              setFamille(f.cle);
+              setOnglet(ONGLETS[f.cle][0].cle);
+              setMessage(null);
+            }}
+            aria-pressed={famille === f.cle}
+            data-test={`famille-${f.cle}`}
+            className={`-mb-px cursor-pointer border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${
+              famille === f.cle
+                ? 'border-marque-500 text-marque-600'
+                : 'border-transparent text-ardoise-500 hover:text-ardoise-800'
+            }`}
+          >
+            {f.libelle}
+            {f.cle === 'signalements' && stats?.signalementsOuverts > 0 && (
+              <span className="ml-2 rounded-full bg-erreur px-1.5 py-0.5 text-xs font-bold text-white">
+                {stats.signalementsOuverts}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* ---------- Onglets ---------- */}
       <div className="flex gap-1 rounded-xl border border-ardoise-200 bg-white p-1">
-        {ONGLETS.map((o) => (
+        {ONGLETS[famille].map((o) => (
           <button
             key={o.cle}
             onClick={() => setOnglet(o.cle)}
             aria-pressed={onglet === o.cle}
-            className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            className={`flex-1 cursor-pointer rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
               onglet === o.cle
                 ? 'bg-marque-500 text-white'
                 : 'text-ardoise-600 hover:bg-ardoise-50'
@@ -280,23 +530,35 @@ export default function Moderation() {
           <Spinner taille="lg" className="text-marque-500" />
         </div>
       ) : dossiers.length === 0 ? (
-        <div className="rounded-carte border border-dashed border-ardoise-300 p-10 text-center">
+        <div
+          className="rounded-carte border border-dashed border-ardoise-300 p-10 text-center"
+          data-test="liste-vide"
+        >
           <p className="text-sm text-ardoise-500">
-            {onglet === 'en_attente'
+            {onglet === 'en_attente' || onglet === 'ouvert'
               ? 'Aucun dossier en attente. Tout est a jour.'
               : 'Aucun dossier dans cette categorie.'}
           </p>
         </div>
       ) : (
-        <ul className="space-y-3">
-          {dossiers.map((coach) => (
-            <DossierCoach
-              key={coach._id}
-              coach={coach}
-              onDecision={decider}
-              enCours={enCours}
-            />
-          ))}
+        <ul className="space-y-3" data-test={`liste-${famille}`}>
+          {dossiers.map((dossier) =>
+            famille === 'diplomes' ? (
+              <DossierCoach
+                key={dossier._id}
+                coach={dossier}
+                onDecision={decider}
+                enCours={enCours}
+              />
+            ) : (
+              <DossierSignalement
+                key={dossier._id}
+                signalement={dossier}
+                onDecision={deciderSignalement}
+                enCours={enCours}
+              />
+            )
+          )}
         </ul>
       )}
     </div>

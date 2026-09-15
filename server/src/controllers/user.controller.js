@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { construireVueProfil, peutVoirProfil } from '../services/access.service.js';
+import { etatModeration } from '../services/moderation.service.js';
 import { televerser, supprimer } from '../services/storage.service.js';
 import { accepterDemandesEnAttente } from '../services/follow.service.js';
 
@@ -73,12 +74,44 @@ export const profilPublic = asyncHandler(async (req, res) => {
   // Toute la decision d'affichage est prise par le service d'acces.
   const vue = await construireVueProfil(req.user, cible);
 
+  /*
+   * L'ETAT DE MODERATION VOYAGE AVEC LE PROFIL, et non par un appel separe.
+   *
+   * Le menu « ⋯ » doit savoir quoi proposer — « Bloquer » ou « Debloquer »,
+   * « Restreindre » ou « Lever la restriction » — DES SON PREMIER AFFICHAGE.
+   * Une seconde requete au moment du clic le ferait clignoter : on verrait
+   * « Bloquer » une fraction de seconde sur un compte deja bloque, et le
+   * risque serait de cliquer sur l'entree d'avant.
+   *
+   * Le service ne fait que DEUX requetes pour les trois etats, et elles ne
+   * partent que pour un visiteur connecte regardant quelqu'un d'autre.
+   */
+  const moderation =
+    req.user && vue.relation !== 'soi'
+      ? await etatModeration(req.user, cible._id)
+      : { bloque: false, restreint: false, aSignale: false };
+
   return res.json({
     succes: true,
     profil: vue.profil,
     relation: vue.relation,
     contenuVisible: vue.contenuVisible,
     estPriveNonAccessible: vue.estPriveNonAccessible,
+
+    /*
+     * DEUX INFORMATIONS DISTINCTES, ET IL FAUT LES DEUX.
+     *
+     * `estBloque` est SYMETRIQUE : il vaut vrai que j'aie bloque l'autre ou
+     * qu'il m'ait bloque. C'est ce qui commande l'ecran — pas de bouton
+     * « Suivre », pas de contenu.
+     *
+     * `moderation.bloque` est ORIENTE : il ne vaut vrai que si c'est MOI qui
+     * ai bloque. C'est ce qui commande le menu, car je ne peux debloquer que
+     * ce que j'ai bloque. Les confondre afficherait « Debloquer » a quelqu'un
+     * qui vient de se faire bloquer, et le bouton n'aurait aucun effet.
+     */
+    estBloque: vue.estBloque,
+    moderation,
   });
 });
 

@@ -5,6 +5,8 @@ import {
   deciderDiplome,
   changerStatutCompte,
   statistiques,
+  listerSignalements,
+  deciderSignalement,
 } from '../controllers/admin.controller.js';
 
 import {
@@ -12,6 +14,11 @@ import {
   reglesStatutCompte,
   reglesPagination,
 } from '../validators/user.validator.js';
+
+import {
+  reglesDecisionSignalement,
+  reglesFileSignalements,
+} from '../validators/moderation.validator.js';
 
 import { validate } from '../middlewares/validate.middleware.js';
 import { protect } from '../middlewares/auth.middleware.js';
@@ -42,6 +49,22 @@ router.patch('/diplomes/:id', reglesDecisionDiplome, validate, deciderDiplome);
 /* ------------------------------- Comptes ------------------------------ */
 
 router.patch('/users/:id/statut', reglesStatutCompte, validate, changerStatutCompte);
+
+/* ---------------------------- Signalements ---------------------------- */
+
+/*
+ * Les signalements deposes par les utilisateurs. Ils n'arrivent QUE ici :
+ * ni le signaleur ni la personne signalee ne peuvent les relire, et c'est
+ * `autoriser('admin')` pose en tete de ce routeur qui le garantit.
+ */
+router.get('/signalements', reglesFileSignalements, validate, listerSignalements);
+
+router.patch(
+  '/signalements/:id',
+  reglesDecisionSignalement,
+  validate,
+  deciderSignalement
+);
 
 /* ----------------------------- Statistiques --------------------------- */
 

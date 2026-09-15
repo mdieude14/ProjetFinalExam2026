@@ -9,7 +9,7 @@ import {
 
 import { reglesRecherche, reglesCarteVisible } from '../validators/geo.validator.js';
 import { validate } from '../middlewares/validate.middleware.js';
-import { protect } from '../middlewares/auth.middleware.js';
+import { protect, protectOptionnel } from '../middlewares/auth.middleware.js';
 import { autoriser } from '../middlewares/role.middleware.js';
 
 const router = Router();
@@ -33,7 +33,14 @@ const router = Router();
 
 /* --------------------------- Lecture publique --------------------------- */
 
-router.get('/coachs', reglesRecherche, validate, coachsAutour);
+/*
+ * protectOptionnel A ETE AJOUTE : la carte reste ouverte aux visiteurs
+ * anonymes, mais sa reponse depend desormais de qui regarde — un coach avec
+ * lequel le visiteur est en blocage ne doit plus y figurer. Sans ce
+ * middleware, req.user resterait vide et le filtre ne s'appliquerait jamais,
+ * alors meme que le service le prevoit : une exclusion ecrite mais morte.
+ */
+router.get('/coachs', protectOptionnel, reglesRecherche, validate, coachsAutour);
 router.get('/villes', villes);
 router.get('/sports', sports);
 

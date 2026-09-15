@@ -1,4 +1,5 @@
 import User from '../models/User.js';
+import { idsMasquesPour } from './access.service.js';
 
 /**
  * ===========================================================================
@@ -53,6 +54,7 @@ export async function coachsAutourDe({
   certifiesSeuls = false,
   avecOffre = false,
   limite = 50,
+  visiteur,
 } = {}) {
   const rayon = Math.min(Math.max(rayonM, RAYON_MIN_M), RAYON_MAX_M);
   const nombre = Math.min(Math.max(limite, 1), LIMITE_MAX);
@@ -75,6 +77,18 @@ export async function coachsAutourDe({
     visibilite: 'public',
     isActive: true,
   };
+
+  /*
+   * CINQUIEME CONDITION, DE MEME NATURE QUE LES QUATRE CI-DESSUS.
+   *
+   * Elle entre dans le champ query de $geoNear et non dans un $match place
+   * apres : $geoNear applique sa limite AVANT les etapes suivantes. Un
+   * $match posterieur retirerait le coach bloque de la carte, mais apres
+   * qu'il a consomme une des cinquante places — la carte afficherait
+   * quarante-neuf epingles sans raison visible.
+   */
+  const masques = await idsMasquesPour(visiteur);
+  if (masques.length) filtre._id = { $nin: masques };
 
   if (certifiesSeuls) filtre['diplome.statut'] = 'verifie';
   if (sport) filtre.sports = sport;

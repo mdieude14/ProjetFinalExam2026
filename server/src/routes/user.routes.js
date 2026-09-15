@@ -13,6 +13,22 @@ import {
 } from '../controllers/user.controller.js';
 
 import {
+  bloquer,
+  debloquer,
+  restreindre,
+  leverRestriction,
+  signaler,
+  etat as etatModeration,
+  mesBloques,
+  mesRestreints,
+} from '../controllers/moderation.controller.js';
+
+import {
+  reglesCibleModeration,
+  reglesSignalement,
+} from '../validators/moderation.validator.js';
+
+import {
   reglesEditionProfil,
   reglesVisibilite,
   reglesLocalisation,
@@ -84,6 +100,52 @@ router.post(
 );
 
 router.delete('/me', protect, desactiverCompte);
+
+/* ------------------------------ Moderation -------------------------------- */
+
+/**
+ * Bloquer, restreindre, signaler.
+ *
+ * CES ROUTES SONT DECLAREES AVANT « /:identifiant », comme l'avertissement en
+ * tete de fichier l'impose. « /me/bloques » est une route FIXE : placee apres
+ * la route parametree, elle serait capturee comme un profil dont le pseudo
+ * serait « me », et l'ecran des comptes bloques renverrait un 404.
+ *
+ * TOUTES EXIGENT `protect`, sans exception. Un visiteur anonyme n'a personne
+ * a bloquer : la relation part de quelqu'un, elle n'existe pas sans lui.
+ */
+router.get('/me/bloques', protect, mesBloques);
+router.get('/me/restreints', protect, mesRestreints);
+
+/*
+ * POST pose la relation, DELETE la retire. Le verbe porte l'effet : un seul
+ * point d'entree avec un drapeau « bloquer: true/false » rendrait un appel
+ * mal forme capable de DEbloquer alors qu'on voulait bloquer.
+ */
+router.post('/:id/blocage', protect, reglesCibleModeration, validate, bloquer);
+router.delete('/:id/blocage', protect, reglesCibleModeration, validate, debloquer);
+
+router.post('/:id/restriction', protect, reglesCibleModeration, validate, restreindre);
+router.delete(
+  '/:id/restriction',
+  protect,
+  reglesCibleModeration,
+  validate,
+  leverRestriction
+);
+
+/*
+ * Pas de DELETE sur le signalement : il ne se retire pas. Il est instruit par
+ * l'administration, qui le classe — voir l'en-tete du controleur.
+ */
+router.post('/:id/signalement', protect, reglesSignalement, validate, signaler);
+
+/*
+ * Etat des trois actions, pour le menu « ⋯ » affiche hors d'une page de
+ * profil — dans une conversation, par exemple. Declaree ici, avant
+ * « /:identifiant », pour la meme raison que les precedentes.
+ */
+router.get('/:id/moderation', protect, reglesCibleModeration, validate, etatModeration);
 
 /* ---------------------------- Profils consultes --------------------------- */
 

@@ -30,6 +30,7 @@ export const coachsAutour = asyncHandler(async (req, res) => {
     certifiesSeuls: certifies,
     avecOffre: offre,
     limite,
+    visiteur: req.user,
   });
 
   return res.json({

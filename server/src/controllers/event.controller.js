@@ -6,6 +6,7 @@ import SportEvent from '../models/SportEvent.js';
 import EventRegistration from '../models/EventRegistration.js';
 import * as eventService from '../services/event.service.js';
 import * as storage from '../services/storage.service.js';
+import { geocoder } from '../services/geocodage.service.js';
 import { abonnementsPremiumActifs } from '../services/feed.service.js';
 import * as notifications from '../services/notification.service.js';
 
@@ -79,14 +80,35 @@ export const creer = asyncHandler(async (req, res) => {
     codePostal: lieuRecu.codePostal,
   };
 
-  // Les coordonnées sont facultatives : un événement peut n'avoir qu'une
-  // ville. On ne crée le point que si les DEUX valeurs sont là — le
-  // validateur a déjà refusé qu'une seule soit fournie.
+  /*
+   * LA POSITION EXPLICITE L'EMPORTE SUR L'ADRESSE.
+   * Quand l'organisateur coche « utiliser ma position actuelle », il sait où
+   * il se trouve mieux qu'un géocodeur ne saura lire son adresse. On ne crée
+   * le point que si les DEUX valeurs sont là — le validateur a déjà refusé
+   * qu'une seule soit fournie.
+   */
   if (lieuRecu.longitude !== undefined && lieuRecu.latitude !== undefined) {
     lieu.localisation = {
       type: 'Point',
       coordinates: [Number(lieuRecu.longitude), Number(lieuRecu.latitude)],
     };
+  } else {
+    /*
+     * SINON ON TRADUIT L'ADRESSE SAISIE.
+     *
+     * Sans ce repli, un événement créé sans cocher la case n'avait aucun
+     * point — et un document sans point n'entre pas dans l'index `2dsphere`.
+     * Il devenait donc introuvable dans « Autour de moi », définitivement et
+     * sans message d'erreur : la création réussissait, la liste restait vide.
+     *
+     * Et c'était le cas le plus fréquent, la case n'étant pas cochée par
+     * défaut. Géocoder ici traite la cause plutôt que d'exiger un geste.
+     *
+     * Le géocodage rend `null` sur panne ou adresse introuvable : l'événement
+     * se crée alors sans point, exactement comme avant. On ne fait jamais
+     * échouer une création pour une dépendance externe.
+     */
+    lieu.localisation = (await geocoder(lieu)) ?? undefined;
   }
 
   try {
@@ -311,9 +333,29 @@ export const modifier = asyncHandler(async (req, res) => {
   }
 
   if (req.body.lieu) {
+    const avant = `${evenement.lieu.adresse ?? ''}|${evenement.lieu.codePostal ?? ''}|${evenement.lieu.ville ?? ''}`;
+
     evenement.lieu.adresse = req.body.lieu.adresse ?? evenement.lieu.adresse;
     evenement.lieu.ville = req.body.lieu.ville ?? evenement.lieu.ville;
     evenement.lieu.codePostal = req.body.lieu.codePostal ?? evenement.lieu.codePostal;
+
+    const apres = `${evenement.lieu.adresse ?? ''}|${evenement.lieu.codePostal ?? ''}|${evenement.lieu.ville ?? ''}`;
+
+    /*
+     * ON NE REGÉOCODE QUE SI L'ADRESSE A RÉELLEMENT CHANGÉ.
+     *
+     * Le front renvoie le lieu entier à chaque édition, même quand seul le
+     * titre a bougé : sans cette comparaison, corriger une faute de frappe
+     * déclencherait un appel à Nominatim, et le déplacement du point d'un
+     * événement dont personne n'a touché l'adresse.
+     *
+     * Le cas d'un point absent est traité aussi : un événement créé pendant
+     * une panne du géocodeur récupère ses coordonnées à la première édition.
+     */
+    if (avant !== apres || !evenement.lieu.localisation) {
+      const point = await geocoder(evenement.lieu);
+      if (point) evenement.lieu.localisation = point;
+    }
   }
 
   /*

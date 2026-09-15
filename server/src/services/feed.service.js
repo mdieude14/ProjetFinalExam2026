@@ -1,7 +1,7 @@
 import Follow from '../models/Follow.js';
 import Post from '../models/Post.js';
 import Subscription from '../models/Subscription.js';
-import { relationAvec, peutVoirContenu } from './access.service.js';
+import { idsMasquesPour, relationAvec, peutVoirContenu } from './access.service.js';
 
 /**
  * ===========================================================================
@@ -86,6 +86,23 @@ export async function construireFeed(visiteur, { curseur, limite = 10 } = {}) {
   const auteurs = [...suivis, visiteur._id];
 
   const filtre = { auteur: { $in: auteurs } };
+
+  /*
+   * CEINTURE ET BRETELLES, ET C'EST ASSUME.
+   *
+   * Bloquer rompt les suivis : un compte bloque ne devrait deja plus figurer
+   * dans "auteurs". Cette exclusion est donc redondante — en theorie.
+   *
+   * En pratique elle couvre le seul cas ou le fil trahirait le blocage de la
+   * facon la plus voyante : un document Follow residuel, laisse par une
+   * transaction interrompue ou une reprise de donnees. Le meme raisonnement
+   * a fait placer le test de blocage AVANT celui du suivi dans
+   * access.service.js. Une requete de plus par chargement de fil est un prix
+   * modeste pour que le verrou ne dependent pas de la proprete d'une autre
+   * collection.
+   */
+  const masques = await idsMasquesPour(visiteur);
+  if (masques.length) filtre.auteur = { $in: auteurs, $nin: masques };
   if (curseur) filtre._id = { $lt: curseur };
 
   // On demande un element de plus que la limite : sa presence indique qu'il

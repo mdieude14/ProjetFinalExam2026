@@ -1,4 +1,5 @@
 import User from '../models/User.js';
+import Signalement from '../models/Signalement.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { lirePagination, reponsePaginee } from '../utils/pagination.js';
@@ -155,6 +156,106 @@ export const changerStatutCompte = asyncHandler(async (req, res) => {
   });
 });
 
+
+/* ================================================================== *
+ *  GET /api/admin/signalements
+ * ================================================================== */
+
+/**
+ * File des signalements deposes par les utilisateurs.
+ *
+ * LES PLUS ANCIENS D'ABORD, comme la file des diplomes et pour la meme
+ * raison : un signalement qui attend depuis trois jours passe avant celui de
+ * ce matin. Le tri decroissant, plus habituel, laisserait les dossiers les
+ * plus vieux au fond — ceux-la memes qui posent probleme.
+ *
+ * LE MOTIF ET LES PRECISIONS SONT RENVOYES TELS QUELS. C'est tout l'objet du
+ * signalement : sans eux, l'administration recevrait « quelqu'un a signale
+ * quelqu'un » et devrait deviner quoi instruire.
+ *
+ * L'IDENTITE DU SIGNALEUR NE SORT QUE VERS L'ADMINISTRATION. Le routeur pose
+ * `autoriser('admin')` sur tout ce fichier ; c'est ce qui autorise
+ * `versionAdmin()` a l'inclure ici, alors qu'elle ne sort jamais ailleurs.
+ */
+export const listerSignalements = asyncHandler(async (req, res) => {
+  const { page, limite, saut } = lirePagination(req);
+  const statut = req.query.statut || 'ouvert';
+
+  const [signalements, total] = await Promise.all([
+    Signalement.find({ statut })
+      .sort({ createdAt: 1 })
+      .skip(saut)
+      .limit(limite)
+      .populate('signaleur', 'pseudo nom prenom avatar type')
+      .populate('cible', 'pseudo nom prenom avatar type isActive')
+      .populate('traitePar', 'pseudo nom prenom'),
+    Signalement.countDocuments({ statut }),
+  ]);
+
+  return res.json(
+    reponsePaginee(
+      signalements.map((s) => s.versionAdmin()),
+      total,
+      { page, limite }
+    )
+  );
+});
+
+/* ================================================================== *
+ *  PATCH /api/admin/signalements/:id
+ * ================================================================== */
+
+/**
+ * Instruction d'un signalement : traite ou rejete.
+ *
+ * ON NE SUPPRIME PAS LE DOSSIER, ON LE CLASSE. Un compte signale trois fois
+ * puis blanchi trois fois n'est pas le meme qu'un compte jamais signale, et
+ * l'historique est ce qui permet de le voir. La suppression effacerait
+ * justement le motif de vigilance.
+ *
+ * LE CLASSEMENT ROUVRE LA POSSIBILITE DE SIGNALER. L'index unique du modele
+ * ne porte que sur les signalements `ouvert` : une fois celui-ci tranche,
+ * la meme personne peut de nouveau alerter en cas de recidive.
+ */
+export const deciderSignalement = asyncHandler(async (req, res) => {
+  const { decision, commentaire } = req.body;
+
+  const signalement = await Signalement.findById(req.params.id);
+  if (!signalement) throw ApiError.notFound('Signalement introuvable');
+
+  if (signalement.statut !== 'ouvert') {
+    throw ApiError.badRequest('Ce signalement a déjà été instruit');
+  }
+
+  signalement.statut = decision === 'traiter' ? 'traite' : 'rejete';
+  signalement.traitePar = req.user._id;
+  signalement.traiteLe = new Date();
+  signalement.decision = commentaire;
+
+  await signalement.save();
+
+  await signalement.populate('signaleur', 'pseudo nom prenom avatar type');
+  await signalement.populate('cible', 'pseudo nom prenom avatar type isActive');
+
+  /*
+   * PERSONNE N'EST NOTIFIE, NI LE SIGNALEUR NI LA CIBLE.
+   *
+   * Prevenir le signaleur revelerait que son alerte a abouti — utile en
+   * apparence, mais cela transforme le signalement en arme mesurable : on
+   * saurait quels motifs « marchent ». Prevenir la cible lui apprendrait
+   * qu'elle a ete signalee, et par recoupement souvent par qui.
+   *
+   * Les mesures prises (desactivation du compte, refus de diplome) ont leurs
+   * propres notifications, la ou elles se justifient.
+   */
+
+  return res.json({
+    succes: true,
+    message: signalement.statut === 'traite' ? 'Signalement traité' : 'Signalement rejeté',
+    signalement: signalement.versionAdmin(),
+  });
+});
+
 /* ================================================================== *
  *  GET /api/admin/stats
  * ================================================================== */
@@ -174,6 +275,7 @@ export const statistiques = asyncHandler(async (req, res) => {
     diplomesRefuses,
     comptesDesactives,
     inscriptions7j,
+    signalementsOuverts,
   ] = await Promise.all([
     User.countDocuments({ type: 'utilisateur' }),
     User.countDocuments({ type: 'coach' }),
@@ -184,6 +286,8 @@ export const statistiques = asyncHandler(async (req, res) => {
     User.countDocuments({
       createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
     }),
+    // La pastille du back-office : combien de dossiers attendent d'etre lus.
+    Signalement.countDocuments({ statut: 'ouvert' }),
   ]);
 
   return res.json({
@@ -196,6 +300,7 @@ export const statistiques = asyncHandler(async (req, res) => {
       diplomesRefuses,
       comptesDesactives,
       inscriptions7j,
+      signalementsOuverts,
       total: utilisateurs + coachs,
     },
   });

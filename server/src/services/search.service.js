@@ -3,6 +3,7 @@ import Post from '../models/Post.js';
 import SportEvent from '../models/SportEvent.js';
 import { motifPrefixe, normaliser } from '../utils/texte.js';
 import { idsSuivis, abonnementsPremiumActifs, aAccesPremium } from './feed.service.js';
+import { idsMasquesPour } from './access.service.js';
 
 /**
  * ===========================================================================
@@ -78,12 +79,21 @@ const borner = (valeur, defaut, max) =>
  * @param {string} saisie
  * @returns {Promise<Array>} vues publiques allégées
  */
-export async function suggestions(saisie, { limite = LIMITE_SUGGESTIONS } = {}) {
+export async function suggestions(saisie, visiteur, { limite = LIMITE_SUGGESTIONS } = {}) {
   const motif = motifPrefixe(saisie);
   if (!motif) return [];
 
+  /*
+   * LE VISITEUR EST DEVENU UN PARAMETRE DE L'AUTOCOMPLETION, ce qu'il
+   * n'etait pas. Sans lui, un compte bloque continuerait de remonter dans la
+   * liste deroulante — la porte la plus facile a pousser, puisqu'il suffit
+   * de taper trois lettres du pseudo pour le retrouver.
+   */
+  const masques = await idsMasquesPour(visiteur);
+
   const utilisateurs = await User.find({
     ...PERSONNES_INTERROGEABLES,
+    ...(masques.length ? { _id: { $nin: masques } } : {}),
     termesRecherche: motif,
   })
     .select('pseudo nom prenom avatar type diplome stats ville')
@@ -126,8 +136,17 @@ export async function suggestions(saisie, { limite = LIMITE_SUGGESTIONS } = {}) 
  * personne ne pourrait demander à suivre un compte privé, puisqu'il serait
  * introuvable. Seule sa version publique sort d'ici.
  */
-export async function utilisateurs(saisie, { type, ville, limite = LIMITE_DEFAUT } = {}) {
+export async function utilisateurs(saisie, visiteur, { type, ville, limite = LIMITE_DEFAUT } = {}) {
   const requis = { ...PERSONNES_INTERROGEABLES };
+
+  /*
+   * L'EXCLUSION EST POSEE SUR `requis`, DONC SUR LES DEUX BRANCHES.
+   * La recherche validee interroge deux fois la base — `$text` puis
+   * prefixe — et fusionne. Ne filtrer qu'une des deux laisserait le compte
+   * bloque ressortir par l'autre, sans qu'aucun test evident ne le montre.
+   */
+  const masques = await idsMasquesPour(visiteur);
+  if (masques.length) requis._id = { $nin: masques };
 
   /*
    * Le validateur borne déjà `type` à `utilisateur` ou `coach`, mais on le
@@ -213,8 +232,16 @@ export async function publications(saisie, visiteur, { limite = LIMITE_DEFAUT } 
 export async function evenements(saisie, visiteur, { limite = LIMITE_DEFAUT } = {}) {
   const plafond = borner(limite, LIMITE_DEFAUT, LIMITE_MAX);
 
+  // Un evenement organise par un compte bloque n'a pas a remonter : le
+  // rejoindre mettrait justement les deux personnes en presence.
+  const masques = await idsMasquesPour(visiteur);
+
   const trouves = await SportEvent.find(
-    { dateFin: { $gte: new Date() }, $text: { $search: saisie } },
+    {
+      dateFin: { $gte: new Date() },
+      ...(masques.length ? { organisateur: { $nin: masques } } : {}),
+      $text: { $search: saisie },
+    },
     { score: { $meta: 'textScore' } }
   )
     .sort({ score: { $meta: 'textScore' } })
@@ -241,7 +268,7 @@ export async function evenements(saisie, visiteur, { limite = LIMITE_DEFAUT } = 
  */
 export async function globale(saisie, visiteur, { limite = 6 } = {}) {
   const [personnes, posts, evts] = await Promise.all([
-    utilisateurs(saisie, { limite }),
+    utilisateurs(saisie, visiteur, { limite }),
     publications(saisie, visiteur, { limite }),
     evenements(saisie, visiteur, { limite }),
   ]);
@@ -278,7 +305,22 @@ async function auteursVisiblesPar(visiteur) {
   // Les comptes privés que le visiteur suit, plus le sien.
   const suivis = await idsSuivis(visiteur._id);
 
-  return [...publics, ...suivis, visiteur._id];
+  const autorises = [...publics, ...suivis, visiteur._id];
+
+  /*
+   * LE BLOCAGE SE RETRANCHE EN DERNIER, APRES LA REUNION.
+   *
+   * L'ordre compte : un compte bloque est presque toujours un compte PUBLIC,
+   * donc deja present dans `publics`. Filtrer avant la reunion le
+   * laisserait rentrer par cette porte. En retranchant a la fin, l'exclusion
+   * l'emporte sur les trois sources — y compris sur un suivi residuel qu'une
+   * transaction interrompue aurait laisse derriere elle.
+   */
+  const masques = await idsMasquesPour(visiteur);
+  if (!masques.length) return autorises;
+
+  const exclus = new Set(masques.map(String));
+  return autorises.filter((id) => !exclus.has(String(id)));
 }
 
 /**

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 
 import messageApi from '@/api/message.api';
+import moderationApi from '@/api/moderation.api';
 import useSocket from '@/hooks/useSocket';
 import Avatar from '@/components/ui/Avatar';
 import Button from '@/components/ui/Button';
@@ -9,6 +10,7 @@ import Alert from '@/components/ui/Alert';
 import Spinner from '@/components/ui/Spinner';
 import Modal from '@/components/ui/Modal';
 import CapturePhoto from '@/components/story/CapturePhoto';
+import MenuModeration from '@/components/moderation/MenuModeration';
 import ChatRequestBanner from './ChatRequestBanner';
 import { formaterDateHeure } from '@/utils/dates';
 
@@ -151,6 +153,36 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
   const basDuFil = useRef(null);
   const minuteurSaisie = useRef(null);
   const idConversation = conversation?._id;
+
+  /* ------------------ Etat de moderation de l'interlocuteur ------------------ */
+
+  const [moderation, setModeration] = useState(null);
+  const idInterlocuteur = conversation?.interlocuteur?._id;
+
+  /**
+   * Le menu « ⋯ » doit savoir quoi proposer — « Bloquer » ou « Debloquer » —
+   * DES SON PREMIER AFFICHAGE. Une conversation ne charge aucun profil : on
+   * demande donc les trois booleens a la route dediee, une seule fois par
+   * interlocuteur.
+   *
+   * UN ECHEC EST SILENCIEUX. Ce n'est pas le sujet de l'ecran : la
+   * conversation doit rester utilisable meme si cet appel echoue. Le menu
+   * retombe alors sur ses libelles par defaut.
+   */
+  const chargerModeration = useCallback(async () => {
+    if (!idInterlocuteur) return;
+
+    try {
+      const reponse = await moderationApi.etat(idInterlocuteur);
+      setModeration(reponse.data.moderation);
+    } catch {
+      setModeration(null);
+    }
+  }, [idInterlocuteur]);
+
+  useEffect(() => {
+    chargerModeration();
+  }, [chargerModeration]);
 
   /* ---------------------- Chargement initial ---------------------- */
 
@@ -525,6 +557,33 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
             <span className="block truncate text-xs text-ardoise-400">@{autre?.pseudo}</span>
           </span>
         </Link>
+
+        {/*
+          MENU « ⋯ » — TOUT A DROITE DE L'EN-TETE.
+          `ml-auto` est necessaire ICI, contrairement au profil : le lien qui
+          precede porte `min-w-0` pour pouvoir tronquer un pseudo long, mais
+          pas `flex-1`. Rien n'absorbe donc l'espace restant, et sans cette
+          marge automatique le menu se collerait au pseudo au lieu du bord.
+
+          LE MEME COMPOSANT QUE SUR LE PROFIL, avec les memes actions sur la
+          meme personne. Une seconde implementation divergerait au premier
+          ajustement.
+        */}
+        <MenuModeration
+          utilisateur={autre}
+          etat={moderation}
+          surChangement={async () => {
+            await chargerModeration();
+            /*
+             * ON PREVIENT LE PARENT : bloquer ferme la conversation cote
+             * serveur (404 a l'ouverture, 403 a l'ecriture). Sans ce rappel,
+             * le fil resterait affiche et la premiere tentative d'envoi
+             * echouerait sur une erreur incomprehensible.
+             */
+            surMaj?.();
+          }}
+          className="ml-auto shrink-0"
+        />
       </header>
 
       <ChatRequestBanner

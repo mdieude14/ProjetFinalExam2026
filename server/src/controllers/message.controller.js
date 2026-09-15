@@ -86,10 +86,34 @@ export const listeMessages = asyncHandler(async (req, res) => {
     'pseudo nom prenom avatar type diplome isActive'
   );
 
+  /*
+   * MASQUAGE DES ACCUSES DE LECTURE POUR UNE PERSONNE RESTREINTE.
+   *
+   * On ne touche QUE ses propres messages : `lu` sur un message recu dit
+   * simplement « je l'ai ouvert », ce qui ne renseigne sur personne d'autre.
+   * Sur un message ENVOYE, en revanche, la coche dit « l'autre m'a lu » —
+   * c'est cette information-la que la restriction retire.
+   *
+   * Le masquage se fait SUR LA VUE, jamais en base : le champ reste vrai
+   * cote serveur, l'auteur de la restriction continue de voir son propre
+   * compteur de non-lus juste, et lever la restriction rend la coche sans
+   * qu'aucune donnee n'ait ete perdue.
+   */
+  const accusesVisibles = await messageService.accusesLectureVisibles(
+    req.user._id,
+    conversation.interlocuteurDe(req.user._id)?._id
+  );
+
+  const vues = messages.map((m) => {
+    const vue = m.versionPublique(req.user);
+    const estDeMoi = String(vue.expediteur?._id || vue.expediteur) === String(req.user._id);
+    return !accusesVisibles && estDeMoi ? { ...vue, lu: false } : vue;
+  });
+
   return res.json({
     succes: true,
     conversation: conversation.versionPour(req.user._id),
-    messages: messages.map((m) => m.versionPublique(req.user)),
+    messages: vues,
     curseurSuivant,
   });
 });
@@ -175,13 +199,34 @@ export const envoyer = asyncHandler(async (req, res) => {
     conversation.statut === 'en_attente' &&
     String(conversation.demandeur) === String(req.user._id);
 
-  await notifications.creerOuRegrouper({
-    destinataire: idsDe(conversation).find((id) => id !== String(req.user._id)),
-    emetteur: req.user._id,
-    type: estPremiereDemande ? 'demande_chat' : 'message',
-    cibleType: 'Conversation',
-    cible: conversation._id,
-  });
+  const destinataire = idsDe(conversation).find((id) => id !== String(req.user._id));
+
+  /*
+   * UNE PERSONNE RESTREINTE NE DECLENCHE AUCUNE NOTIFICATION.
+   *
+   * C'est le dernier fil a couper. Le message part bien, il est stocke, il
+   * attend dans le dossier des demandes — mais il ne fait sonner personne.
+   * Une pastille rouge a chaque message annulerait tout le benefice de la
+   * restriction : on aurait mis les messages a l'ecart tout en continuant
+   * d'etre derange par eux.
+   *
+   * Rien n'est perdu pour autant : le dossier « Demandes » affiche son
+   * propre compteur, consulte quand on le decide.
+   */
+  const restreint = await messageService.messagesMisALEcart(
+    req.user._id,
+    destinataire
+  );
+
+  if (!restreint) {
+    await notifications.creerOuRegrouper({
+      destinataire,
+      emetteur: req.user._id,
+      type: estPremiereDemande ? 'demande_chat' : 'message',
+      cibleType: 'Conversation',
+      cible: conversation._id,
+    });
+  }
 
   return res.status(201).json({
     succes: true,
@@ -260,10 +305,20 @@ export const marquerLu = asyncHandler(async (req, res) => {
   const interlocuteur = conversation.interlocuteurDe(req.user._id);
   const autre = String(interlocuteur?._id || interlocuteur);
 
-  diffuserA([autre], 'messages:lus', {
-    conversation: String(conversation._id),
-    par: String(req.user._id),
-  });
+  /*
+   * LA MEME REGLE, SUR L'AUTRE CHEMIN.
+   *
+   * Le masquage HTTP ci-dessus ne vaut que pour un fil qu'on ouvre. Sans ce
+   * second controle, la personne restreinte verrait la coche apparaitre en
+   * direct dans un onglet deja ouvert : le temps reel contournerait la
+   * restriction que la lecture respecte.
+   */
+  if (await messageService.accusesLectureVisibles(autre, req.user._id)) {
+    diffuserA([autre], 'messages:lus', {
+      conversation: String(conversation._id),
+      par: String(req.user._id),
+    });
+  }
 
   diffuserA([String(req.user._id)], 'conversation:maj', {
     conversation: conversation.versionPour(req.user._id),

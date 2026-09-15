@@ -130,6 +130,28 @@
 
   .leaflet-container {
     font-family: inherit;
+
+    /*
+     * LEAFLET NE DOIT PAS EMPILER SES CALQUES DANS TOUTE LA PAGE.
+     *
+     * Ses panneaux sont posés à `z-index: 400` et ses contrôles à `1000` —
+     * des valeurs pensées pour l'intérieur d'une carte, mais qui s'appliquent
+     * au contexte d'empilement de la page tant qu'on ne les y enferme pas.
+     * Elles dépassent alors les surfaces flottantes du projet : la fenêtre
+     * modale (`z-50`) et le menu « ⋯ » (`z-40`).
+     *
+     * Le symptôme est déroutant : le bouton d'une modale ouverte est bien
+     * présent, visible et actif, mais un cercle SVG de la carte intercepte le
+     * clic. Playwright le décrit exactement ainsi — « intercepts pointer
+     * events » — et c'est ce qui a fait échouer la suite « événements » dès
+     * qu'un événement a eu des coordonnées à afficher.
+     *
+     * `isolation: isolate` ouvre un contexte d'empilement propre à la carte :
+     * ses 400 et ses 1000 ne se comparent plus qu'entre eux. C'est le seul
+     * endroit à corriger — surenchérir sur le z-index de chaque calque du
+     * projet obligerait à y penser à chaque nouveau composant flottant.
+     */
+    isolation: isolate;
   }
 
   /* L'attribution OpenStreetMap est EXIGEE PAR LA LICENCE ODbL : on la

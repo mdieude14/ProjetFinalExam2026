@@ -56,9 +56,11 @@ const SUITES = [
   { paquet: 'server', script: 'test:stripe', libelle: 'API — Stripe Connect' },
   { paquet: 'server', script: 'test:relations', libelle: 'API — abonnés et abonnements' },
   { paquet: 'server', script: 'test:evenements', libelle: 'API — événements' },
+  { paquet: 'server', script: 'test:geocodage', libelle: 'API — géocodage des événements' },
   { paquet: 'server', script: 'test:recherche', libelle: 'API — recherche' },
   { paquet: 'server', script: 'test:messagerie', libelle: 'API — messagerie' },
   { paquet: 'server', script: 'test:notifications', libelle: 'API — notifications' },
+  { paquet: 'server', script: 'test:moderation', libelle: 'API — modération (blocage, restriction, signalement)' },
   { paquet: 'server', script: 'test:perf', libelle: 'API — performance' },
 
   { paquet: 'client', script: 'test:ui', libelle: 'Navigateur — parcours général' },
@@ -73,6 +75,7 @@ const SUITES = [
   { paquet: 'client', script: 'test:messagerie', libelle: 'Navigateur — messagerie' },
   { paquet: 'client', script: 'test:parcours-10-11', libelle: 'Navigateur — parcours 10 et 11' },
   { paquet: 'client', script: 'test:notifications', libelle: 'Navigateur — notifications' },
+  { paquet: 'client', script: 'test:moderation', libelle: 'Navigateur — modération (menu « ⋯ »)' },
 
   /*
    * LA PERFORMANCE EN DERNIER, et pour une raison precise : elle mesure le

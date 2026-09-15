@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Conversation from '../models/Conversation.js';
 import Message from '../models/Message.js';
 import Follow from '../models/Follow.js';
+import Relation from '../models/Relation.js';
 import User from '../models/User.js';
 import { ApiError } from '../utils/ApiError.js';
 
@@ -56,6 +57,23 @@ export async function ouvrirConversation(initiateur, idCible) {
     throw ApiError.notFound('Utilisateur introuvable');
   }
 
+  /*
+   * UN BLOCAGE FERME LA MESSAGERIE, DANS LES DEUX SENS.
+   *
+   * On repond 404 et non 403, comme partout ailleurs : un 403 confirmerait
+   * l'existence du compte ET l'existence du blocage. Celui qui a bloque
+   * apprendrait ainsi que l'autre a essaye de le joindre, et celui qui est
+   * bloque saurait qu'il l'est precisement — deux informations qu'aucun des
+   * deux n'a besoin d'obtenir par ce chemin.
+   *
+   * Le test porte sur les DEUX SENS : bloquer quelqu'un doit aussi
+   * m'empecher de lui ecrire, sans quoi le blocage serait une passoire a
+   * sens unique.
+   */
+  if (await Relation.blocageEntre(initiateur._id, cible._id)) {
+    throw ApiError.notFound('Utilisateur introuvable');
+  }
+
   const paire = [initiateur._id, cible._id].sort((a, b) =>
     String(a).localeCompare(String(b))
   );
@@ -71,7 +89,20 @@ export async function ouvrirConversation(initiateur, idCible) {
    * consentir à recevoir ses messages privés.
    */
   const relation = await Follow.statutRelation(cible._id, initiateur._id);
-  const dejaSollicitee = relation === 'accepte';
+
+  /*
+   * LA RESTRICTION REMET LA CONVERSATION DANS LE SAS, meme entre abonnes.
+   *
+   * Sans cette ligne, restreindre quelqu'un qui vous suit deja ne changerait
+   * rien a la messagerie : sa conversation s'ouvrirait directement en
+   * « accepte », et ses messages continueraient d'arriver dans le fil
+   * principal. C'est precisement ce que la restriction doit empecher.
+   *
+   * Et cela reste SILENCIEUX : l'expediteur voit une conversation ordinaire,
+   * il ignore que ses messages attendent dans les demandes de l'autre.
+   */
+  const restreint = await Relation.estRestreintPar(cible._id, initiateur._id);
+  const dejaSollicitee = relation === 'accepte' && !restreint;
 
   try {
     return await Conversation.create({
@@ -104,9 +135,43 @@ async function verifierDroitEcriture(conversation, expediteur) {
     throw ApiError.forbidden('Vous ne participez pas à cette conversation');
   }
 
+  /*
+   * LE BLOCAGE EST REVERIFIE A CHAQUE ENVOI, ET NON SEULEMENT A L'OUVERTURE.
+   *
+   * Le cas courant est celui-ci : la conversation existe depuis des mois,
+   * puis l'un bloque l'autre. Sans ce controle, le fil deja ouvert resterait
+   * une porte derobee — celui qui vient d'etre bloque continuerait d'ecrire
+   * a celui qui l'a bloque, ce qui est exactement ce que le blocage vise a
+   * empecher.
+   */
+  const autre = conversation.interlocuteurDe(expediteur._id);
+
+  if (autre && (await Relation.blocageEntre(expediteur._id, autre._id || autre))) {
+    throw ApiError.forbidden('Vous ne pouvez plus écrire dans cette conversation');
+  }
+
   if (conversation.statut === 'refuse') {
     throw ApiError.forbidden('Cette conversation a été refusée');
   }
+
+  /*
+   * LE PLAFOND DU SAS NE S'APPLIQUE PAS A UN EXPEDITEUR RESTREINT, et cette
+   * derogation est la condition du SILENCE.
+   *
+   * La restriction range la conversation dans les demandes (voir plus bas
+   * dans envoyer()). Or une demande limite son auteur a un seul message tant
+   * qu'elle n'est pas acceptee : sans cette derogation, la personne
+   * restreinte se verrait refuser son deuxieme message par une erreur 403 —
+   * et comprendrait immediatement qu'on l'a mise a l'ecart.
+   *
+   * On la laisse donc ecrire autant qu'elle veut. Ses messages partent dans
+   * le dossier des demandes, ou ils attendent sans notifier personne.
+   */
+  const restreint = autre
+    ? await Relation.estRestreintPar(autre._id || autre, expediteur._id)
+    : false;
+
+  if (restreint) return;
 
   if (conversation.statut === 'en_attente') {
     const estDemandeur = String(conversation.demandeur) === String(expediteur._id);
@@ -172,6 +237,23 @@ export async function envoyer(idConversation, expediteur, { contenu, media }) {
       const destinataire = conversation.interlocuteurDe(expediteur._id);
 
       /*
+       * UNE RESTRICTION POSEE APRES COUP DOIT RETROGRADER LE FIL EXISTANT.
+       *
+       * Le cas ordinaire est celui-la : on discute depuis des semaines, puis
+       * l'echange derape et l'on restreint. Si le fil restait « accepte »,
+       * la restriction n'aurait aucun effet sur la messagerie — les messages
+       * continueraient d'arriver dans la boite principale, ce qui est
+       * exactement ce qu'elle sert a eviter.
+       *
+       * On le repasse donc en demande, avec l'expediteur pour demandeur. Le
+       * destinataire retrouve l'echange dans son dossier « Demandes » et
+       * decide s'il le rouvre ; l'expediteur, lui, ne voit rien changer.
+       */
+      const misALEcart =
+        conversation.statut === 'accepte' &&
+        (await Relation.estRestreintPar(destinataire?._id || destinataire, expediteur._id));
+
+      /*
        * `$inc` SUR UNE CLÉ DE `Map`. La syntaxe pointée `nonLus.<id>` est la
        * seule qui permette d'incrémenter sans relire la Map entière : relire
        * puis réécrire rouvrirait la course que la transaction sert justement
@@ -187,6 +269,9 @@ export async function envoyer(idConversation, expediteur, { contenu, media }) {
               date: creee.createdAt,
               avecMedia: Boolean(media),
             },
+            ...(misALEcart
+              ? { statut: 'en_attente', demandeur: expediteur._id }
+              : {}),
           },
           $inc: { [`nonLus.${String(destinataire)}`]: 1 },
         },
@@ -332,6 +417,37 @@ export async function listeMessages(idConversation, utilisateur, { curseur, limi
     messages: messages.reverse(),
     curseurSuivant: encore ? String(messages[0]._id) : null,
   };
+}
+
+/**
+ * Les accuses de lecture sont-ils visibles de `idQuiApprend` ?
+ *
+ * LA DOUBLE COCHE EST UNE INFORMATION SUR LE DESTINATAIRE, pas sur le
+ * message : elle dit « je t'ai lu ». Une personne restreinte ne doit pas
+ * l'obtenir — sinon elle saurait que ses messages sont lus alors qu'ils
+ * dorment dans le dossier des demandes, et pourrait s'etonner du silence.
+ *
+ * LA REGLE VIT ICI ET NON DANS LES DEUX CONTROLEURS qui la posent (la
+ * lecture du fil et la diffusion temps reel). Ecrite deux fois, il suffirait
+ * d'en corriger une pour que la coche reapparaisse par le second chemin.
+ */
+export async function accusesLectureVisibles(idQuiApprend, idQuiALu) {
+  if (!idQuiApprend || !idQuiALu) return true;
+  return !(await Relation.estRestreintPar(idQuiALu, idQuiApprend));
+}
+
+/**
+ * Les messages de `idExpediteur` vers `idDestinataire` sont-ils mis a l'ecart ?
+ *
+ * MEME QUESTION QUE CI-DESSUS, POSEE DANS L'AUTRE SENS — d'ou une fonction
+ * distincte plutot qu'une negation de la precedente au point d'appel. Lire
+ * « accuses de lecture visibles » la ou l'on decide d'envoyer une
+ * notification obligerait a refaire mentalement le raisonnement a chaque
+ * relecture, et c'est ainsi qu'un sens finit par etre inverse.
+ */
+export async function messagesMisALEcart(idExpediteur, idDestinataire) {
+  if (!idExpediteur || !idDestinataire) return false;
+  return Relation.estRestreintPar(idDestinataire, idExpediteur);
 }
 
 /** Total de messages non lus, toutes conversations confondues. */

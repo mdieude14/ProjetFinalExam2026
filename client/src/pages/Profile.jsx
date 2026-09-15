@@ -4,6 +4,7 @@ import userApi from '@/api/user.api';
 import postApi from '@/api/post.api';
 import PostCard from '@/components/post/PostCard';
 import BoutonSuivre from '@/components/profile/BoutonSuivre';
+import MenuModeration from '@/components/moderation/MenuModeration';
 import BoutonAbonnement from '@/components/profile/BoutonAbonnement';
 import BoutonMessage from '@/components/profile/BoutonMessage';
 import ModaleAbonnes from '@/components/profile/ModaleAbonnes';
@@ -157,29 +158,41 @@ export default function Profile() {
     chargerPosts(null);
   }, [chargerPosts]);
 
+  /**
+   * Chargement du profil, extrait de son effet pour etre RAPPELABLE.
+   *
+   * Le menu de moderation en a besoin : bloquer ou debloquer change ce que le
+   * serveur accepte de renvoyer — les publications, les compteurs, les
+   * drapeaux d'acces. Mettre a jour l'etat localement afficherait un menu
+   * juste au-dessus d'une page fausse.
+   *
+   * `silencieux` evite de repasser par l'ecran de chargement lors d'un
+   * rappel : le profil est deja affiche, le faire disparaitre une seconde
+   * donnerait l'impression d'une erreur.
+   */
+  const chargerProfil = useCallback(
+    async ({ silencieux = false } = {}) => {
+      if (!silencieux) setChargement(true);
+      setErreur(null);
+
+      try {
+        const reponse = await userApi.profil(identifiant);
+        setDonnees(reponse.data);
+      } catch (e) {
+        setErreur(e.message || 'Profil introuvable');
+      } finally {
+        if (!silencieux) setChargement(false);
+      }
+    },
+    [identifiant]
+  );
+
   useEffect(() => {
-    let annule = false;
-    setChargement(true);
-    setErreur(null);
-
-    userApi
-      .profil(identifiant)
-      .then((reponse) => {
-        if (!annule) setDonnees(reponse.data);
-      })
-      .catch((e) => {
-        if (!annule) setErreur(e.message || 'Profil introuvable');
-      })
-      .finally(() => {
-        if (!annule) setChargement(false);
-      });
-
-    return () => {
-      annule = true;
-    };
-    // La dependance sur `identifiant` est essentielle : sans elle, naviguer
-    // d'un profil a un autre laisserait les donnees du precedent affichees.
-  }, [identifiant]);
+    chargerProfil();
+    // La dependance sur `chargerProfil` porte celle sur `identifiant` :
+    // sans elle, naviguer d'un profil a un autre laisserait les donnees du
+    // precedent affichees.
+  }, [chargerProfil]);
 
   useEffect(() => {
     chargerPosts();
@@ -334,6 +347,27 @@ export default function Profile() {
               )}
             </div>
           </div>
+
+          {/*
+            MENU « ⋯ » — TOUT A DROITE DE L'EN-TETE.
+            Aucune classe de positionnement n'est necessaire : le bloc
+            precedent porte `flex-1`, il absorbe l'espace disponible et
+            repousse ce menu contre le bord. Un `ml-auto` ferait double
+            emploi, et un positionnement absolu le sortirait du flux — il
+            chevaucherait les badges sur un nom long.
+
+            IL NE S'AFFICHE PAS SUR SON PROPRE PROFIL : on ne se bloque ni ne
+            se signale soi-meme, et le serveur refuse d'ailleurs ces trois
+            actions sur soi.
+          */}
+          {!estMoi && (
+            <MenuModeration
+              utilisateur={profil}
+              etat={donnees.moderation}
+              surChangement={() => chargerProfil({ silencieux: true })}
+              className="shrink-0 self-center sm:self-start"
+            />
+          )}
         </div>
 
         {/* ---------- Statistiques ---------- */}

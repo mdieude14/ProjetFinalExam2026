@@ -21,6 +21,20 @@ export const adminApi = {
   changerStatutCompte: (idUtilisateur, isActive) =>
     api.patch(`/admin/users/${idUtilisateur}/statut`, { isActive }),
 
+  /**
+   * File des signalements. Par defaut les dossiers ouverts, du plus ancien
+   * au plus recent — celui qui attend depuis trois jours passe en premier.
+   */
+  signalements: ({ statut = 'ouvert', page = 1, limite = 20 } = {}) =>
+    api.get('/admin/signalements', { params: { statut, page, limite } }),
+
+  /**
+   * Instruction d'un signalement.
+   * @param {'traiter'|'rejeter'} decision
+   */
+  deciderSignalement: (idSignalement, decision, commentaire) =>
+    api.patch(`/admin/signalements/${idSignalement}`, { decision, commentaire }),
+
   /** Indicateurs de la plateforme. */
   stats: () => api.get('/admin/stats'),
 };

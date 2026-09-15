@@ -20,7 +20,8 @@
     "test:perf": "node tests/performance.mjs",
     "test:relations": "node tests/relations.mjs",
     "test:story-camera": "node tests/story-camera.mjs",
-    "test:publication-toggle": "node tests/publication-toggle.mjs"
+    "test:publication-toggle": "node tests/publication-toggle.mjs",
+    "test:moderation": "node tests/moderation.mjs"
   },
   "dependencies": {
     "axios": "^1.19.0",

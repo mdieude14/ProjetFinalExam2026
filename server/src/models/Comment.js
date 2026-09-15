@@ -51,6 +51,26 @@ const commentSchema = new Schema(
     },
 
     reponsesCount: { type: Number, default: 0, min: 0 },
+
+    /**
+     * Commentaire laissé par un compte RESTREINT par l'auteur de la
+     * publication : il attend son approbation.
+     *
+     * TANT QU'IL EST EN ATTENTE, IL N'EST VISIBLE QUE DE DEUX PERSONNES :
+     * celui qui l'a écrit — qui ne doit se douter de rien, c'est tout l'objet
+     * de la restriction — et l'auteur de la publication, qui décide.
+     *
+     * LE CHAMP EST PORTÉ PAR LE COMMENTAIRE, ET NON DÉDUIT À LA LECTURE.
+     * On pourrait recalculer « l'auteur restreint-il ce commentateur ? » à
+     * chaque affichage, mais lever une restriction rendrait alors visibles,
+     * d'un coup, tous les anciens commentaires — y compris ceux que l'auteur
+     * n'a jamais vus. L'état est donc figé au moment de l'écriture, et ne
+     * change que par une décision explicite.
+     *
+     * `false` par défaut : l'immense majorité des commentaires ne passe par
+     * aucune approbation, et l'index partiel plus bas ne coûte donc rien.
+     */
+    enAttenteApprobation: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -66,6 +86,18 @@ commentSchema.index({ post: 1, parent: 1, createdAt: -1 });
 // conversation se lit de haut en bas.
 commentSchema.index({ parent: 1, createdAt: 1 });
 
+/**
+ * File d'approbation d'un auteur : « qu'ai-je à approuver sur ce post ? ».
+ *
+ * INDEX PARTIEL, sur les seuls commentaires en attente. Ils sont une infime
+ * minorite : indexer les autres ferait grossir l'index de plusieurs ordres de
+ * grandeur pour une requete qui ne les regarde jamais.
+ */
+commentSchema.index(
+  { post: 1, enAttenteApprobation: 1 },
+  { partialFilterExpression: { enAttenteApprobation: true } }
+);
+
 /* ------------------------------------------------------------------ *
  *  METHODES
  * ------------------------------------------------------------------ */
@@ -80,6 +112,15 @@ commentSchema.methods.versionPublique = function () {
     texte: this.texte,
     reponsesCount: this.reponsesCount,
     createdAt: this.createdAt,
+
+    /*
+     * L'ÉTAT EST EXPOSÉ, MAIS IL NE DIT PAS LA MÊME CHOSE AUX DEUX CÔTÉS.
+     * Le contrôleur ne renvoie ce commentaire qu'à son auteur et à celui de
+     * la publication ; l'interface s'en sert pour afficher « en attente
+     * d'approbation » au second, et rien du tout au premier — qui ne doit se
+     * douter de rien.
+     */
+    enAttenteApprobation: this.enAttenteApprobation,
     auteur: auteur
       ? {
           _id: auteur._id,

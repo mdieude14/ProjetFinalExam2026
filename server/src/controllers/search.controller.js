@@ -26,7 +26,7 @@ import * as searchService from '../services/search.service.js';
  * chaque frappe le prix d'une recherche complète.
  */
 export const suggestions = asyncHandler(async (req, res) => {
-  const resultats = await searchService.suggestions(req.query.q, {
+  const resultats = await searchService.suggestions(req.query.q, req.user, {
     limite: req.query.limite,
   });
 
@@ -59,7 +59,7 @@ export const globale = asyncHandler(async (req, res) => {
  * ================================================================== */
 
 export const utilisateurs = asyncHandler(async (req, res) => {
-  const resultats = await searchService.utilisateurs(req.query.q, {
+  const resultats = await searchService.utilisateurs(req.query.q, req.user, {
     type: req.query.type,
     ville: req.query.ville,
     limite: req.query.limite,
