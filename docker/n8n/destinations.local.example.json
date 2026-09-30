@@ -1,0 +1,25 @@
+{
+  "_lisezMoi": [
+    "Copiez ce fichier en « destinations.local.json » (ignoré par git) et renseignez",
+    "la conversation Telegram de l'exploitant : c'est là que partiront les résumés de",
+    "l'assistant de messagerie.",
+    "",
+    "POURQUOI UN FICHIER LOCAL PLUTÔT QU'UN CHAMP DANS L'ÉDITEUR DE n8n.",
+    "La destination doit rester une valeur LITTÉRALE dans le workflow : le résumé",
+    "traverse des nœuds qui ont manipulé le contenu de courriels écrits par des",
+    "inconnus, et une expression ferait dépendre la destination de cette donnée.",
+    "Mais une valeur saisie dans l'éditeur ne survit pas à « n8n import:workflow »,",
+    "qui remplace le workflow par le fichier du dépôt — le 24 septembre 2026, cela a",
+    "rendu six jours d'escalades muettes sans qu'aucune alerte ne le dise.",
+    "Le générateur lit donc ce fichier et grave la valeur en dur : littérale, et",
+    "reconstruite à chaque régénération au lieu d'être détruite.",
+    "",
+    "OÙ TROUVER CET IDENTIFIANT. Écrivez au bot depuis Telegram, puis ouvrez",
+    "https://api.telegram.org/bot<JETON_DU_BOT>/getUpdates et lisez message.chat.id.",
+    "Seule une conversation PRIVÉE est acceptée : un identifiant négatif désigne un",
+    "groupe, dont tous les membres liraient vos courriels. Le générateur le refuse.",
+    "",
+    "Ce fichier-ci est un exemple : il est suivi par git, ne le remplissez pas."
+  ],
+  "conversationExploitant": ""
+}

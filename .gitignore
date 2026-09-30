@@ -42,3 +42,8 @@ captures/
 # Certificat public, mais propre a la machine : le depot en reste independant.
 docker/n8n/certificats/
 docker/n8n/docker-compose.override.yml
+
+# Destination Telegram de l exploitant, gravee en dur par le generateur de
+# workflows. Ce n est pas un secret, mais c est la conversation d une personne :
+# le depot reste independant de la machine. Voir destinations.local.example.json
+docker/n8n/destinations.local.json

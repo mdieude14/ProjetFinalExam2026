@@ -42,7 +42,7 @@
  * ===========================================================================
  */
 
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -63,6 +63,20 @@ export function libellesRequis() {
       traite: 'CC/Traite',
       proposee: 'CC/Suppression proposee',
       approuvee: 'CC/Suppression OK',
+      /*
+       * LE SEUL LIBELLÉ QUI REND L'ASSISTANT AVEUGLE.
+       *
+       * Demandé par le porteur du projet. La boîte est dédiée à CoachConnect, et
+       * ne devrait donc contenir aucun courrier privé — mais « ne devrait pas »
+       * n'est pas une garantie : un message personnel finira par y arriver.
+       *
+       * AUCUNE AUTORISATION GOOGLE NE SAIT FAIRE CELA. `gmail.modify` porte sur
+       * la boîte entière ; il n'existe pas de portée « certains libellés
+       * seulement ». L'exclusion est donc dans la REQUÊTE, et c'est l'exploitant
+       * qui pose le libellé — jamais l'agent, qui ne doit pas pouvoir décider
+       * lui-même ce qu'il s'autorise à ignorer.
+       */
+      prive: 'CC/Prive',
       categories: {
         support: 'CC/Support',
         paiement: 'CC/Paiements',
@@ -73,7 +87,11 @@ export function libellesRequis() {
         autre: 'CC/Autres',
       },
     },
-    recherche: 'in:inbox newer_than:7d -label:cc-traite',
+    /*
+     * `-label:cc-prive` EXCLUT CE QUE L'EXPLOITANT A MARQUÉ PRIVÉ. Gmail écrit
+     * les libellés en minuscules et remplace « / » par « - » dans une recherche.
+     */
+    recherche: 'in:inbox newer_than:7d -label:cc-traite -label:cc-prive',
     maxMails: 10,
     brouillonsParJour: 20,
     appli: 'http://localhost:5173',
@@ -82,8 +100,13 @@ export function libellesRequis() {
     effortRedaction: 'medium',
   };
 
-  const { traite, proposee, approuvee, categories } = CONFIG.libelles;
-  return [traite, proposee, approuvee, ...Object.values(categories)].map((nom) => ({
+  /*
+   * `prive` EST CRÉÉ COMME LES AUTRES, pour que l'exploitant le trouve dans
+   * Gmail sans avoir à le taper — mais rien dans ces workflows ne le POSE
+   * jamais : c'est un libellé qui ne s'applique qu'à la main.
+   */
+  const { traite, proposee, approuvee, prive, categories } = CONFIG.libelles;
+  return [traite, proposee, approuvee, prive, ...Object.values(categories)].map((nom) => ({
     json: { nom, config: CONFIG },
   }));
 }
@@ -493,6 +516,60 @@ const IDENTIFIANT_TELEGRAM = { id: 'ccTelegramBot001', name: 'Bot Telegram — C
 const reponseComplete = { response: { response: { fullResponse: true, neverError: true } } };
 const continuerSurErreur = { onError: 'continueRegularOutput' };
 
+/**
+ * OÙ PART LE RÉSUMÉ — lu dans un fichier local, GRAVÉ EN LITTÉRAL.
+ *
+ * DEUX EXIGENCES QUI SEMBLENT S'OPPOSER, ET QUI SE CONCILIENT ICI.
+ *
+ * La première : la destination doit être une valeur LITTÉRALE, jamais une
+ * expression. Le résumé traverse des nœuds qui ont manipulé le contenu de
+ * courriels écrits par des inconnus ; une expression ferait dépendre la
+ * destination de cette donnée, et un courriel pourrait tenter de détourner le
+ * résumé. C'est la règle du 15.22, et un test structurel l'impose.
+ *
+ * La seconde : elle ne doit pas être saisie dans l'éditeur de n8n.
+ * `import:workflow` REMPLACE le workflow par le fichier du dépôt, et effacerait
+ * cette saisie. C'est arrivé le 24 septembre sur la relève des escalades : n8n a
+ * classé le nœud « en défaut », a REFUSÉ d'exécuter le workflow, et six jours
+ * d'escalades sont restées muettes sans qu'aucune alerte ne le dise.
+ *
+ * La conciliation : le générateur lit un fichier local, hors dépôt, et écrit la
+ * valeur EN DUR dans le JSON. La destination reste littérale, et régénérer la
+ * reconstruit au lieu de la détruire.
+ *
+ * ABSENT = COMPORTEMENT D'ORIGINE : un champ vide, et un avertissement. Un dépôt
+ * fraîchement cloné se construit sans rien configurer.
+ */
+function conversationExploitant() {
+  const fichier = fileURLToPath(new URL('../destinations.local.json', import.meta.url));
+  if (!existsSync(fichier)) return '';
+
+  let valeur;
+  try {
+    valeur = JSON.parse(readFileSync(fichier, 'utf8'))?.conversationExploitant;
+  } catch (erreur) {
+    console.warn(`[MESSAGERIE] ${fichier} illisible (${erreur.message}) : destination laissée vide.`);
+    return '';
+  }
+
+  const propre = String(valeur ?? '').trim();
+
+  /*
+   * SEULS DES CHIFFRES, ET UNE CONVERSATION PRIVÉE. Un identifiant négatif
+   * désigne un GROUPE : le résumé y exposerait les courriels de l'exploitant à
+   * tous ses membres. Le refus est silencieux côté sécurité, bruyant côté
+   * journal — on ne grave jamais une valeur qu'on n'a pas comprise.
+   */
+  if (!/^[1-9]\d{0,19}$/.test(propre)) {
+    if (propre) console.warn(`[MESSAGERIE] conversationExploitant invalide : seule une conversation privée (chiffres) est acceptée.`);
+    return '';
+  }
+
+  return propre;
+}
+
+const CONVERSATION_EXPLOITANT = conversationExploitant();
+
 const fabrique = (id) => ({
   code: (nom, fonction, pos) => ({
     parameters: { jsCode: corpsDe(fonction) },
@@ -534,11 +611,12 @@ const fabrique = (id) => ({
   telegram: (nom, pos) => ({
     parameters: {
       /*
-       * UNE CONVERSATION FIXE, choisie par l'exploitant dans l'interface, et
-       * jamais une expression : le contenu d'un courriel ne peut pas décider
-       * où part le résumé. Vide dans le dépôt, comme pour la relève.
+       * UNE CONVERSATION FIXE, jamais une expression : le contenu d'un courriel
+       * ne peut pas décider où part le résumé. Gravée depuis
+       * `docker/n8n/destinations.local.json`, hors dépôt — voir
+       * `conversationExploitant()` pour les deux exigences que cela concilie.
        */
-      chatId: '',
+      chatId: CONVERSATION_EXPLOITANT,
       text: '={{ $json.texte }}',
       additionalFields: { disable_web_page_preview: true, appendAttribution: false },
     },
@@ -619,6 +697,17 @@ const noeudsCorbeille = [
     sendQuery: true,
     queryParameters: { parameters: [
       { name: 'labelIds', value: '={{ $json.idApprouvee }}' },
+      /*
+       * CE QUI EST MARQUÉ PRIVÉ RESTE HORS DE PORTÉE, MÊME ICI.
+       *
+       * Ce workflow n'agit que sur ce que l'exploitant a validé lui-même : on
+       * pourrait donc juger l'exclusion inutile. Elle tient au sens du libellé
+       * `CC/Prive` — « l'agent n'y touche pas », sans exception à retenir. Un
+       * message privé se supprime à la main dans Gmail, en deux clics.
+       *
+       * `q` s'ajoute à `labelIds` : Gmail applique les deux.
+       */
+      { name: 'q', value: '-label:cc-prive' },
       { name: 'maxResults', value: '25' },
     ] },
   }),

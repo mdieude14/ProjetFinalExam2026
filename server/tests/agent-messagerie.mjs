@@ -143,9 +143,26 @@ for (const [nom, w, attendus] of [
   ok('chaque appel Gmail passe par l’identifiant OAuth dédié',
     gmail.length > 0 && gmail.every((n) => n.credentials?.oAuth2Api?.id === 'ccGmailOAuth0001'), `${gmail.length} appel(s)`);
 
+  /*
+   * LA DESTINATION EST VÉRIFIÉE SUR SA FORME, PAS SUR SA VACUITÉ.
+   *
+   * Elle était exigée VIDE dans le dépôt, l'exploitant la saisissant dans
+   * l'éditeur de n8n. Cette saisie ne survivait pas à un `import:workflow` — la
+   * panne du 24 septembre sur la relève des escalades. Elle est désormais gravée
+   * par le générateur depuis un fichier local, hors dépôt : une valeur peut donc
+   * légitimement s'y trouver, et exiger `=== ''` rendrait ce test dépendant de
+   * la machine qui l'exécute.
+   *
+   * CE QUI COMPTE RESTE VÉRIFIÉ, et c'est le seul point qui protège : une valeur
+   * LITTÉRALE, chiffres seuls. Une expression ferait dépendre la destination
+   * d'une donnée que le contenu d'un courriel a pu traverser ; un identifiant
+   * négatif désignerait un groupe, dont tous les membres liraient le résumé.
+   */
   const tg = w.nodes.filter((n) => n.type === 'n8n-nodes-base.telegram');
+  const destination = String(tg[0]?.parameters.chatId ?? '');
   ok('**le résumé part vers une conversation fixe, jamais vers une expression**',
-    tg.length === 1 && tg[0].parameters.chatId === '' && !String(tg[0].parameters.chatId).startsWith('='));
+    tg.length === 1 && !destination.startsWith('=') && /^([1-9]\d{0,19})?$/.test(destination),
+    destination === '' ? 'vide (dépôt sans configuration locale)' : `littérale, ${destination.length} chiffres`);
 
   const reseau = w.nodes.filter((n) => /httpRequest|telegram$/.test(n.type));
   ok('les nœuds réseau survivent à une panne', reseau.every((n) => n.onError === 'continueRegularOutput'));
@@ -182,9 +199,45 @@ ok('l’autorisation Google demandée est réservée à l’identifiant dédié 
 
 section('Libellés et recherche');
 
-ok('dix libellés, tous en ASCII — la recherche Gmail les écrit sans accent', REQUIS.length === 10 &&
+ok('onze libellés, tous en ASCII — la recherche Gmail les écrit sans accent', REQUIS.length === 11 &&
   REQUIS.every((e) => /^[\x20-\x7E]+$/.test(e.json.nom)));
 ok('la recherche exclut les courriels déjà traités', CONFIG.recherche.includes('-label:cc-traite'));
+
+/* ------------------------------------------------------------------ *
+ *  « CC/Prive » — LE LIBELLÉ QUI REND L'ASSISTANT AVEUGLE
+ *
+ *  Demandé par le porteur du projet. Aucune autorisation Google ne sait
+ *  restreindre l'accès à certains libellés : `gmail.modify` porte sur la
+ *  boîte entière. L'exclusion vit donc dans la REQUÊTE, et le libellé n'est
+ *  posé QUE par l'exploitant — un agent qui pourrait le poser choisirait
+ *  lui-même ce qu'il s'autorise à ignorer.
+ * ------------------------------------------------------------------ */
+ok('**le libellé « CC/Prive » est créé**, pour que l’exploitant le trouve dans Gmail',
+  REQUIS.some((e) => e.json.nom === 'CC/Prive'));
+
+ok('**la recherche exclut ce qui est marqué privé**',
+  CONFIG.recherche.includes('-label:cc-prive'));
+
+ok('**la corbeille l’exclut aussi** — « l’agent n’y touche pas », sans exception à retenir',
+  m.workflowCorbeille.nodes
+    .find((n) => n.name === 'Chercher les suppressions approuvées')
+    .parameters.queryParameters.parameters
+    .some((p) => p.name === 'q' && p.value.includes('-label:cc-prive')));
+
+/*
+ * L'AGENT NE DOIT JAMAIS POSER CE LIBELLÉ. S'il pouvait, un courriel bien
+ * tourné pourrait le pousser à se rendre aveugle à lui-même. C'est le nœud qui
+ * compose `addLabelIds` qui décide des libellés posés : lui seul est examiné,
+ * et il ne doit connaître ni le nom ni la clé du libellé privé.
+ */
+const codeEtiquetage = m.workflowTri.nodes
+  .map((n) => n.parameters?.jsCode ?? '')
+  .filter((c) => c.includes('addLabelIds'));
+
+ok('condition réunie : un nœud compose bien la liste des libellés à poser',
+  codeEtiquetage.length === 1);
+ok('**et il ne POSE jamais « CC/Prive »** — ce libellé ne s’applique qu’à la main',
+  codeEtiquetage.every((c) => !/prive/i.test(c)));
 
 const liste = (messages, statusCode = 200) => [{ json: { statusCode, body: messages ? { messages } : {} } }];
 ok('aucun nouveau courriel : la branche s’arrête', executer(m.unElementParMail, { entree: liste(null), nœuds: BASE }).length === 0);

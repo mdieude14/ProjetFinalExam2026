@@ -1,7 +1,7 @@
 {
   "id": "ccMessagerieCor1",
   "name": "CoachConnect — assistant de messagerie (corbeille)",
-  "versionId": "cfe9f0f9-ccdc-a139-e0f7-860e002b7d50",
+  "versionId": "fd78786f-4337-bf89-85b3-fa25b4df1704",
   "active": false,
   "nodes": [
     {
@@ -90,6 +90,10 @@
             {
               "name": "labelIds",
               "value": "={{ $json.idApprouvee }}"
+            },
+            {
+              "name": "q",
+              "value": "-label:cc-prive"
             },
             {
               "name": "maxResults",

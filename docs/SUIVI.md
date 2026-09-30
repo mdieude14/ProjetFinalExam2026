@@ -5797,3 +5797,58 @@ affichée dans le widget ne doit plus contenir de tiret cadratin.
       `n8n update:workflow --active=true` **puis redémarrer n8n**, sans quoi le
       webhook du widget ne répond plus. Même famille de piège que le champ
       « Chat ID » du 15.28 : ce qu'un import écrase ne se voit pas
+
+## 15.31 — Le libellé privé, et la destination qu'un import ne peut plus effacer (30 septembre)
+
+Préparation de la partie 2 (Gmail). Deux exigences du porteur du projet, posées
+avant qu'il ne configure quoi que ce soit.
+
+### A. « L'assistant ne doit pas lire mes courriels privés »
+
+- [x] **Aucune autorisation Google ne sait faire cela**, et c'est dit franchement :
+      `gmail.modify` porte sur la boîte ENTIÈRE. Il n'existe pas de portée
+      « certains libellés seulement ». La seule garantie tient à la boîte dédiée :
+      ce qui n'y est pas ne peut pas être lu
+- [x] **Un onzième libellé, `CC/Prive`**, exclu de la recherche :
+      `in:inbox newer_than:7d -label:cc-traite -label:cc-prive`. Un message ainsi
+      marqué devient invisible à l'assistant, définitivement
+- [x] **L'agent ne POSE jamais ce libellé** — un courriel bien tourné pourrait
+      sinon le pousser à se rendre aveugle à lui-même. Le nœud qui compose
+      `addLabelIds` ne connaît ni son nom ni sa clé, et un test l'impose
+- [x] **La corbeille l'exclut aussi**, bien qu'elle n'agisse que sur ce que
+      l'exploitant a validé. C'est le sens du libellé qui l'exige : « l'agent n'y
+      touche pas », sans exception à retenir
+
+### B. La destination du résumé — deux exigences qui semblaient s'opposer
+
+- [x] **Elle doit rester LITTÉRALE** : le résumé traverse des nœuds qui ont
+      manipulé le contenu de courriels écrits par des inconnus. Une expression
+      ferait dépendre la destination de cette donnée
+- [x] **Et elle ne doit pas être saisie dans l'éditeur de n8n** : c'est ce qui a
+      produit la panne du 15.28, où un `import:workflow` a effacé la saisie et où
+      n8n a cessé d'exécuter le workflow sans rien dire
+- [x] **La conciliation** : le générateur lit `docker/n8n/destinations.local.json`
+      (hors dépôt) et grave la valeur EN DUR. Littérale, et reconstruite à chaque
+      régénération au lieu d'être détruite
+- [x] **Le générateur refuse ce qu'il ne comprend pas** : seuls des chiffres, et
+      une conversation privée. Un identifiant négatif désigne un GROUPE, dont tous
+      les membres liraient les courriels de l'exploitant
+- [x] `destinations.local.example.json` documente la forme et explique pourquoi ce
+      fichier existe
+
+### C. Un test rendu déterministe au passage
+
+- [x] La vérification exigeait `chatId === ''`. Elle serait devenue vraie ou fausse
+      **selon la machine** qui l'exécute, une fois le fichier local rempli. Elle
+      porte désormais sur la propriété qui protège : une valeur littérale, chiffres
+      seuls, jamais une expression
+
+### D. Vérifications — 102 / 102, et le mécanisme éprouvé aux quatre cas
+
+- [x] Cinq vérifications ajoutées (97 → 102)
+- [x] **Le mécanisme lui-même éprouvé**, en créant puis supprimant le fichier
+      local : valeur valide gravée en littéral · identifiant de groupe refusé avec
+      avertissement · fichier illisible refusé sans plantage · fichier absent, donc
+      champ vide — le comportement d'un dépôt fraîchement cloné
+- [x] Contrôlé avant commit qu'aucun identifiant de conversation n'avait été gravé
+      par ces essais
