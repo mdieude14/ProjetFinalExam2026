@@ -20,6 +20,21 @@ import {
   reglesFileSignalements,
 } from '../validators/moderation.validator.js';
 
+import {
+  listerTickets,
+  trancherTicket,
+  statistiquesSupport,
+  brouillonAdmin,
+  envoyerAdmin,
+} from '../controllers/support.controller.js';
+
+import {
+  reglesFileTickets,
+  reglesDecisionTicket,
+  reglesBrouillonAdmin,
+  reglesIdTicket,
+} from '../validators/support.validator.js';
+
 import { validate } from '../middlewares/validate.middleware.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { autoriser } from '../middlewares/role.middleware.js';
@@ -65,6 +80,36 @@ router.patch(
   validate,
   deciderSignalement
 );
+
+/* ------------------------- Support — module 15 ------------------------ */
+
+/*
+ * LA FILE DES TICKETS ESCALADES, ET LEUR INSTRUCTION.
+ *
+ * Ces deux routes sont ICI, et non dans `support.routes.js`, parce qu'elles
+ * demandent un HUMAIN. L'orchestrateur n8n releve les tickets par sa propre
+ * cle de service, sur des routes qui ne permettent que de lire et de marquer
+ * comme annonce — il ne tranche jamais un dossier.
+ *
+ * Lui donner un jeton d'administrateur pour la seule releve lui aurait ouvert
+ * du meme coup la verification des diplomes et la desactivation des comptes.
+ */
+router.get('/support/tickets', reglesFileTickets, validate, listerTickets);
+
+router.patch('/support/tickets/:id', reglesDecisionTicket, validate, trancherTicket);
+
+/*
+ * LE MÊME BROUILLON QUE SUR TELEGRAM, ET LA MÊME VALIDATION.
+ *
+ * Deux chemins mènent à l'envoi — le téléphone et le clavier — mais ils
+ * écrivent dans les mêmes champs et passent par la même fonction de service.
+ * Celle-ci verrouille le dossier avant d'envoyer : deux validations
+ * simultanées, une par chemin, ne peuvent pas produire deux courriels.
+ */
+router.patch('/support/tickets/:id/brouillon', reglesBrouillonAdmin, validate, brouillonAdmin);
+router.post('/support/tickets/:id/envoyer', reglesIdTicket, validate, envoyerAdmin);
+
+router.get('/support/stats', statistiquesSupport);
 
 /* ----------------------------- Statistiques --------------------------- */
 

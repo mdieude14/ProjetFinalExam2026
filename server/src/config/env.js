@@ -57,6 +57,29 @@ if (process.env.NODE_ENV === 'production' && !(process.env.SMTP_USER && process.
   process.exit(1);
 }
 
+/*
+ * Garde-fou du module 15 : LES DEUX CLÉS DU SUPPORT DOIVENT DIFFÉRER.
+ *
+ * La clé de relève ouvre la file des escalades ; la clé d'agent authentifie
+ * ce que l'agent du widget écrit. Ce second agent est exposé à du contenu non
+ * fiable — n'importe qui lui écrit. Une même valeur dans les deux variables
+ * lui donnerait la file de l'exploitant, et annulerait la séparation des deux
+ * zones de confiance. Copier une clé dans l'autre est l'erreur naturelle :
+ * une recommandation ne suffit pas, on refuse de démarrer.
+ */
+if (
+  process.env.SUPPORT_SERVICE_KEY &&
+  process.env.SUPPORT_AGENT_KEY &&
+  process.env.SUPPORT_SERVICE_KEY === process.env.SUPPORT_AGENT_KEY
+) {
+  console.error(
+    '\n[CONFIG] SUPPORT_AGENT_KEY et SUPPORT_SERVICE_KEY ont la même valeur.\n' +
+      'Elles protègent deux zones de confiance distinctes : générez-en une seconde.\n\n' +
+      '  node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"\n'
+  );
+  process.exit(1);
+}
+
 /**
  * Configuration centralisee.
  * Le reste du code importe cet objet plutot que de lire process.env
@@ -115,6 +138,21 @@ export const config = {
     expediteur: process.env.MAIL_FROM || process.env.SMTP_USER,
   },
 
+  /**
+   * Support automatisé (module 15).
+   *
+   * VOLONTAIREMENT FACULTATIVE. Absente, les deux routes de relève restent
+   * fermées et le reste de l'application fonctionne sans changement — le
+   * support automatisé est une couche en plus, pas une dépendance. Le
+   * middleware `serviceAutorise` refuse alors tout appel, plutôt que
+   * d'ouvrir la route : c'est l'erreur qu'il ne faut pas commettre.
+   */
+  support: {
+    serviceKey: process.env.SUPPORT_SERVICE_KEY,
+    // Facultative elle aussi : absente, aucun ticket ne peut porter de
+    // réponse d'agent, et tous remontent à un humain.
+    agentKey: process.env.SUPPORT_AGENT_KEY,
+  },
 };
 
 export const estProduction = config.env === 'production';
