@@ -375,10 +375,25 @@ if (tuiles === 0) {
   ok('fond de plan chargé', tuiles > 0, `${tuiles} tuiles`);
 }
 
+/*
+ * ON ATTEND UNE CONDITION, PAS UNE DURÉE.
+ *
+ * Le marqueur de l'événement n'apparaît qu'au retour de la requête
+ * géographique. Compter après un délai fixe transformait une machine chargée
+ * en faux échec : 1 marqueur sur 2 lors d'une campagne où la mémoire était
+ * saturée, 2 sur 2 en rejouant la suite seule. Si le marqueur ne vient
+ * jamais, l'attente expire et la vérification échoue comme avant.
+ */
+await page
+  .waitForFunction(() => document.querySelectorAll('.leaflet-marker-icon').length >= 2, null, {
+    timeout: 15000,
+  })
+  .catch(() => {});
 const marqueurs = await page.locator('.leaflet-marker-icon').count();
 // Un marqueur pour la position du visiteur, au moins un pour l'événement.
 ok('**les marqueurs d’événements sont visibles**', marqueurs >= 2, `${marqueurs} marqueurs`);
 
+await page.getByText(/à [0-9]/).first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 ok('la distance calculée par le serveur est affichée',
   (await page.getByText(/à [0-9]/).count()) > 0);
 

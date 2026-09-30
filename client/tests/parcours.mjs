@@ -157,7 +157,17 @@ const privePseudo = `prive${S}`;
 
 const alice = await acteur();
 
-await alice.goto(BASE + '/home', { waitUntil: 'networkidle' });
+/*
+ * ON ATTEND LA REDIRECTION, ON NE LA LIT PAS AU VOL.
+ *
+ * `ProtectedRoute` affiche un écran de chargement le temps que la session
+ * soit restaurée (`/auth/refresh`), PUIS redirige. Lire l'URL juste après
+ * `networkidle` la surprend parfois encore sur `/home` : constaté une fois en
+ * campagne, sur une machine saturée. L'attente est bornée — sans redirection
+ * au bout de quinze secondes, la vérification échoue comme avant.
+ */
+await alice.goto(BASE + '/home', { waitUntil: 'domcontentloaded' });
+await alice.waitForURL('**/login', { timeout: 15000 }).catch(() => {});
 ok('route protégée redirige vers /login', alice.url().endsWith('/login'), alice.url());
 
 await alice.getByLabel('Email ou pseudo').fill('inconnu@nulle.part');

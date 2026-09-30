@@ -321,7 +321,7 @@ try {
   );
 
   await page.getByRole('button', { name: /^Restreindre$/ }).click();
-  await page.getByText('a été restreint').waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByText('a été restreint').waitFor({ state: 'visible', timeout: 20000 });
   ok('l’action est confirmée à l’écran', true);
   await page.getByRole('button', { name: 'Fermer' }).click();
 
@@ -341,7 +341,7 @@ try {
   section('Lever la restriction depuis le menu');
 
   await viaMenu(page, 'Lever la restriction');
-  await page.getByText('Restriction levée').waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByText('Restriction levée').waitFor({ state: 'visible', timeout: 20000 });
   await page.getByRole('button', { name: 'Fermer' }).click();
 
   const restrictionRestante = await bdd.collection('relations').countDocuments({
@@ -379,7 +379,7 @@ try {
   });
 
   await boutonSignaler.click();
-  await page.getByText('Signalement transmis').waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByText('Signalement transmis').waitFor({ state: 'visible', timeout: 20000 });
   await page.getByRole('button', { name: 'Fermer' }).click();
 
   ok(

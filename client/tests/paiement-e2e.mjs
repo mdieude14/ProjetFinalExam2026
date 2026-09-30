@@ -355,7 +355,36 @@ const filtreAbo = { _id: new ObjectId(String(abo._id)) };
 // proprement l'abonnement chez Stripe, ce qui exige qu'il soit encore actif.
 const avantEchec = await collectionAbos.findOne(filtreAbo);
 
-await collectionAbos.updateOne(filtreAbo, { $set: { statut: 'impaye' } });
+/*
+ * ON ATTEND QUE LES WEBHOOKS EN VOL SE TAISENT AVANT D'ÉCRIRE.
+ *
+ * Stripe continue d'envoyer des événements plusieurs secondes après le
+ * paiement — `invoice_payment.paid`, `customer.subscription.updated`. S'ils
+ * arrivent APRÈS notre écriture, le gestionnaire réécrit « actif » et les
+ * cinq vérifications qui suivent échouent, en accusant le chemin de lecture
+ * pour une course du banc d'essai. Observé une fois en campagne complète,
+ * jamais en rejouant la suite seule : exactement le profil d'un défaut de
+ * test qu'on met sur le compte de la malchance.
+ *
+ * On attend donc que le document cesse de changer, puis on écrit — et l'on
+ * vérifie que l'écriture a tenu.
+ */
+async function ecrireImpaye() {
+  let empreintePrecedente = null;
+  for (let essai = 0; essai < 20; essai += 1) {
+    const doc = await collectionAbos.findOne(filtreAbo);
+    const empreinte = `${doc.statut}|${doc.updatedAt?.getTime() ?? 0}`;
+    if (empreinte === empreintePrecedente) break;
+    empreintePrecedente = empreinte;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  await collectionAbos.updateOne(filtreAbo, { $set: { statut: 'impaye' } });
+  const apres = await collectionAbos.findOne(filtreAbo);
+  return apres.statut === 'impaye';
+}
+
+ok('le statut « impaye » est bien posé avant de lire', await ecrireImpaye());
 
 const verrouilleANouveau = await appel(`/posts/${idPost}`, { token: jetonSportif });
 ok('**contenu REVERROUILLÉ après échec de prélèvement**',
