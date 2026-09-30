@@ -37,3 +37,8 @@ coverage/
 
 # Captures d'ecran des suites de test (controle visuel local)
 captures/
+
+# Contournement local de l interception HTTPS d un antivirus (machine de dev)
+# Certificat public, mais propre a la machine : le depot en reste independant.
+docker/n8n/certificats/
+docker/n8n/docker-compose.override.yml

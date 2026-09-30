@@ -1,0 +1,93 @@
+# ===========================================================================
+#  n8n — orchestrateur des agents de support (module 15)
+# ===========================================================================
+#
+# POURQUOI CE FICHIER NE DÉCRIT QUE n8n.
+# MongoDB tourne déjà dans un conteneur créé à la main, `sportsocial-mongo`,
+# dont les données vivent dans le volume nommé `sportsocial-mongo-data`. Le
+# redéclarer ici ferait courir un risque inutile à des données existantes pour
+# un bénéfice nul : le conteneur fonctionne, son replica set est initialisé.
+#
+# n8n n'a d'ailleurs pas besoin de parler à MongoDB. Il passe par l'API REST,
+# authentifié comme l'utilisateur qui pose la question — c'est la décision qui
+# structure tout le module : un agent branché sur la base contournerait
+# `access.service.js`, et avec lui les quatre vues de sérialisation, le verrou
+# du contenu premium et les comptes bloqués.
+#
+#   docker compose -f docker/n8n/docker-compose.yml up -d
+#   docker compose -f docker/n8n/docker-compose.yml logs -f
+#
+# ===========================================================================
+
+services:
+  n8n:
+    image: n8nio/n8n:1.121.0
+    container_name: coachconnect-n8n
+    restart: unless-stopped
+
+    ports:
+      - '5678:5678'
+
+    environment:
+      # ------------------------------------------------------------------
+      #  Chiffrement des identifiants au repos
+      # ------------------------------------------------------------------
+      # n8n chiffre les identifiants qu'on lui confie — clé Anthropic, jeton
+      # Telegram, accès à la boîte mail. SANS CETTE CLÉ FIXE, n8n en génère
+      # une au premier démarrage et la garde dans son volume : perdre le
+      # volume rendrait alors tous les identifiants illisibles, sans message
+      # d'erreur utile. On la fixe donc explicitement, et hors du dépôt.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?definir N8N_ENCRYPTION_KEY dans docker/n8n/.env}
+
+      # ------------------------------------------------------------------
+      #  Aucun nœud ne lit l'environnement
+      # ------------------------------------------------------------------
+      # Un nœud Code capable de lire l'environnement lirait aussi
+      # N8N_ENCRYPTION_KEY — la clé qui déchiffre tous les identifiants, dont
+      # la clé API Anthropic. L'adresse de l'API de CoachConnect est donc
+      # écrite dans la configuration du workflow (nœud « Préparer la
+      # demande »), pas dans une variable. C'est aussi la valeur par défaut
+      # annoncée des prochaines versions de n8n.
+      #
+      # Cette adresse est `http://host.docker.internal:5000/api` : depuis le
+      # conteneur, `localhost` désignerait le conteneur lui-même — l'erreur
+      # classique, qui se manifeste par un ECONNREFUSED sans rapport apparent.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=true
+
+      # Le fichier de réglages de n8n contient la clé de chiffrement :
+      # lisible par son seul propriétaire.
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+
+      # ------------------------------------------------------------------
+      #  Réglages d'exploitation
+      # ------------------------------------------------------------------
+      - GENERIC_TIMEZONE=Europe/Paris
+      - TZ=Europe/Paris
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+
+      # L'URL publique que n8n inscrit dans ses webhooks. En développement
+      # c'est un tunnel — même contrainte que le webhook Stripe du module 7 :
+      # un service externe ne sait pas joindre `localhost`.
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+
+      # Les workflows sont versionnés dans le dépôt, pas seulement dans le
+      # volume : ils doivent pouvoir être relus et corrigés comme du code.
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_RUNNERS_ENABLED=true
+
+    volumes:
+      # État de n8n : workflows, identifiants chiffrés, historique.
+      - n8n-data:/home/node/.n8n
+      # Les workflows exportés, lisibles depuis l'hôte pour être committés.
+      - ./workflows:/workflows
+
+    extra_hosts:
+      # Sans effet sous Docker Desktop, qui le fournit déjà — indispensable
+      # sous Docker Engine Linux, où `host.docker.internal` n'existe pas.
+      - 'host.docker.internal:host-gateway'
+
+volumes:
+  n8n-data:
+    name: coachconnect-n8n-data

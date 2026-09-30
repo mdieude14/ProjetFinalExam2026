@@ -1,0 +1,284 @@
+{
+  "id": "ccMessagerieCor1",
+  "name": "CoachConnect — assistant de messagerie (corbeille)",
+  "versionId": "cfe9f0f9-ccdc-a139-e0f7-860e002b7d50",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "a4ad3f4d-4029-e688-796f-4236f6bb993f",
+      "name": "Toutes les 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "49eaf3b1-ca83-7f7d-e065-d2e3d5dcc2e4",
+      "name": "Lire les libellés",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "onError": "continueRegularOutput",
+      "position": [
+        250,
+        0
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "ccGmailOAuth0001",
+          "name": "Gmail (assistant de messagerie) — CoachConnect"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/*\n * LE NOM DU LIBELLÉ D'APPROBATION, et lui seul. Ce workflow ne lit rien\n * d'autre : il ne classe pas, ne résume pas, n'appelle aucun modèle.\n */\nconst APPROUVEE = 'CC/Suppression OK';\nconst reponse = $input.first().json;\nif (reponse.error || reponse.statusCode !== 200) return [];\n\nconst id = (reponse.body?.labels ?? []).find((l) => l.name === APPROUVEE)?.id;\nreturn id ? [{ json: { idApprouvee: id } }] : [];"
+      },
+      "id": "77ba74a1-610e-b36b-c2ce-992e5667adbc",
+      "name": "Préparer la recherche",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "labelIds",
+              "value": "={{ $json.idApprouvee }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "25"
+            }
+          ]
+        }
+      },
+      "id": "1c465d9b-799f-30d7-82af-768f1ce35d30",
+      "name": "Chercher les suppressions approuvées",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "onError": "continueRegularOutput",
+      "position": [
+        750,
+        0
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "ccGmailOAuth0001",
+          "name": "Gmail (assistant de messagerie) — CoachConnect"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const reponse = $input.first().json;\nif (reponse.error || reponse.statusCode !== 200) return [];\nconst messages = Array.isArray(reponse.body?.messages) ? reponse.body.messages : [];\n// Au plus 25 par passage : une erreur de libellé à grande échelle se voit\n// avant d'avoir tout emporté.\nreturn messages\n  .filter((m) => typeof m.id === 'string' && /^[a-zA-Z0-9]+$/.test(m.id))\n  .slice(0, 25)\n  .map((m) => ({ json: { id: m.id } }));"
+      },
+      "id": "182ea676-2492-c281-a9fd-6d8b0998c392",
+      "name": "Un élément par suppression",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id + '/trash' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "9cdbc478-f00b-55e4-c205-1ec6915037b3",
+      "name": "Mettre à la corbeille",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "onError": "continueRegularOutput",
+      "position": [
+        1250,
+        0
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "ccGmailOAuth0001",
+          "name": "Gmail (assistant de messagerie) — CoachConnect"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sur preuve positive : Gmail rend le message avec le libellé TRASH.\nconst confirmes = $input.all().filter((e) => !e.json.error && e.json.statusCode === 200 &&\n  (e.json.body?.labelIds ?? []).includes('TRASH'));\nif (confirmes.length === 0) return [];\nconst n = confirmes.length;\nreturn [{\n  json: {\n    texte: `🗑 Assistant de messagerie — ${n} courriel${n > 1 ? 's' : ''} mis à la corbeille, comme vous l’avez validé. ` +\n      'Récupérables pendant 30 jours depuis la corbeille de Gmail.',\n  },\n}];"
+      },
+      "id": "4ce3e292-59c7-2478-2154-ad4e09766026",
+      "name": "Retenir les mises à la corbeille",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "",
+        "text": "={{ $json.texte }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "id": "6ad28d73-46e5-acae-3a84-55d0f4911733",
+      "name": "Annoncer",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1750,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "ccTelegramBot001",
+          "name": "Bot Telegram — CoachConnect"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Toutes les 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Lire les libellés",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire les libellés": {
+      "main": [
+        [
+          {
+            "node": "Préparer la recherche",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer la recherche": {
+      "main": [
+        [
+          {
+            "node": "Chercher les suppressions approuvées",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chercher les suppressions approuvées": {
+      "main": [
+        [
+          {
+            "node": "Un élément par suppression",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Un élément par suppression": {
+      "main": [
+        [
+          {
+            "node": "Mettre à la corbeille",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mettre à la corbeille": {
+      "main": [
+        [
+          {
+            "node": "Retenir les mises à la corbeille",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retenir les mises à la corbeille": {
+      "main": [
+        [
+          {
+            "node": "Annoncer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

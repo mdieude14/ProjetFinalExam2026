@@ -1,0 +1,50 @@
+# ===========================================================================
+#  TUNNEL — rendre n8n joignable depuis Internet, le temps d'une démonstration
+# ===========================================================================
+#
+#   node docker/n8n/ouvrir-tunnel.mjs
+#
+# POURQUOI UN TUNNEL EST NÉCESSAIRE ICI, ET PAS POUR LE RELAIS D'ESCALADE.
+#
+# Le relais d'escalade est SORTANT : c'est n8n qui appelle Telegram. Aucune
+# adresse publique n'est requise, et il fonctionne derrière n'importe quelle
+# box. Un bot conversationnel, lui, doit RECEVOIR : Telegram pousse chaque
+# message vers une adresse HTTPS publique qu'on lui déclare. Une machine
+# derrière un routeur domestique n'en a pas.
+#
+# POURQUOI PAS D'INTERROGATION EN BOUCLE À LA PLACE. L'API de Telegram attend
+# le jeton du bot DANS LE CHEMIN de l'URL (`/bot<jeton>/getUpdates`). Un nœud
+# HTTP de n8n sait poser un en-tête ou un paramètre d'authentification, pas
+# réécrire un chemin : il faudrait donc écrire le jeton en clair dans le
+# workflow, donc dans le dépôt. Exclu. Le tunnel est la voie propre.
+#
+# POURQUOI CLOUDFLARE PLUTÔT QUE LE TUNNEL INTÉGRÉ DE n8n. L'option
+# `--tunnel` de n8n fait transiter le trafic par un relais que n8n héberge :
+# un tiers de plus voit passer les questions des utilisateurs. Le tunnel
+# rapide de Cloudflare établit une liaison chiffrée directe entre leur réseau
+# et ce conteneur, sans compte ni domaine.
+#
+# CE QUE CELA EXPOSE, ET CE QUE CELA N'EXPOSE PAS. L'adresse publique mène à
+# n8n, éditeur compris — elle vaut donc mot de passe tant qu'elle est ouverte.
+# Elle est imprévisible et change à chaque démarrage, mais ce n'est pas une
+# protection : on ferme le tunnel après la démonstration. Rien d'autre de la
+# machine n'est joignable : le tunnel ne connaît que `n8n:5678`.
+#
+#   POUR FERMER :  docker rm -f coachconnect-tunnel
+# ===========================================================================
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2025.8.1
+    container_name: coachconnect-tunnel
+    restart: unless-stopped
+
+    # `--url` crée un tunnel « rapide » : sans compte, sans domaine, avec une
+    # adresse en *.trycloudflare.com tirée au hasard à chaque démarrage.
+    # `n8n` est le nom du service voisin : les deux conteneurs partagent le
+    # réseau du projet, donc `localhost` ne conviendrait pas — il désignerait
+    # le conteneur du tunnel lui-même.
+    command: tunnel --no-autoupdate --url http://n8n:5678
+
+    depends_on:
+      - n8n
