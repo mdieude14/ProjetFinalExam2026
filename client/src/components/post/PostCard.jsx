@@ -6,6 +6,7 @@ import Avatar from '@/components/ui/Avatar';
 import Badge from '@/components/ui/Badge';
 import PremiumLock from './PremiumLock';
 import CommentList from './CommentList';
+import CarrouselMedias from './CarrouselMedias';
 
 /**
  * Carte d'une publication dans le fil d'actualite.
@@ -13,95 +14,6 @@ import CommentList from './CommentList';
  * Gere l'affichage des medias, le like optimiste, le depliage des
  * commentaires et la suppression.
  */
-
-/**
- * Carrousel de medias, avec pastilles de navigation.
- *
- * `titre` sert UNIQUEMENT au texte alternatif des images. Il est passe en
- * propriete plutot que lu depuis la publication : ce composant ne connait pas
- * `post`, et l'y supposer accessible a coute une panne — `post is not
- * defined` a l'execution, sur du code que le lint et la compilation avaient
- * tous deux laisse passer.
- */
-function Carrousel({ medias, titre }) {
-  const [index, setIndex] = useState(0);
-  const media = medias[index];
-
-  // Ratio connu (Cloudinary) ou carre par defaut (stockage local, qui ne
-  // fournit pas les dimensions). Reserver la place evite que le fil « saute »
-  // pendant le chargement des images.
-  const ratio = media.largeur && media.hauteur ? media.largeur / media.hauteur : 1;
-
-  return (
-    <div className="relative bg-ardoise-900" style={{ aspectRatio: ratio }}>
-      {media.type === 'video' ? (
-        <video
-          src={media.url}
-          controls
-          playsInline
-          // `preload="metadata"` charge la duree et la premiere image sans
-          // telecharger la video entiere : un fil de dix videos consommerait
-          // sinon des centaines de mega-octets a l'ouverture.
-          preload="metadata"
-          className="h-full w-full object-contain"
-        />
-      ) : (
-        <img
-          src={media.url}
-          /*
-           * LE MEDIA EST LE CONTENU, PAS UNE DECORATION.
-           * `alt=""` le retire entierement de la lecture d'ecran : la
-           * publication devient alors un cadre vide, sans que rien ne dise
-           * qu'il s'y trouvait une image. Faute d'un texte alternatif saisi
-           * par l'auteur, on annonce au moins de quoi il s'agit, en
-           * s'appuyant sur le titre quand il existe.
-           */
-          alt={titre ? `Image de la publication « ${titre} »` : 'Image de la publication'}
-          loading="lazy"
-          className="h-full w-full object-cover"
-        />
-      )}
-
-      {medias.length > 1 && (
-        <>
-          {index > 0 && (
-            <button
-              onClick={() => setIndex((i) => i - 1)}
-              aria-label="Média précédent"
-              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 px-3 py-1.5 text-white hover:bg-black/70"
-            >
-              ‹
-            </button>
-          )}
-          {index < medias.length - 1 && (
-            <button
-              onClick={() => setIndex((i) => i + 1)}
-              aria-label="Média suivant"
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 px-3 py-1.5 text-white hover:bg-black/70"
-            >
-              ›
-            </button>
-          )}
-
-          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-            {medias.map((_, i) => (
-              <span
-                key={i}
-                className={`h-1.5 w-1.5 rounded-full ${
-                  i === index ? 'bg-white' : 'bg-white/50'
-                }`}
-              />
-            ))}
-          </div>
-
-          <span className="absolute right-3 top-3 rounded-full bg-black/60 px-2 py-0.5 text-xs text-white">
-            {index + 1}/{medias.length}
-          </span>
-        </>
-      )}
-    </div>
-  );
-}
 
 /**
  * Date relative en francais : « il y a 3 h ».
@@ -169,7 +81,20 @@ export default function PostCard({ post, onSupprime }) {
   };
 
   return (
-    <article className="overflow-hidden rounded-carte border border-ardoise-200 bg-white">
+    /*
+     * PLEINE LARGEUR SUR TÉLÉPHONE, CARTE SUR ORDINATEUR.
+     *
+     * `Layout` réserve 16 px de marge de chaque côté (`px-4`) : sur un écran
+     * de 375 px, une publication n'occupait que 343 px. Instagram, lui, va
+     * d'un bord à l'autre. `-mx-4` annule exactement cette marge, et les
+     * angles arrondis comme la bordure latérale disparaissent — ils n'ont
+     * plus de sens quand le contenu touche les bords.
+     *
+     * Au-delà de 640 px (`sm`), tout revient à l'état d'origine : marges,
+     * bordure complète et angles arrondis. Les dimensions sur ordinateur ne
+     * changent pas.
+     */
+    <article className="-mx-4 overflow-hidden border-y border-ardoise-200 bg-white sm:mx-0 sm:rounded-carte sm:border">
       {/* ---------- En-tete ---------- */}
       <header className="flex items-center gap-3 p-4">
         <Link to={`/profile/${post.auteur?.pseudo}`}>
@@ -213,7 +138,7 @@ export default function PostCard({ post, onSupprime }) {
       {post.verrouille ? (
         <PremiumLock post={post} auteur={post.auteur} />
       ) : (
-        post.medias?.length > 0 && <Carrousel medias={post.medias} titre={post.titre} />
+        post.medias?.length > 0 && <CarrouselMedias medias={post.medias} titre={post.titre} />
       )}
 
       {/* ---------- Actions ---------- */}
