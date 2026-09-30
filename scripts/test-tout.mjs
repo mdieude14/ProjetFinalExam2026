@@ -7,10 +7,10 @@
  *
  * POURQUOI CE SCRIPT EXISTE.
  *
- * Le projet compte vingt-et-une suites réparties sur deux paquets, avec des
+ * Le projet compte trente-quatre suites réparties sur deux paquets, avec des
  * prérequis différents. Un correcteur qui ouvre le dépôt et tape `npm test`
  * doit obtenir une réponse — pas une erreur « missing script », et pas une
- * liste de vingt-et-une commandes à recopier.
+ * liste de trente-quatre commandes à recopier.
  *
  * DEUX CHOSES QUE CE LANCEUR FAIT, ET QU'UN SIMPLE ENCHAÎNEMENT NE FERAIT PAS :
  *
@@ -33,7 +33,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
 const RACINE = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SERVEUR = join(RACINE, 'server');
@@ -61,11 +61,19 @@ const SUITES = [
   { paquet: 'server', script: 'test:messagerie', libelle: 'API — messagerie' },
   { paquet: 'server', script: 'test:notifications', libelle: 'API — notifications' },
   { paquet: 'server', script: 'test:moderation', libelle: 'API — modération (blocage, restriction, signalement)' },
+  { paquet: 'server', script: 'test:support', libelle: 'API — support automatisé' },
+  { paquet: 'server', script: 'test:mot-de-passe', libelle: 'API — mot de passe oublié' },
+  { paquet: 'server', script: 'test:releve', libelle: 'Workflow — relève des escalades' },
+  { paquet: 'server', script: 'test:canaux', libelle: 'Workflows — Telegram et courriel' },
+  { paquet: 'server', script: 'test:telegram', libelle: 'API — rattachement Telegram' },
+  { paquet: 'server', script: 'test:reponse', libelle: 'API — réponse à une demande' },
+  { paquet: 'server', script: 'test:messagerie-agent', libelle: 'Workflows — assistant de messagerie' },
   { paquet: 'server', script: 'test:perf', libelle: 'API — performance' },
 
   { paquet: 'client', script: 'test:ui', libelle: 'Navigateur — parcours général' },
   { paquet: 'client', script: 'test:story-camera', libelle: 'Navigateur — story par la caméra' },
   { paquet: 'client', script: 'test:publication-toggle', libelle: 'Navigateur — bascule du compositeur' },
+  { paquet: 'client', script: 'test:carrousel', libelle: 'Navigateur — carrousel des publications' },
   { paquet: 'client', script: 'test:relations', libelle: 'Navigateur — abonnés et abonnements' },
   { paquet: 'client', script: 'test:premium', libelle: 'Navigateur — écrans premium' },
   { paquet: 'client', script: 'test:paiement', libelle: 'Navigateur — paiement réel' },
@@ -76,6 +84,8 @@ const SUITES = [
   { paquet: 'client', script: 'test:parcours-10-11', libelle: 'Navigateur — parcours 10 et 11' },
   { paquet: 'client', script: 'test:notifications', libelle: 'Navigateur — notifications' },
   { paquet: 'client', script: 'test:moderation', libelle: 'Navigateur — modération (menu « ⋯ »)' },
+  { paquet: 'client', script: 'test:support', libelle: 'Navigateur — back-office du support' },
+  { paquet: 'client', script: 'test:telegram', libelle: 'Navigateur — rattachement Telegram' },
 
   /*
    * LA PERFORMANCE EN DERNIER, et pour une raison precise : elle mesure le
@@ -378,19 +388,37 @@ async function principal() {
 
   console.log(`\n  Total : ${totalReussies}/${totalVerifications} vérifications`);
 
+  /*
+   * LE DÉTAIL DE CHAQUE SUITE EN ÉCHEC, PAS SEULEMENT DE LA PREMIÈRE.
+   *
+   * Une première version ne montrait que la première : quand trois suites
+   * échouaient ensemble puis passaient seules, il était impossible de savoir
+   * ce qui avait cédé dans les deux autres — et donc de distinguer un aléa
+   * d'une régression. La sortie COMPLÈTE de chaque suite en échec est en
+   * outre conservée dans `captures/` (ignoré par git) : la preuve survit à
+   * la fermeture du terminal.
+   */
   if (echecs.length > 0) {
-    console.log(`\n  ${echecs.length} suite(s) en échec — détail de la première :\n`);
-    console.log(
-      echecs[0].sortie
-        .split('\n')
-        .filter((l) => /ECHEC|INTERROMPU|Error/.test(l))
-        .slice(0, 15)
-        .map((l) => `      ${l}`)
-        .join('\n')
-    );
-    console.log(
-      `\n  Relancer seule :  cd ${echecs[0].paquet} && npm run ${echecs[0].script}\n`
-    );
+    const dossier = join(RACINE, 'captures');
+    mkdirSync(dossier, { recursive: true });
+
+    console.log(`\n  ${echecs.length} suite(s) en échec :\n`);
+    for (const echec of echecs) {
+      const journal = join(dossier, `campagne-${echec.paquet}-${echec.script.replace(/[:/]/g, '-')}.log`);
+      writeFileSync(journal, echec.sortie);
+
+      console.log(`  ✗ ${echec.libelle}`);
+      console.log(
+        echec.sortie
+          .split('\n')
+          .filter((l) => /ECHEC|INTERROMPU|Error/.test(l))
+          .slice(0, 15)
+          .map((l) => `      ${l}`)
+          .join('\n')
+      );
+      console.log(`      relancer seule :  cd ${echec.paquet} && npm run ${echec.script}`);
+      console.log(`      sortie complète : ${journal}\n`);
+    }
     process.exit(1);
   }
 

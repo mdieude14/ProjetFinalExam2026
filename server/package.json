@@ -25,7 +25,14 @@
     "test:notifications": "node tests/notifications.mjs",
     "test:perf": "node tests/performance.mjs",
     "test:relations": "node tests/relations.mjs",
-    "test:moderation": "node tests/moderation.mjs"
+    "test:moderation": "node tests/moderation.mjs",
+    "test:support": "node tests/support.mjs",
+    "test:mot-de-passe": "node tests/mot-de-passe.mjs",
+    "test:releve": "node tests/releve-telegram.mjs",
+    "test:canaux": "node tests/agents-canaux.mjs",
+    "test:telegram": "node tests/telegram-compte.mjs",
+    "test:messagerie-agent": "node tests/agent-messagerie.mjs",
+    "test:reponse": "node tests/reponse-support.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -43,6 +50,7 @@
     "mongoose": "^8.8.0",
     "morgan": "^1.10.0",
     "multer": "^2.2.0",
+    "nodemailer": "^10.0.10",
     "socket.io": "^4.8.3",
     "stripe": "^22.5.0"
   },
