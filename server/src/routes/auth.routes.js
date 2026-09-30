@@ -8,12 +8,16 @@ import {
   logoutAll,
   me,
   changerMotDePasse,
+  demanderReinitialisation,
+  reinitialiserMotDePasse,
 } from '../controllers/auth.controller.js';
 
 import {
   reglesInscription,
   reglesConnexion,
   reglesChangementMotDePasse,
+  reglesDemandeReinitialisation,
+  reglesReinitialisation,
 } from '../validators/auth.validator.js';
 
 import { validate } from '../middlewares/validate.middleware.js';
@@ -22,6 +26,8 @@ import {
   limiteurConnexion,
   limiteurInscription,
   limiteurRefresh,
+  limiteurDemandeReinitialisation,
+  limiteurReinitialisation,
 } from '../middlewares/rateLimit.middleware.js';
 
 const router = Router();
@@ -55,6 +61,23 @@ router.post('/refresh', limiteurRefresh, refresh);
 // un cookie doit fonctionner meme si la session est deja expiree, sinon
 // l'utilisateur resterait coince avec un cookie mort.
 router.post('/logout', logout);
+
+// Mot de passe oublie : une demande, puis la reinitialisation par le lien recu.
+// Publiques par nature — la personne ne peut justement plus se connecter.
+router.post(
+  '/mot-de-passe-oublie',
+  limiteurDemandeReinitialisation,
+  reglesDemandeReinitialisation,
+  validate,
+  demanderReinitialisation
+);
+router.post(
+  '/reinitialiser-mot-de-passe',
+  limiteurReinitialisation,
+  reglesReinitialisation,
+  validate,
+  reinitialiserMotDePasse
+);
 
 /* ---------------------------- Routes protegees ---------------------------- */
 

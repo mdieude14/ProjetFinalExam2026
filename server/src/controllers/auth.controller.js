@@ -8,6 +8,7 @@ import {
   lireCookieRefresh,
   verifierRefreshToken,
 } from '../services/auth.service.js';
+import * as motDePasse from '../services/motDePasse.service.js';
 
 /**
  * Hash factice servant de leurre contre les attaques temporelles.
@@ -263,5 +264,55 @@ export const changerMotDePasse = asyncHandler(async (req, res) => {
     succes: true,
     message: 'Mot de passe modifie. Les autres appareils ont été deconnectes.',
     accessToken,
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  MOT DE PASSE OUBLIÉ
+ * ------------------------------------------------------------------ */
+
+/**
+ * POST /api/auth/mot-de-passe-oublie
+ *
+ * LA RÉPONSE PART AVANT TOUT ACCÈS À LA BASE. Répondre après avoir cherché
+ * le compte ferait varier le temps de réponse — quelques millisecondes pour
+ * une adresse inconnue, beaucoup plus pour une adresse connue, le temps
+ * d'écrire le jeton et d'envoyer l'e-mail. En chronométrant, on saurait qui a
+ * un compte : c'est l'attaque temporelle déjà parée à la connexion par le
+ * hash leurre. Ici, la parade est plus simple : le message est identique, et
+ * il est envoyé immédiatement.
+ *
+ * Le traitement continue ensuite. Un échec d'envoi est journalisé — sans le
+ * lien, qui donnerait accès au compte à qui lit les journaux.
+ */
+export const demanderReinitialisation = asyncHandler(async (req, res) => {
+  res.json({
+    succes: true,
+    message:
+      'Si un compte correspond à cette adresse, un e-mail vient de lui être envoyé. Pensez à vérifier vos courriers indésirables.',
+  });
+
+  motDePasse.demander(req.body.email).catch((erreur) => {
+    console.error('[MOT DE PASSE] Échec de la demande de réinitialisation :', erreur.message);
+  });
+});
+
+/**
+ * POST /api/auth/reinitialiser-mot-de-passe
+ *
+ * AUCUNE SESSION N'EST OUVERTE. La personne est renvoyée vers la connexion,
+ * où elle saisit son nouveau mot de passe : c'est la première preuve qu'elle
+ * le connaît, et le lien reçu par e-mail ne vaut pas authentification.
+ */
+export const reinitialiserMotDePasse = asyncHandler(async (req, res) => {
+  const utilisateur = await motDePasse.reinitialiser(req.body.jeton, req.body.nouveauPassword);
+
+  motDePasse.confirmer(utilisateur).catch((erreur) => {
+    console.error('[MOT DE PASSE] Échec de l’e-mail de confirmation :', erreur.message);
+  });
+
+  return res.json({
+    succes: true,
+    message: 'Votre mot de passe a été modifié. Vous pouvez vous connecter.',
   });
 });

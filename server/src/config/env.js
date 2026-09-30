@@ -43,6 +43,20 @@ if (process.env.NODE_ENV === 'production') {
   }
 }
 
+/*
+ * EN PRODUCTION, L'ENVOI D'E-MAILS EST EXIGÉ. Sans lui, « mot de passe
+ * oublié » répondrait normalement… et aucun e-mail ne partirait jamais : la
+ * personne attendrait un lien qui n'arrivera pas. En développement, les
+ * e-mails sont déposés localement (voir `services/mail.service.js`).
+ */
+if (process.env.NODE_ENV === 'production' && !(process.env.SMTP_USER && process.env.SMTP_PASS)) {
+  console.error(
+    '[CONFIG] SMTP_USER et SMTP_PASS sont requis en production : ' +
+      'sans eux, les e-mails de réinitialisation du mot de passe ne partiraient pas.'
+  );
+  process.exit(1);
+}
+
 /**
  * Configuration centralisee.
  * Le reste du code importe cet objet plutot que de lire process.env
@@ -82,6 +96,25 @@ export const config = {
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
     commissionPct: Number(process.env.STRIPE_COMMISSION_PCT) || 15,
   },
+
+  /**
+   * Envoi d'e-mails — réinitialisation du mot de passe.
+   *
+   * VOLONTAIREMENT FACULTATIF en développement : sans identifiants SMTP, les
+   * e-mails sont déposés dans `server/.boite-mails/` au lieu d'être envoyés
+   * (voir `services/mail.service.js`). La fonction reste ainsi utilisable et
+   * testable avant toute configuration. En production, ils sont exigés.
+   */
+  mail: {
+    hote: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: Number(process.env.SMTP_PORT) || 465,
+    // 465 = TLS dès la connexion ; 587 = STARTTLS. Gmail accepte les deux.
+    securise: (process.env.SMTP_SECURE ?? 'true') === 'true',
+    utilisateur: process.env.SMTP_USER,
+    motDePasse: process.env.SMTP_PASS,
+    expediteur: process.env.MAIL_FROM || process.env.SMTP_USER,
+  },
+
 };
 
 export const estProduction = config.env === 'production';

@@ -251,6 +251,23 @@ const userSchema = new Schema(
     // ce qui permet de revoquer les sessions sans stocker de liste noire.
     refreshTokenVersion: { type: Number, default: 0 },
 
+    /**
+     * Réinitialisation du mot de passe en cours — un seul lien actif à la fois.
+     *
+     * ON STOCKE L'EMPREINTE DU JETON, JAMAIS LE JETON. Le jeton voyage dans
+     * l'e-mail ; en base, seul son SHA-256. Quelqu'un qui lirait la base ne
+     * pourrait pas en tirer un lien utilisable — même logique qu'un mot de
+     * passe haché, sans le coût de bcrypt : un jeton de 256 bits aléatoires
+     * ne se devine pas, il n'y a rien à ralentir.
+     *
+     * `select: false` sur les deux champs : ni l'empreinte, ni même le fait
+     * qu'une réinitialisation soit en cours, ne sortent de la base par défaut.
+     */
+    reinitialisation: {
+      empreinte: { type: String, select: false },
+      expireLe: { type: Date, select: false },
+    },
+
     isActive: { type: Boolean, default: true },
     derniereConnexion: Date,
 
@@ -310,6 +327,10 @@ userSchema.index(
  * doivent jamais remonter dans une suggestion.
  */
 userSchema.index({ isActive: 1, termesRecherche: 1 });
+
+// Réinitialisation du mot de passe : on retrouve un compte par l'empreinte du
+// jeton reçu. Index CREUX — seuls les comptes ayant un lien en cours y figurent.
+userSchema.index({ 'reinitialisation.empreinte': 1 }, { sparse: true });
 
 // Listing des coachs d'une ville (page Maps, filtres).
 userSchema.index({ type: 1, ville: 1 });
@@ -586,6 +607,7 @@ userSchema.methods.versionPrivee = function () {
   delete privee.password;
   delete privee.__v;
   delete privee.refreshTokenVersion;
+  delete privee.reinitialisation;
   delete privee.stripeCustomerId;
 
   // L'identifiant technique du compte Connect ne regarde que le serveur ;
@@ -605,6 +627,8 @@ userSchema.methods.versionAdmin = function () {
   const complet = this.toObject({ virtuals: true });
   delete complet.password;
   delete complet.__v;
+  // Défense en profondeur : le champ est déjà en select: false.
+  delete complet.reinitialisation;
   return complet;
 };
 

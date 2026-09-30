@@ -27,6 +27,10 @@ export default function Login() {
   // par ProtectedRoute. A defaut, le fil d'actualite.
   const destination = emplacement.state?.depuis?.pathname || '/home';
 
+  // Message laissé par une page précédente — la réinitialisation du mot de
+  // passe, qui renvoie ici une fois le nouveau mot de passe enregistré.
+  const messageSucces = emplacement.state?.message;
+
   const modifier = (champ) => (evenement) => {
     setChamps((precedent) => ({ ...precedent, [champ]: evenement.target.value }));
     // L'erreur disparait des que l'utilisateur corrige : laisser un message
@@ -71,6 +75,12 @@ export default function Login() {
         <div className="rounded-carte border border-ardoise-200 bg-white p-6 shadow-sm sm:p-8">
           <h2 className="mb-6 text-xl font-bold text-ardoise-900">Connexion</h2>
 
+          {messageSucces && !erreurGlobale && (
+            <Alert variante="succes" className="mb-5">
+              {messageSucces}
+            </Alert>
+          )}
+
           {erreurGlobale && (
             <Alert variante="erreur" className="mb-5">
               {erreurGlobale}
@@ -104,6 +114,17 @@ export default function Login() {
               autoComplete="current-password"
               required
             />
+
+            {/* Sous le champ concerné, là où l'on cherche quand on ne se
+                souvient plus : pas en bas de page, après l'échec. */}
+            <div className="-mt-2 text-right">
+              <Link
+                to="/mot-de-passe-oublie"
+                className="text-sm font-medium text-marque-600 hover:text-marque-700 hover:underline"
+              >
+                Mot de passe oublié ?
+              </Link>
+            </div>
 
             <Button
               type="submit"

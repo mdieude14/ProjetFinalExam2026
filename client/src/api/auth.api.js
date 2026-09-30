@@ -31,6 +31,16 @@ export const authApi = {
   /** Changement de mot de passe. */
   changerMotDePasse: (ancienPassword, nouveauPassword) =>
     api.patch('/auth/password', { ancienPassword, nouveauPassword }),
+
+  /**
+   * Mot de passe oublié : demande d'un lien par e-mail.
+   * La réponse est la même que l'adresse ait un compte ou non.
+   */
+  demanderReinitialisation: (email) => api.post('/auth/mot-de-passe-oublie', { email }),
+
+  /** Réinitialisation avec le jeton reçu par e-mail. N'ouvre aucune session. */
+  reinitialiserMotDePasse: (jeton, nouveauPassword) =>
+    api.post('/auth/reinitialiser-mot-de-passe', { jeton, nouveauPassword }),
 };
 
 export default authApi;

@@ -9,6 +9,8 @@ import { EcranChargement } from '@/components/ui/Spinner';
 
 import Login from '@/pages/auth/Login';
 import Register from '@/pages/auth/Register';
+import MotDePasseOublie from '@/pages/auth/MotDePasseOublie';
+import ReinitialiserMotDePasse from '@/pages/auth/ReinitialiserMotDePasse';
 import Home from '@/pages/Home';
 import Profile from '@/pages/Profile';
 import Settings from '@/pages/Settings';
@@ -73,7 +75,16 @@ export default function App() {
       <Route element={<PublicRoute />}>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/mot-de-passe-oublie" element={<MotDePasseOublie />} />
       </Route>
+
+      {/*
+        --- Ouverte a tous, connecte ou non ---
+        Le lien de reinitialisation recu par e-mail doit fonctionner meme si
+        une session est ouverte : sous PublicRoute, un connecte serait renvoye
+        vers l'accueil sans pouvoir changer son mot de passe.
+      */}
+      <Route path="/reinitialiser-mot-de-passe" element={<ReinitialiserMotDePasse />} />
 
       {/* --- Utilisateurs connectes --- */}
       <Route element={<ProtectedRoute />}>

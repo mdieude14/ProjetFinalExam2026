@@ -134,3 +134,43 @@ export const reglesChangementMotDePasse = [
     .custom((valeur, { req }) => valeur !== req.body.ancienPassword)
     .withMessage('Le nouveau mot de passe doit être different de l’ancien'),
 ];
+
+/* ------------------------------------------------------------------ *
+ *  MOT DE PASSE OUBLIÉ
+ * ------------------------------------------------------------------ */
+
+/**
+ * Demande de réinitialisation.
+ *
+ * MÊME NORMALISATION QU'À L'INSCRIPTION. L'adresse est retrouvée en base
+ * telle qu'elle y a été enregistrée : normaliser autrement ici ferait
+ * répondre « e-mail envoyé » sans jamais rien envoyer à une personne qui a
+ * pourtant un compte.
+ */
+export const reglesDemandeReinitialisation = [
+  body('email')
+    .trim()
+    .isEmail().withMessage('Adresse email invalide')
+    .normalizeEmail({ gmail_remove_dots: false, gmail_remove_subaddress: false }),
+];
+
+/**
+ * Réinitialisation.
+ *
+ * Le jeton a une forme connue — 64 caractères hexadécimaux : tout le reste
+ * est refusé avant même d'interroger la base. Les exigences du mot de passe
+ * sont celles de l'inscription, à l'identique.
+ */
+export const reglesReinitialisation = [
+  body('jeton')
+    .isString()
+    .matches(/^[a-f0-9]{64}$/)
+    .withMessage('Lien de réinitialisation invalide'),
+
+  body('nouveauPassword')
+    .isLength({ min: 8, max: 128 })
+    .withMessage('Le mot de passe doit faire au moins 8 caractères')
+    .matches(/[a-z]/).withMessage('Le mot de passe doit contenir une minuscule')
+    .matches(/[A-Z]/).withMessage('Le mot de passe doit contenir une majuscule')
+    .matches(/\d/).withMessage('Le mot de passe doit contenir un chiffre'),
+];

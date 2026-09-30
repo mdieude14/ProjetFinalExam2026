@@ -20,6 +20,10 @@ logs/
 server/uploads/
 server/tmp/
 
+# E-mails deposes hors production (adresses .local, SMTP non configure) :
+# ils contiennent des liens de reinitialisation de mot de passe valides.
+server/.boite-mails/
+
 # Éditeurs & OS
 .vscode/*
 !.vscode/extensions.json

@@ -66,6 +66,30 @@ export const limiteurRefresh = rateLimit({
 });
 
 /**
+ * Mot de passe oublié — demande : 5 par heure et par IP.
+ *
+ * Chaque demande envoie un vrai e-mail. Sans limite, la route servirait à
+ * inonder la boîte de n'importe qui, et à épuiser le quota d'envoi du compte
+ * Gmail — dont tous les autres e-mails de la plateforme dépendent.
+ */
+export const limiteurDemandeReinitialisation = rateLimit({
+  ...optionsCommunes,
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+});
+
+/**
+ * Mot de passe oublié — réinitialisation : 10 essais par quart d'heure.
+ * Un jeton de 256 bits ne se devine pas ; la limite coupe surtout court à
+ * un script qui essaierait quand même.
+ */
+export const limiteurReinitialisation = rateLimit({
+  ...optionsCommunes,
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+});
+
+/**
  * Limite globale de l'API : 300 requetes par quart d'heure et par IP.
  * Volontairement large — le fil d'actualite et les medias en consomment
  * beaucoup. Elle vise l'aspiration automatisee, pas l'usage humain.

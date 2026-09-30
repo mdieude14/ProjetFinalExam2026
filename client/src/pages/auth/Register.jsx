@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import useAuth from '@/hooks/useAuth';
-import { traiterErreurApi, evaluerMotDePasse } from '@/utils/erreurs';
+import { traiterErreurApi } from '@/utils/erreurs';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
+import IndicateurRobustesse from '@/components/ui/IndicateurRobustesse';
 
 /**
  * Page d'inscription — /register
@@ -69,7 +70,6 @@ export default function Register() {
   const [etatGeo, setEtatGeo] = useState('inactif'); // inactif | encours | ok | refuse
 
   const estCoach = champs.type === 'coach';
-  const robustesse = evaluerMotDePasse(champs.password);
 
   const modifier = (champ) => (evenement) => {
     setChamps((precedent) => ({ ...precedent, [champ]: evenement.target.value }));
@@ -246,36 +246,7 @@ export default function Register() {
                 required
               />
 
-              {champs.password && (
-                <div className="mt-2">
-                  <div className="flex gap-1" aria-hidden="true">
-                    {Array.from({ length: robustesse.total }).map((_, index) => (
-                      <span
-                        key={index}
-                        className={`h-1 flex-1 rounded-full ${
-                          index < robustesse.score
-                            ? robustesse.estValide
-                              ? 'bg-succes'
-                              : 'bg-alerte'
-                            : 'bg-ardoise-200'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                    {robustesse.criteres.map((critere) => (
-                      <li
-                        key={critere.libelle}
-                        className={`text-xs ${
-                          critere.valide ? 'text-succes' : 'text-ardoise-400'
-                        }`}
-                      >
-                        {critere.valide ? '✓' : '○'} {critere.libelle}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <IndicateurRobustesse motDePasse={champs.password} />
             </div>
 
             <Input
