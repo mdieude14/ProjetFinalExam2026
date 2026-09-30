@@ -37,6 +37,44 @@ export const adminApi = {
 
   /** Indicateurs de la plateforme. */
   stats: () => api.get('/admin/stats'),
+
+  /**
+   * File des tickets de support. Par defaut les dossiers escalades, du plus
+   * ancien au plus recent — une file se traite dans l'ordre d'arrivee.
+   * @param {'escalade'|'clos'|'resolu'|'tous'} statut
+   */
+  tickets: ({ statut = 'escalade', page = 1, limite = 20 } = {}) =>
+    api.get('/admin/support/tickets', { params: { statut, page, limite } }),
+
+  /**
+   * Instruction d'un ticket. La decision est obligatoire : l'auteur la lira.
+   * Un dossier deja instruit renvoie 409 — une decision humaine ne s'ecrase pas.
+   */
+  trancherTicket: (idTicket, decision) =>
+    api.patch(`/admin/support/tickets/${idTicket}`, { decision, statut: 'clos' }),
+
+  /**
+   * Le courriel de reponse, tant qu'il n'est pas parti.
+   *
+   * LE MEME BROUILLON QUE CELUI DE TELEGRAM, a la ligne pres : les deux voies
+   * ecrivent le meme champ du meme dossier. Un brouillon dicte au bot se relit
+   * et se corrige ici, et reciproquement — c'est ce qui permet de commencer sur
+   * un telephone et de finir au clavier.
+   */
+  enregistrerBrouillon: (idTicket, texte) =>
+    api.patch(`/admin/support/tickets/${idTicket}/brouillon`, { texte }),
+
+  /**
+   * Validation : le brouillon EN BASE part chez l'auteur, et le dossier se clot.
+   *
+   * AUCUN TEXTE N'EST TRANSMIS ICI, et c'est voulu. Ce qui part est ce qui a
+   * ete relu, pas ce que l'ecran croyait afficher. Un dossier deja repondu
+   * renvoie 409 — deux validations ne font jamais deux courriels.
+   */
+  envoyerReponse: (idTicket) => api.post(`/admin/support/tickets/${idTicket}/envoyer`),
+
+  /** Compteurs de la file de support. */
+  statsSupport: () => api.get('/admin/support/stats'),
 };
 
 export default adminApi;

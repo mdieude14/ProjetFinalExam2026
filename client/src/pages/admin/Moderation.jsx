@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import adminApi from '@/api/admin.api';
 import Avatar from '@/components/ui/Avatar';
@@ -26,15 +26,17 @@ import Spinner from '@/components/ui/Spinner';
  */
 
 /**
- * DEUX FAMILLES DE DOSSIERS, PAS UNE LISTE UNIQUE.
+ * TROIS FAMILLES DE DOSSIERS, PAS UNE LISTE UNIQUE.
  *
- * Un diplôme à vérifier et un compte signalé n'ont ni le même contenu, ni les
- * mêmes issues, ni la même urgence. Les mêler dans une seule file obligerait
- * à lire le type de chaque carte avant de savoir quoi en faire.
+ * Un diplôme à vérifier, un compte signalé et une demande remontée par
+ * l'agent de support n'ont ni le même contenu, ni les mêmes issues, ni la
+ * même urgence. Les mêler dans une seule file obligerait à lire le type de
+ * chaque carte avant de savoir quoi en faire.
  */
 const FAMILLES = [
   { cle: 'diplomes', libelle: 'Diplômes' },
   { cle: 'signalements', libelle: 'Signalements' },
+  { cle: 'support', libelle: 'Support' },
 ];
 
 const ONGLETS = {
@@ -48,7 +50,27 @@ const ONGLETS = {
     { cle: 'traite', libelle: 'Traités' },
     { cle: 'rejete', libelle: 'Rejetés' },
   ],
+  /*
+   * « Non escaladés » n'appelle aucune action : c'est l'onglet d'audit.
+   * Relire ce que l'agent a répondu seul est le seul moyen de savoir s'il
+   * répond bien — et s'il escalade quand il le devrait.
+   */
+  support: [
+    { cle: 'escalade', libelle: 'À traiter' },
+    { cle: 'clos', libelle: 'Instruits' },
+    { cle: 'resolu', libelle: 'Non escaladés' },
+  ],
 };
+
+/** Chargement de la file de chaque famille, pour un statut donné. */
+const CHARGEURS = {
+  diplomes: (statut) => adminApi.diplomes({ statut }),
+  signalements: (statut) => adminApi.signalements({ statut }),
+  support: (statut) => adminApi.tickets({ statut }),
+};
+
+/** Onglets dont la liste vide signifie « rien en attente ». */
+const ONGLETS_EN_ATTENTE = ['en_attente', 'ouvert', 'escalade'];
 
 /** Libellés des motifs, alignés sur l'énumération du modèle serveur. */
 const LIBELLES_MOTIF = {
@@ -59,6 +81,39 @@ const LIBELLES_MOTIF = {
   fausse_qualification: 'Fausse qualification de coach',
   autre: 'Autre',
 };
+
+/** Libellés des intentions, alignés sur l'énumération du modèle `Ticket`. */
+const LIBELLES_INTENTION = {
+  usage: 'Question d’usage',
+  contextuel: 'Question sur son compte',
+  decision: 'Demande de décision',
+  hors_sujet: 'Hors sujet',
+};
+
+/** Motifs d'escalade automatique, alignés sur le service serveur. */
+const LIBELLES_ESCALADE = {
+  remboursement: 'Remboursement',
+  litige_diplome: 'Litige sur un diplôme',
+  contestation_moderation: 'Contestation de modération',
+  signalement_grave: 'Signalement grave',
+  // Motifs posés par le serveur quand aucun motif n'est fourni.
+  'demande de décision': 'Demande de décision',
+  'demande sans agent': 'Écrite sans passer par l’agent',
+};
+
+const LIBELLES_ROLE = { utilisateur: 'Sportif', coach: 'Coach', admin: 'Administrateur' };
+
+/** Date et heure : deux demandes de support arrivent souvent le même jour. */
+const dateHeure = (valeur) =>
+  valeur
+    ? new Date(valeur).toLocaleString('fr-FR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—';
 
 /** Tuile d'indicateur du tableau de bord. */
 function Indicateur({ libelle, valeur, accent = false }) {
@@ -376,33 +431,374 @@ function DossierSignalement({ signalement, onDecision, enCours }) {
   );
 }
 
+/**
+ * Carte d'un ticket de support.
+ *
+ * L'ORDRE SUIT CE QU'IL FAUT LIRE POUR DÉCIDER : pourquoi le dossier est
+ * remonté, ce qui a été demandé, puis la réponse DÉJÀ transmise. Ce dernier
+ * point n'est pas un détail : dans le parcours normal, l'utilisateur a lu
+ * cette réponse, et une décision qui la contredirait sans le savoir le
+ * laisserait devant deux messages incompatibles.
+ *
+ * « RÉPONSE DE L'AGENT » SEULEMENT QUAND LE SERVEUR L'ATTESTE. La création
+ * d'un ticket n'exigeait que le jeton de l'utilisateur — celui avec lequel
+ * n8n agit, mais que l'utilisateur détient aussi : n'importe qui pouvait
+ * écrire « l'agent m'a promis un remboursement ». Désormais `ecritParAgent`
+ * n'est vrai que si la clé d'agent a été présentée, et sans elle le serveur
+ * ne conserve ni réponse ni outils. Une demande directe porte un badge qui le
+ * dit ; l'écran n'affirme toujours que ce que le serveur garantit.
+ *
+ * LES OUTILS CONSULTÉS SONT AFFICHÉS, PAS LEURS RÉSULTATS — le ticket ne les
+ * enregistre pas. Un statut 403 ou 404 dit à l'administrateur que l'agent
+ * n'a pas pu voir quelque chose ; ce qu'il y avait à voir, il le vérifie
+ * lui-même, avec ses propres droits.
+ */
+function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) {
+  const [decision, setDecision] = useState('');
+  const { auteur } = ticket;
+
+  // Aligné sur le validateur serveur : entre 3 et 2000 caractères.
+  const decisionValide = decision.trim().length >= 3;
+
+  /*
+   * LE BROUILLON DU COURRIEL, ET L'ÉCART ENTRE L'ÉCRAN ET LA BASE.
+   *
+   * `enregistre` est ce que le serveur détient ; `brouillon` est ce qui est
+   * affiché. L'envoi expédie le PREMIER — c'est ce qui garantit qu'un texte
+   * relu est bien celui qui part. Tant que les deux diffèrent, envoyer
+   * expédierait autre chose que ce qu'on a sous les yeux : le bouton reste
+   * donc fermé, et l'écran dit pourquoi.
+   *
+   * L'état initial vient du dossier : un brouillon dicté au bot Telegram
+   * s'ouvre ici tel quel, prêt à être corrigé au clavier.
+   */
+  const enregistre = (ticket.brouillonReponse ?? '').trim();
+  const [brouillon, setBrouillon] = useState(ticket.brouillonReponse ?? '');
+  const [confirmeEnvoi, setConfirmeEnvoi] = useState(false);
+
+  const brouillonValide = brouillon.trim().length >= 10;
+  const aDesModificationsNonEnregistrees = brouillon.trim() !== enregistre;
+  const envoiPossible = enregistre.length >= 10 && !aDesModificationsNonEnregistrees;
+
+  return (
+    <li className="rounded-carte border border-ardoise-200 bg-white p-5" data-test="dossier-ticket">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {ticket.intention && (
+            <Badge variante={ticket.intention === 'decision' ? 'attente' : 'neutre'}>
+              {LIBELLES_INTENTION[ticket.intention] || ticket.intention}
+            </Badge>
+          )}
+          {!ticket.ecritParAgent && (
+            <span data-test="badge-demande-directe">
+              <Badge variante="neutre">Demande directe, sans agent</Badge>
+            </span>
+          )}
+          {ticket.statut === 'clos' && <Badge variante="succes">Instruit</Badge>}
+          {ticket.statut === 'resolu' && <Badge variante="marque">Non escaladé</Badge>}
+        </div>
+
+        <p className="text-xs text-ardoise-400">Posée le {dateHeure(ticket.createdAt)}</p>
+      </div>
+
+      {ticket.motifEscalade && (
+        <p className="mt-3 text-sm font-semibold text-alerte">
+          Remonté : {LIBELLES_ESCALADE[ticket.motifEscalade] || ticket.motifEscalade}
+        </p>
+      )}
+
+      {/* La question entière : bornée côté serveur, la couper obligerait à
+          ouvrir la base pour en lire la fin — même règle que les précisions
+          d'un signalement. */}
+      <blockquote className="mt-3 rounded-lg border-l-4 border-marque-300 bg-ardoise-50 px-3 py-2 text-sm leading-relaxed text-ardoise-800">
+        {ticket.question}
+      </blockquote>
+
+      {ticket.origine && (
+        <p className="mt-1.5 text-xs text-ardoise-500">
+          Posée depuis <code className="rounded bg-ardoise-100 px-1 py-0.5">{ticket.origine}</code>
+        </p>
+      )}
+
+      {ticket.reponse && (
+        <div className="mt-3">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ardoise-400">
+            {/* Sans attestation, une réponse ne peut venir que d'un ticket
+                antérieur à la clé d'agent : elle est dite non authentifiée. */}
+            {ticket.ecritParAgent ? 'Réponse de l’agent' : 'Réponse non authentifiée'}
+          </p>
+          <p className="whitespace-pre-wrap text-sm text-ardoise-700">{ticket.reponse}</p>
+        </div>
+      )}
+
+      {ticket.outils?.length > 0 && (
+        <div className="mt-3">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ardoise-400">
+            {ticket.ecritParAgent ? 'Outils consultés par l’agent' : 'Outils déclarés, non authentifiés'}
+          </p>
+          <ul className="space-y-0.5 text-xs">
+            {ticket.outils.map((appel, i) => (
+              <li key={i} className="flex flex-wrap items-center gap-2">
+                <code className="rounded bg-ardoise-100 px-1 py-0.5 text-ardoise-700">
+                  {appel.outil}
+                </code>
+                {appel.statut != null && (
+                  <span
+                    className={
+                      appel.statut >= 400 ? 'font-semibold text-erreur' : 'text-ardoise-500'
+                    }
+                  >
+                    {appel.statut}
+                  </span>
+                )}
+                {appel.dureeMs != null && (
+                  <span className="text-ardoise-400">{appel.dureeMs} ms</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center gap-2.5 border-t border-ardoise-100 pt-4">
+        <Avatar utilisateur={auteur} taille="sm" />
+        <div className="min-w-0">
+          <Link
+            to={`/profile/${auteur?.pseudo}`}
+            className="block truncate text-sm font-bold text-ardoise-900 hover:text-marque-600 hover:underline"
+          >
+            {auteur?.prenom} {auteur?.nom}
+          </Link>
+          <span className="block truncate text-xs text-ardoise-500">
+            @{auteur?.pseudo} · {LIBELLES_ROLE[ticket.roleAuteur] || ticket.roleAuteur}
+          </span>
+        </div>
+      </div>
+
+      {/* Historique, pour les dossiers déjà instruits */}
+      {ticket.traiteLe && (
+        <p className="mt-3 text-xs text-ardoise-500">
+          Instruit le {dateHeure(ticket.traiteLe)}
+          {ticket.traitePar?.pseudo && ` par @${ticket.traitePar.pseudo}`}
+        </p>
+      )}
+
+      {ticket.decision && (
+        <p className="mt-2 whitespace-pre-wrap rounded-lg bg-ardoise-50 p-2 text-xs text-ardoise-700">
+          Décision : {ticket.decision}
+        </p>
+      )}
+
+      {/* Réponse déjà partie : on la montre, et on dit par quel canal */}
+      {ticket.reponseEnvoyeeLe && (
+        <div
+          className="mt-3 rounded-carte border border-succes/30 bg-succes/5 p-3"
+          data-test="reponse-envoyee"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-succes">
+            Réponse envoyée par courriel le {dateHeure(ticket.reponseEnvoyeeLe)}
+          </p>
+          {/*
+            LE CANAL EST DIT, PARCE QU'IL CHANGE CE QUI S'EST PASSÉ. En mode
+            « boîte », rien n'est parti sur Internet : le courriel a été déposé
+            dans un fichier du serveur. Afficher « envoyé » sans le préciser
+            laisserait croire que la personne a reçu quelque chose.
+          */}
+          {ticket.reponseCanal === 'boite' && (
+            <p className="mt-1 text-xs text-alerte">
+              Aucun envoi réel n’est configuré sur cette installation : le courriel a été déposé
+              dans la boîte locale du serveur.
+            </p>
+          )}
+          <p className="mt-2 whitespace-pre-wrap text-sm text-ardoise-700">
+            {ticket.reponseExploitant}
+          </p>
+        </div>
+      )}
+
+      {/* Action, uniquement sur les dossiers remontés et non instruits */}
+      {ticket.statut === 'escalade' && (
+        <div className="mt-4 space-y-3 border-t border-ardoise-100 pt-4">
+          {/*
+            RÉPONDRE PAR COURRIEL — la même mécanique que sur Telegram, au
+            clavier. Le brouillon vit dans le dossier, pas dans cet écran :
+            commencer ici et finir sur le téléphone, ou l'inverse, revient au
+            même. Rien ne part avant la validation explicite.
+          */}
+          <div className="space-y-3 rounded-carte bg-ardoise-50 p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-semibold text-ardoise-900">Répondre par courriel</p>
+              {auteur?.email && (
+                <p className="text-xs text-ardoise-500" data-test="destinataire-courriel">
+                  à {auteur.email}
+                </p>
+              )}
+            </div>
+
+            <Textarea
+              libelle="Brouillon"
+              value={brouillon}
+              onChange={(e) => { setBrouillon(e.target.value); setConfirmeEnvoi(false); }}
+              maxLength={4000}
+              rows={6}
+              aide={
+                ticket.brouillonLe
+                  ? `Brouillon enregistré le ${dateHeure(ticket.brouillonLe)}. Ce texte partira tel quel dans le corps du courriel.`
+                  : 'Ce texte partira tel quel dans le corps du courriel, signature comprise.'
+              }
+              placeholder={'Bonjour Bob,\n\n…\n\nL’équipe CoachConnect'}
+              data-test="brouillon-reponse"
+            />
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variante="secondaire"
+                taille="sm"
+                disabled={!brouillonValide || !aDesModificationsNonEnregistrees}
+                chargement={enCours === `brouillon:${ticket._id}`}
+                onClick={() => onBrouillon(ticket._id, brouillon)}
+                data-test="enregistrer-brouillon"
+              >
+                Enregistrer le brouillon
+              </Button>
+
+              {/*
+                DEUX CLICS POUR ENVOYER, ET CE N'EST PAS DE LA DÉFIANCE. Un
+                courriel parti ne se rattrape pas, et le dossier se clôt dans
+                le même geste : la confirmation nomme le destinataire, pour
+                qu'une erreur de dossier saute aux yeux avant le départ.
+              */}
+              {!confirmeEnvoi ? (
+                <Button
+                  taille="sm"
+                  disabled={!envoiPossible}
+                  onClick={() => setConfirmeEnvoi(true)}
+                  data-test="preparer-envoi"
+                >
+                  Envoyer la réponse
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    taille="sm"
+                    chargement={enCours === `envoi:${ticket._id}`}
+                    onClick={() => onEnvoyer(ticket._id)}
+                    data-test="confirmer-envoi"
+                  >
+                    Confirmer l’envoi à {auteur?.email ?? 'l’auteur'}
+                  </Button>
+                  <Button
+                    variante="secondaire"
+                    taille="sm"
+                    onClick={() => setConfirmeEnvoi(false)}
+                    data-test="annuler-envoi"
+                  >
+                    Annuler
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {aDesModificationsNonEnregistrees && enregistre.length >= 10 && (
+              <p className="text-xs font-medium text-alerte" data-test="avis-brouillon-modifie">
+                Vos modifications ne sont pas enregistrées. C’est le brouillon enregistré qui
+                partirait : enregistrez-le d’abord.
+              </p>
+            )}
+          </div>
+
+          {/*
+            CLORE SANS COURRIEL — l'issue d'origine, conservée. Tous les
+            dossiers n'appellent pas une réponse écrite : une décision courte,
+            lue dans le widget, suffit parfois. Les deux voies closent le
+            dossier ; elles ne s'additionnent pas.
+          */}
+          <Textarea
+            libelle="Décision"
+            value={decision}
+            onChange={(e) => setDecision(e.target.value)}
+            maxLength={2000}
+            rows={3}
+            aide="Ce texte sera lu par l’auteur de la demande : dites ce qui a été fait, ou pourquoi rien ne le sera."
+            placeholder="Remboursement accordé, visible sous 5 à 10 jours…"
+          />
+
+          {/*
+            UN SEUL BOUTON ICI, « CLORE ». L'API accepte aussi « resolu », mais
+            pour un dossier remonté, instruire revient à le clore avec une
+            décision : deux boutons feraient choisir à l'administrateur entre
+            deux statuts dont la nuance ne le concerne pas.
+          */}
+          <Button
+            variante="secondaire"
+            taille="sm"
+            disabled={!decisionValide}
+            chargement={enCours === ticket._id}
+            onClick={() => onDecision(ticket._id, decision)}
+          >
+            Clore sans courriel
+          </Button>
+        </div>
+      )}
+    </li>
+  );
+}
+
 export default function Moderation() {
   const [famille, setFamille] = useState('diplomes');
   const [onglet, setOnglet] = useState('en_attente');
-  const [dossiers, setDossiers] = useState([]);
   const [stats, setStats] = useState(null);
+  const [enAttenteSupport, setEnAttenteSupport] = useState(0);
   const [chargement, setChargement] = useState(true);
   const [enCours, setEnCours] = useState(null);
   const [message, setMessage] = useState(null);
 
+  /*
+   * LES DOSSIERS PORTENT LA CLÉ DE CE QU'ILS REPRÉSENTENT.
+   *
+   * Changer de famille met à jour `famille` immédiatement, mais la nouvelle
+   * liste n'arrive qu'après l'appel réseau. Entre les deux, un rendu montrait
+   * la liste « Signalements » remplie avec les DIPLÔMES de l'onglet précédent,
+   * passés au composant d'un signalement. Invisible tant qu'aucun diplôme
+   * n'attendait ; réel dès qu'un seul attendait.
+   *
+   * Une liste n'est donc affichée que si sa clé correspond à ce que l'écran
+   * demande — sinon c'est le chargement qui s'affiche.
+   */
+  const [dossiers, setDossiers] = useState({ cle: null, elements: [] });
+  const cleCourante = `${famille}:${onglet}`;
+
+  /*
+   * UNE RÉPONSE DÉPASSÉE EST IGNORÉE. Deux clics rapides lancent deux appels,
+   * et rien ne garantit qu'ils reviennent dans l'ordre : sans ce compteur, le
+   * plus lent écraserait le plus récent.
+   */
+  const derniereRequete = useRef(0);
+
   const charger = useCallback(async () => {
+    const numero = ++derniereRequete.current;
+    const cle = `${famille}:${onglet}`;
     setChargement(true);
     try {
-      // Les deux appels sont independants : en parallele.
-      const [reponseDossiers, reponseStats] = await Promise.all([
-        famille === 'diplomes'
-          ? adminApi.diplomes({ statut: onglet })
-          : adminApi.signalements({ statut: onglet }),
+      // Les trois appels sont independants : en parallele.
+      const [reponseDossiers, reponseStats, reponseSupport] = await Promise.all([
+        CHARGEURS[famille](onglet),
         adminApi.stats(),
+        adminApi.statsSupport(),
       ]);
-      setDossiers(reponseDossiers.data.elements);
+      if (numero !== derniereRequete.current) return;
+      setDossiers({ cle, elements: reponseDossiers.data.elements });
       setStats(reponseStats.data.stats);
+      setEnAttenteSupport(reponseSupport.data.enAttente ?? 0);
     } catch (erreur) {
+      if (numero !== derniereRequete.current) return;
       setMessage({ variante: 'erreur', texte: erreur.message });
     } finally {
-      setChargement(false);
+      if (numero === derniereRequete.current) setChargement(false);
     }
   }, [famille, onglet]);
+
+  const listeAJour = dossiers.cle === cleCourante;
 
   useEffect(() => {
     charger();
@@ -426,6 +822,83 @@ export default function Moderation() {
       await charger();
     } catch (erreur) {
       setMessage({ variante: 'erreur', texte: erreur.message });
+    } finally {
+      setEnCours(null);
+    }
+  };
+
+  /**
+   * Instruction d'un ticket de support.
+   *
+   * UN 409 RECHARGE LA FILE. Il signifie qu'un autre administrateur a instruit
+   * ce dossier entre l'affichage et le clic : la carte à l'écran est périmée,
+   * et la laisser en place inviterait à recommencer. Le serveur a refusé
+   * d'écraser sa décision ; l'écran doit maintenant la montrer.
+   */
+  const trancherTicket = async (idTicket, decision) => {
+    setEnCours(idTicket);
+    setMessage(null);
+    try {
+      const reponse = await adminApi.trancherTicket(idTicket, decision);
+      setMessage({ variante: 'succes', texte: reponse.data.message });
+      await charger();
+    } catch (erreur) {
+      setMessage({ variante: 'erreur', texte: erreur.message });
+      if (erreur.statut === 409) await charger();
+    } finally {
+      setEnCours(null);
+    }
+  };
+
+  /**
+   * Le brouillon du courriel, enregistré sans partir.
+   *
+   * LA FILE N'EST PAS RECHARGÉE, et c'est délibéré : l'administrateur est en
+   * train d'écrire, et relire la file remplacerait les cartes — donc les
+   * champs — au milieu d'une phrase. Seul le dossier concerné est rafraîchi,
+   * avec ce que le serveur a réellement retenu.
+   */
+  const enregistrerBrouillon = async (idTicket, texte) => {
+    setEnCours(`brouillon:${idTicket}`);
+    setMessage(null);
+    try {
+      const reponse = await adminApi.enregistrerBrouillon(idTicket, texte);
+      setDossiers((etat) => ({
+        ...etat,
+        elements: etat.elements.map((t) => (t._id === idTicket ? { ...t, ...reponse.data.dossier } : t)),
+      }));
+      setMessage({ variante: 'succes', texte: 'Brouillon enregistré. Rien n’est encore parti.' });
+    } catch (erreur) {
+      setMessage({ variante: 'erreur', texte: erreur.message });
+      // 409 : une réponse est partie entre-temps. La carte est périmée.
+      if (erreur.statut === 409) await charger();
+    } finally {
+      setEnCours(null);
+    }
+  };
+
+  /**
+   * Validation : le brouillon en base part, et le dossier se clôt.
+   *
+   * LA FILE EST RECHARGÉE ICI, elle. Le dossier quitte « À traiter » pour
+   * « Instruits » : le laisser à l'écran inviterait à le traiter deux fois.
+   */
+  const envoyerReponse = async (idTicket) => {
+    setEnCours(`envoi:${idTicket}`);
+    setMessage(null);
+    try {
+      const reponse = await adminApi.envoyerReponse(idTicket);
+      setMessage({
+        variante: 'succes',
+        texte:
+          reponse.data.canal === 'boite'
+            ? 'Dossier clos. Aucun envoi réel n’est configuré : le courriel a été déposé dans la boîte locale.'
+            : 'Réponse envoyée, dossier clos.',
+      });
+      await charger();
+    } catch (erreur) {
+      setMessage({ variante: 'erreur', texte: erreur.message });
+      if (erreur.statut === 409) await charger();
     } finally {
       setEnCours(null);
     }
@@ -475,7 +948,8 @@ export default function Moderation() {
       {/* ---------- Familles ---------- */}
       {/*
         CHANGER DE FAMILLE REINITIALISE L'ONGLET. Les statuts n'ont pas les
-        memes noms d'un cote et de l'autre (« en_attente » contre « ouvert ») :
+        memes noms d'une famille a l'autre (« en_attente », « ouvert »,
+        « escalade ») :
         conserver l'onglet courant demanderait au serveur un statut qui
         n'existe pas, et la liste reviendrait vide sans explication.
       */}
@@ -502,6 +976,14 @@ export default function Moderation() {
                 {stats.signalementsOuverts}
               </span>
             )}
+            {f.cle === 'support' && enAttenteSupport > 0 && (
+              <span
+                className="ml-2 rounded-full bg-erreur px-1.5 py-0.5 text-xs font-bold text-white"
+                data-test="compteur-support"
+              >
+                {enAttenteSupport}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -525,40 +1007,55 @@ export default function Moderation() {
       </div>
 
       {/* ---------- Dossiers ---------- */}
-      {chargement ? (
+      {chargement || !listeAJour ? (
         <div className="flex justify-center py-16">
           <Spinner taille="lg" className="text-marque-500" />
         </div>
-      ) : dossiers.length === 0 ? (
+      ) : dossiers.elements.length === 0 ? (
         <div
           className="rounded-carte border border-dashed border-ardoise-300 p-10 text-center"
           data-test="liste-vide"
         >
           <p className="text-sm text-ardoise-500">
-            {onglet === 'en_attente' || onglet === 'ouvert'
+            {ONGLETS_EN_ATTENTE.includes(onglet)
               ? 'Aucun dossier en attente. Tout est a jour.'
               : 'Aucun dossier dans cette categorie.'}
           </p>
         </div>
       ) : (
         <ul className="space-y-3" data-test={`liste-${famille}`}>
-          {dossiers.map((dossier) =>
-            famille === 'diplomes' ? (
-              <DossierCoach
+          {dossiers.elements.map((dossier) => {
+            if (famille === 'diplomes') {
+              return (
+                <DossierCoach
+                  key={dossier._id}
+                  coach={dossier}
+                  onDecision={decider}
+                  enCours={enCours}
+                />
+              );
+            }
+            if (famille === 'signalements') {
+              return (
+                <DossierSignalement
+                  key={dossier._id}
+                  signalement={dossier}
+                  onDecision={deciderSignalement}
+                  enCours={enCours}
+                />
+              );
+            }
+            return (
+              <DossierTicket
                 key={dossier._id}
-                coach={dossier}
-                onDecision={decider}
+                ticket={dossier}
+                onDecision={trancherTicket}
+                onBrouillon={enregistrerBrouillon}
+                onEnvoyer={envoyerReponse}
                 enCours={enCours}
               />
-            ) : (
-              <DossierSignalement
-                key={dossier._id}
-                signalement={dossier}
-                onDecision={deciderSignalement}
-                enCours={enCours}
-              />
-            )
-          )}
+            );
+          })}
         </ul>
       )}
     </div>
