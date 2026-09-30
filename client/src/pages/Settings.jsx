@@ -10,6 +10,8 @@ import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
+import RattachementTelegram from '@/components/support/RattachementTelegram';
+import { BOT_TELEGRAM } from '@/api/support.api';
 
 /**
  * Parametres du compte — /settings
@@ -37,7 +39,7 @@ function Section({ titre, description, children }) {
 }
 
 export default function Settings() {
-  const { utilisateur, majUtilisateur, deconnexion, estCoach } = useAuth();
+  const { utilisateur, majUtilisateur, deconnexion, estCoach, estAdmin } = useAuth();
   const naviguer = useNavigate();
 
   /* ---------------- Photo de profil ---------------- */
@@ -513,6 +515,25 @@ export default function Settings() {
           </Button>
         </form>
       </Section>
+
+      {/* ============ ASSISTANT SUR TELEGRAM ============ */}
+      {/*
+        RÉSERVÉ AUX ADMINISTRATEURS, et masqué si l'installation n'a pas de bot.
+
+        Le bot Telegram est la console de l'exploitant : il reçoit les demandes
+        escaladées et sert à y répondre. Un utilisateur n'a rien à y rattacher —
+        il dispose du widget. L'API refuse de toute façon ces trois routes à qui
+        n'est pas administrateur : masquer ici évite d'afficher une porte close,
+        cela ne remplace pas le garde.
+      */}
+      {BOT_TELEGRAM && estAdmin && (
+        <Section
+          titre="Assistant sur Telegram"
+          description="Rattachez votre conversation Telegram pour recevoir les demandes escaladées et y répondre."
+        >
+          <RattachementTelegram />
+        </Section>
+      )}
 
       {/* ============ ZONE SENSIBLE ============ */}
       <Section

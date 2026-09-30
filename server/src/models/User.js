@@ -268,6 +268,31 @@ const userSchema = new Schema(
       expireLe: { type: Date, select: false },
     },
 
+    /**
+     * Conversation Telegram rattachée à ce compte (module 15).
+     *
+     * UN COMPTE TELEGRAM NE PROUVE PAS UNE IDENTITÉ CoachConnect. Le lien se
+     * fait donc dans ce sens-là, et seulement lui : la personne, CONNECTÉE à
+     * l'application, génère un code, puis l'envoie au bot. Détenir le code
+     * prouve qu'on détient la session.
+     *
+     * LE CODE SUIT LE MODÈLE DE LA RÉINITIALISATION : empreinte seulement,
+     * usage unique, durée courte. `select: false` partout : ni le code en
+     * attente, ni même la conversation rattachée, ne sortent de la base sans
+     * qu'on les demande explicitement.
+     *
+     * `conversation` est TOUJOURS UNE CHAÎNE. L'identifiant arrive en nombre
+     * dans le corps JSON et en texte dans une URL ; or MongoDB ne fait jamais
+     * correspondre `5384486890` et `"5384486890"`. Une seule forme stockée,
+     * et une recherche qui échouerait en silence devient impossible.
+     */
+    telegram: {
+      conversation: { type: String, select: false },
+      lieLe: { type: Date, select: false },
+      empreinteCode: { type: String, select: false },
+      codeExpireLe: { type: Date, select: false },
+    },
+
     isActive: { type: Boolean, default: true },
     derniereConnexion: Date,
 
@@ -331,6 +356,24 @@ userSchema.index({ isActive: 1, termesRecherche: 1 });
 // Réinitialisation du mot de passe : on retrouve un compte par l'empreinte du
 // jeton reçu. Index CREUX — seuls les comptes ayant un lien en cours y figurent.
 userSchema.index({ 'reinitialisation.empreinte': 1 }, { sparse: true });
+
+/*
+ * Une conversation Telegram ne sert qu'UN compte à la fois — sans quoi le bot
+ * devrait choisir de quel compte parler, et pourrait se tromper.
+ *
+ * FILTRE PARTIEL PLUTÔT QUE `sparse`. Un index creux ignore les documents
+ * SANS le champ, mais indexe ceux où il vaut `null` : deux comptes déliés par
+ * un `$set: null` entreraient en collision. Le filtre ne retient que les
+ * vraies chaînes, et le déliement passe de toute façon par `$unset`.
+ */
+userSchema.index(
+  { 'telegram.conversation': 1 },
+  { unique: true, partialFilterExpression: { 'telegram.conversation': { $type: 'string' } } }
+);
+userSchema.index(
+  { 'telegram.empreinteCode': 1 },
+  { partialFilterExpression: { 'telegram.empreinteCode': { $type: 'string' } } }
+);
 
 // Listing des coachs d'une ville (page Maps, filtres).
 userSchema.index({ type: 1, ville: 1 });
@@ -608,6 +651,7 @@ userSchema.methods.versionPrivee = function () {
   delete privee.__v;
   delete privee.refreshTokenVersion;
   delete privee.reinitialisation;
+  delete privee.telegram;
   delete privee.stripeCustomerId;
 
   // L'identifiant technique du compte Connect ne regarde que le serveur ;
@@ -629,6 +673,7 @@ userSchema.methods.versionAdmin = function () {
   delete complet.__v;
   // Défense en profondeur : le champ est déjà en select: false.
   delete complet.reinitialisation;
+  delete complet.telegram;
   return complet;
 };
 
