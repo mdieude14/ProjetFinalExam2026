@@ -421,13 +421,32 @@ for (const onglet of ['Personnes', 'Publications', 'Événements']) {
 }
 
 await page.getByRole('button', { name: 'Événements', exact: true }).click();
-await page.waitForTimeout(1500);
+
+/*
+ * ON ATTEND LA BASCULE D'ONGLET, PAS UNE DURÉE.
+ *
+ * Le filtrage par famille se fait au retour d’une requête. Compter après un
+ * délai fixe transforme une machine chargée en échec de test : le 2 octobre,
+ * au vingt-septième rang d’une campagne de 34 suites, la vérification du
+ * message vide a échoué — puis est passée en 36/36 la suite tournant seule.
+ *
+ * On attend donc deux états : ce qui doit apparaître, et ce qui doit
+ * disparaître. La seconde attente est tolérante, car c’est la vérification
+ * qui doit juger — pas l’attente qui doit faire tomber la suite.
+ */
+await page.getByText(`Stage ${MOT}`).first().waitFor({ state: 'visible', timeout: 20000 });
+await page
+  .waitForFunction((m) => !document.body.innerText.includes(`Programme ${m}`), MOT, { timeout: 20000 })
+  .catch(() => {});
+
 const apresOnglet = await page.content();
 ok('**l’onglet Événements ne montre que des événements**',
   apresOnglet.includes(`Stage ${MOT}`) && !apresOnglet.includes(`Programme ${MOT}`));
 
 await page.getByRole('button', { name: 'Personnes', exact: true }).click();
-await page.waitForTimeout(1500);
+
+// Même principe : on attend le message vide, la vérification reste juge.
+await page.getByText('Aucune personne pour').waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
 
 /*
  * LE MESSAGE VIDE NOMME LA FAMILLE INTERROGÉE.

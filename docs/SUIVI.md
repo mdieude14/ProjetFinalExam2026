@@ -5935,3 +5935,79 @@ SMTP renseignés. `verifierSmtp()` échoue sur
 - [x] **Navigateur** : paquet principal 114 ko compressés pour un budget de 150 ·
       premier écran **180 ms** · première peinture 132 ms · connexion 549 ms · la
       carte, qui charge Leaflet à la demande, 440 ms
+
+## 15.33 — Une instabilité de suite, et un décompte recomposé (2 octobre)
+
+### A. Le correctif du port 587 est committé
+
+- [x] `9831598` — `server/.env.example` et la section 15.32. Contrôlé avant l'envoi :
+      aucune valeur SMTP réelle dans le diff, et les cinq fichiers sensibles
+      restent non suivis
+
+### B. Mon hypothèse sur le mot de passe était fausse, et je la corrige
+
+- [x] J'avais écrit le 1er octobre que les 19 signes de `SMTP_PASS` ressemblaient à
+      un mot de passe d'application de 16 signes collé **avec les trois espaces**
+      que Google insère dans son affichage
+- [x] **Vérifié le 2 : la valeur fait 19 signes et ne contient AUCUN espace.**
+      L'explication ne tenait pas. Une valeur de 19 signes sans espaces n'est ni un
+      mot de passe d'application (16 signes exactement), ni un affichage espacé :
+      c'est très probablement le mot de passe du COMPTE, que Gmail refuse pour
+      l'envoi SMTP depuis 2022
+- [ ] Ce qui change pour l'exploitant : il ne s'agit pas de retirer des espaces,
+      mais de **créer un mot de passe d'application** — validation en deux étapes,
+      puis `myaccount.google.com/apppasswords`
+
+### C. La campagne arrêtée par l'outillage, et non par un défaut
+
+- [x] **Huit suites ont été déclarées en échec sans avoir jamais tourné.** La
+      campagne elle-même a été arrêtée par la limite de temps des tâches en
+      arrière-plan, au vingt-septième rang. Sept suites affichaient « — », une
+      affichait un compte partiel
+- [x] **Le décompte a donc été recomposé, pas estimé** : les 26 suites qui ont
+      affiché un résultat chiffré (1446 vérifications) ont été additionnées, et les
+      huit manquantes rejouées une à une
+- [x] **Une subtilité à retenir pour la prochaine fois** : la campagne inscrit
+      « ÉCHEC » à la place du compte, de sorte qu'une suite en échec ne figure pas
+      dans la liste chiffrée. Un premier décompte automatique s'est trompé de suite
+      — il avait exclu `API — recherche` (64/64, qui passait) au lieu de
+      `Navigateur — recherche`. Corrigé en filtrant sur le libellé exact
+
+### D. Une vraie instabilité, trouvée et corrigée
+
+- [x] `Navigateur — recherche` échouait à **35/36** sur « le message vide nomme la
+      famille interrogée ». Rejouée seule : **36/36**
+- [x] **Cause** : la bascule d'onglet était attendue par un délai fixe de 1,5 s. Le
+      filtrage par famille se fait au retour d'une requête ; au vingt-septième rang
+      d'une campagne, la machine chargée dépassait ce délai. C'est exactement le
+      défaut corrigé dans quatre autres suites — celle-ci n'en faisait pas partie
+- [x] **Corrigé par deux attentes sur condition** : ce qui doit apparaître
+      (l'événement cherché), et ce qui doit disparaître (la publication premium).
+      La seconde attente est tolérante : c'est la vérification qui doit juger, pas
+      l'attente qui doit faire tomber la suite
+- [x] **Deux délais fixes retirés sur dix-sept**, et c'est volontaire : seuls ceux
+      qui ont lâché sont traités. Réécrire la suite entière dépasserait le besoin
+
+## Campagne du 2 octobre — 34 suites
+
+| | Suites | Vérifications |
+|---|---|---|
+| Terminées pendant la campagne | 26 | 1446 / 1446 |
+| Rejouées seules après l'arrêt | 8 | 279 / 279 |
+| **Total** | **34** | **1725 / 1725** |
+
+- [x] Aucun échec subsistant, tests de **performance** compris
+
+### Performance mesurée
+
+- [x] **API** : santé 13 ms · autocomplétion 17 ms (p95 34) · fil d'actualité 33 ms ·
+      recherche globale 47 ms pour un budget de 1200 ms ·
+      **30 requêtes simultanées servies en 187 ms**
+- [x] **Aucune requête par élément** : un fil de 12 publications coûte 44 ms contre
+      37 ms pour 2 — ×1,2 pour six fois plus d'éléments
+- [x] **Navigateur** : paquet principal 114 ko compressés pour un budget de 150 ·
+      premier écran 368 ms · première peinture 288 ms · connexion 978 ms · la carte,
+      qui charge Leaflet à la demande, 563 ms
+- [~] Les chiffres sont un peu au-dessus de ceux du 1er octobre — la machine
+      faisait tourner les serveurs détachés en plus des suites. Tous les budgets
+      restent tenus avec une marge d'un ordre de grandeur
