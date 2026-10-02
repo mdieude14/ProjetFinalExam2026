@@ -5852,3 +5852,86 @@ avant qu'il ne configure quoi que ce soit.
       champ vide — le comportement d'un dépôt fraîchement cloné
 - [x] Contrôlé avant commit qu'aucun identifiant de conversation n'avait été gravé
       par ces essais
+
+## 15.32 — L'envoi réel bute sur une SECONDE autorité d'Avast (1er octobre)
+
+Préparation de l'envoi réel des courriels, dans la suite de la phase A de Gmail :
+la boîte dédiée `support.coachconnect.app@gmail.com` est créée, les identifiants
+SMTP renseignés. `verifierSmtp()` échoue sur
+`unable to verify the first certificate`.
+
+### A. Ce n'était PAS le défaut du 15.29
+
+- [x] **Une autorité différente, et son nom le dit** : la chaîne présentée sur
+      `smtp.gmail.com:465` est signée par **`Avast Web/Mail Shield Untrusted
+      Root`** — et non par `Avast Web/Mail Shield Root`, celle qui avait été
+      installée dans le conteneur
+- [x] **Elle est absente de TOUS les magasins de Windows**, vérifié sur cinq
+      d'entre eux : `LocalMachine\Root`, `CurrentUser\Root`, les deux `CA` et
+      `Disallowed`. Avast inspecte le courrier sortant et le resigne **sans se
+      porter garant**
+- [x] **Aucun correctif de code ne doit la contourner.** L'ajouter à la confiance
+      reviendrait à accepter ce que l'antivirus lui-même désavoue. C'est la
+      différence avec le 15.29, où l'autorité était installée et reconnue par
+      Windows : là, on l'ajoutait au conteneur pour rattraper un écart ; ici, il
+      n'y a rien à rattraper
+
+### B. La solution : le port 587, mesurée des deux côtés
+
+| Port | Certificat | Identifiants |
+|---|---|---|
+| 465, TLS direct | **refusé** | non atteint |
+| 587, STARTTLS | **accepté** | atteints — refus Gmail sur le mot de passe |
+
+- [x] Avast n'intercepte pas le 587 de la même façon. `server/.env` passe à
+      `SMTP_PORT=587` / `SMTP_SECURE=false` — Gmail accepte les deux ports
+- [x] **Le choix est documenté dans `server/.env.example`**, avec la mesure et la
+      raison : un autre poste, ou le même dans six mois, ne doit pas repayer ce
+      diagnostic. En production, sans antivirus intercepteur, les deux conviennent
+
+### C. Ce qui reste, et qui appartient à l'exploitant
+
+- [ ] **Gmail refuse le mot de passe : `535-5.7.8`.** La valeur fait 19 signes, un
+      mot de passe d'application en fait 16 — Google l'affiche en quatre groupes
+      de quatre, soit 19 signes espaces comprises. À recoller sans les espaces, ou
+      à créer si c'est le mot de passe du compte qui a été saisi (Gmail les refuse
+      depuis 2022)
+
+### D. Trois erreurs de ma part, et ce qu'elles ont appris
+
+- [x] **`server/package.json` cassé**, en voulant y ajouter `--use-system-ca` : des
+      guillemets non échappés ont rendu le JSON invalide, et deux réparations ont
+      échoué pour la même raison. Corrigé en passant par un fichier de script qui
+      reconstruit la ligne avec `JSON.stringify` — on ne compose pas du JSON à
+      coups d'échappements shell
+- [x] **Une option ajoutée pour rien, puis retirée.** `--use-system-ca` ne corrige
+      pas ce défaut. Mesuré : HTTPS vers Stripe, Anthropic et Cloudinary passe
+      SANS elle, Avast les signant avec son autorité de confiance. La modification
+      a été annulée — un réglage sans effet dans un dépôt est une fausse piste
+      laissée aux suivants
+- [x] **Mon propre outil de diagnostic m'a égaré** : lancé en processus séparé, il
+      n'avait pas l'option que je venais d'ajouter au serveur. Je mesurais autre
+      chose que ce que je croyais. Corrigé en comparant les trois configurations
+      côte à côte, ce qui a conduit à lire la vraie chaîne de certificats — et à
+      trouver la cause
+
+## Campagne du 1er octobre — 34 suites
+
+| | Suites | Vérifications |
+|---|---|---|
+| API et workflows | 17 | 1036 / 1036 |
+| Navigateur | 17 | 689 / 689 |
+| **Total** | **34** | **1725 / 1725** |
+
+- [x] Aucun échec, tests de **performance** compris
+
+### Performance mesurée
+
+- [x] **API** : santé 16 ms · autocomplétion 16 ms (p95 20) · fil d'actualité
+      18 ms · recherche globale 32 ms pour un budget de 1200 ms ·
+      **30 requêtes simultanées servies en 95 ms**
+- [x] **Aucune requête par élément** : un fil de 12 publications coûte 34 ms contre
+      31 ms pour 2 — ×1,1 pour six fois plus d'éléments
+- [x] **Navigateur** : paquet principal 114 ko compressés pour un budget de 150 ·
+      premier écran **180 ms** · première peinture 132 ms · connexion 549 ms · la
+      carte, qui charge Leaflet à la demande, 440 ms
