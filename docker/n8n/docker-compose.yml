@@ -72,6 +72,31 @@ services:
       # un service externe ne sait pas joindre `localhost`.
       - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
 
+      # ------------------------------------------------------------------
+      #  DEUX ADRESSES, ET IL EN FAUT DEUX
+      # ------------------------------------------------------------------
+      #
+      # n8n tire DEUX adresses de sa configuration, et les confondre coûte cher.
+      # Lu dans son code (`dist/services/url.service.js`) :
+      #
+      #   getWebhookBaseUrl()  = WEBHOOK_URL            → ce que Telegram appelle
+      #   getInstanceBaseUrl() = N8N_EDITOR_BASE_URL
+      #                          ou, à défaut, WEBHOOK_URL → le rappel OAuth
+      #
+      # SANS CETTE LIGNE, LES DEUX SE CONFONDENT. Le tunnel tire une adresse au
+      # hasard à chaque ouverture ; le rappel OAuth, lui, doit être ENREGISTRÉ
+      # chez Google à l'avance. Ouvrir le tunnel rendait donc impossible toute
+      # réautorisation d'un identifiant — et le jeton Gmail expire tous les sept
+      # jours tant que l'application Google reste « en test ». Il fallait fermer
+      # le tunnel, remettre `localhost`, réautoriser, puis rouvrir : une danse
+      # hebdomadaire, pour rien.
+      #
+      # Le rappel reste donc sur `localhost`, qui est stable et que Google
+      # accepte pour un client « application web ». Le tunnel ne concerne plus
+      # que les webhooks. Constaté le 10 octobre, après avoir cassé la réception
+      # Telegram en neutralisant `WEBHOOK_URL` la veille.
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-http://localhost:5678/}
+
       # Les workflows sont versionnés dans le dépôt, pas seulement dans le
       # volume : ils doivent pouvoir être relus et corrigés comme du code.
       - N8N_DIAGNOSTICS_ENABLED=false
