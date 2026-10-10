@@ -14,6 +14,7 @@ import {
   lierTelegramService,
   delierTelegramService,
   compteTelegramService,
+  courrielService,
   dossierParReferenceService,
   brouillonService,
   envoyerService,
@@ -33,6 +34,7 @@ import {
   reglesLierTelegram,
   reglesDelierTelegram,
   reglesCompteTelegram,
+  reglesCourrielService,
   reglesDossierService,
   reglesBrouillonService,
   reglesEnvoiService,
@@ -175,6 +177,21 @@ router.get('/service/telegram/compte', serviceAutorise, reglesCompteTelegram, va
  * `serviceAutorise` s'utilise SEUL, jamais après `protect` : il n'y a pas
  * d'utilisateur derrière un processus automatisé, et `req.user` reste vide.
  */
+/**
+ * DÉPOSER UNE DEMANDE ARRIVÉE PAR COURRIEL, avec son brouillon.
+ *
+ * LA CLÉ DE SERVICE SUFFIT ICI, et c'est la seule route de réponse dans ce cas.
+ * Les trois suivantes instruisent un dossier au nom d'un administrateur et
+ * exigent donc son rattachement Telegram. Celle-ci ne nomme personne : elle
+ * dépose un texte écrit par l'assistant, qu'un humain validera ensuite.
+ *
+ * CE QUE CETTE ROUTE PERMET À QUI DÉTIENDRAIT LA CLÉ : créer un dossier et y
+ * poser un brouillon. Rien de plus — aucun envoi, et le brouillon reste sans
+ * effet tant qu'un administrateur ne l'a pas validé depuis le back-office.
+ * C'est pourquoi elle peut se passer de la seconde condition.
+ */
+router.post('/service/courriel', serviceAutorise, reglesCourrielService, validate, courrielService);
+
 /**
  * RÉPONDRE À UN DOSSIER, DEPUIS TELEGRAM.
  *

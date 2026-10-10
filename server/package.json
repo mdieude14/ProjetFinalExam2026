@@ -32,7 +32,8 @@
     "test:canaux": "node tests/agents-canaux.mjs",
     "test:telegram": "node tests/telegram-compte.mjs",
     "test:messagerie-agent": "node tests/agent-messagerie.mjs",
-    "test:reponse": "node tests/reponse-support.mjs"
+    "test:reponse": "node tests/reponse-support.mjs",
+    "test:courriel": "node tests/courriel-support.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

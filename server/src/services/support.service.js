@@ -78,6 +78,63 @@ export async function enregistrer(
 }
 
 /**
+ * Enregistre une demande arrivée par COURRIEL, avec le brouillon déjà rédigé.
+ *
+ * POURQUOI LE DOSSIER ET SON BROUILLON EN UNE SEULE ÉCRITURE. Les deux arrivent
+ * du même passage de l'assistant : il relève le courriel, rédige, et dépose.
+ * En deux appels, une panne entre les deux laisserait un dossier muet dans la
+ * file de l'exploitant, sans qu'on sache si la rédaction a échoué ou si elle
+ * est simplement en retard.
+ *
+ * POURQUOI `escalade`, ET PAS `resolu`. C'est ce statut qui met le dossier dans
+ * la file de l'exploitant, et c'est lui que relève `aNotifier()` — donc c'est
+ * lui, et lui seul, qui déclenche l'alerte Telegram. Un dossier `resolu`
+ * n'alerterait personne et attendrait indéfiniment une validation.
+ *
+ * POURQUOI `traitePar` RESTE VIDE. Personne n'a encore relu ce texte : c'est
+ * l'assistant qui l'a écrit. Y poser un administrateur mentirait sur qui a
+ * instruit le dossier, et `envoyerReponse` l'y inscrira de toute façon au
+ * moment de la validation — c'est-à-dire quand ce sera vrai.
+ *
+ * RIEN NE PART D'ICI. Aucun courriel n'est envoyé par cette fonction : elle
+ * dépose un brouillon, et c'est tout. L'expédition passe par `envoyerReponse`,
+ * après une validation humaine.
+ *
+ * LIMITE CONNUE : aucune déduplication. Si l'assistant repassait sur le même
+ * courriel — une relance après panne, par exemple — il créerait un second
+ * dossier. Sans conséquence pour la personne, puisque rien ne part sans
+ * validation, mais l'exploitant verrait deux fois la même demande.
+ */
+export async function enregistrerCourriel({ expediteur, sujet, question, brouillon }) {
+  const texte = String(brouillon ?? '').trim();
+  if (texte.length < 10) throw ApiError.badRequest('Le brouillon est trop court');
+
+  const maintenant = new Date();
+
+  /*
+   * LE SUJET TIENT LIEU D'ORIGINE. Ce champ dit d'où part la question — un
+   * écran pour le widget, le sujet du courriel ici. Dans les deux cas il
+   * donne à l'exploitant le contexte qui change la réponse, et il évite
+   * d'ajouter un champ pour la même fonction.
+   */
+  const ticket = await Ticket.create({
+    canal: 'courriel',
+    courrielAuteur: expediteur,
+    question,
+    origine: sujet ? String(sujet).slice(0, 120) : undefined,
+    ecritParAgent: true,
+    statut: 'escalade',
+    motifEscalade: 'demande reçue par courriel',
+    escaladeLe: maintenant,
+    brouillonReponse: texte.slice(0, 4000),
+    brouillonLe: maintenant,
+    notifieExploitant: false,
+  });
+
+  return ticket;
+}
+
+/**
  * Les tickets d'une personne, du plus récent au plus ancien.
  *
  * Le filtre porte sur `auteur` et rien d'autre : c'est ce qui garantit qu'on
@@ -360,7 +417,19 @@ export async function envoyerReponse(ticket, administrateur) {
 
   if (!verrouille) throw ApiError.conflict('Une réponse a déjà été envoyée pour ce dossier');
 
-  const adresse = verrouille.auteur?.email;
+  /*
+   * DEUX SOURCES POUR L'ADRESSE, ET L'ORDRE COMPTE.
+   *
+   * Sur le canal `courriel`, c'est l'adresse QUI A ÉCRIT qui fait foi : répondre
+   * ailleurs surprendrait la personne, même si un compte portait le même nom.
+   * Sur le widget, `courrielAuteur` est vide et seul le compte porte l'adresse.
+   *
+   * SANS CE REPLI, tout dossier venu du courriel tomberait dans la branche
+   * ci-dessous — écrite pour un compte supprimé — et serait CLOS SANS QUE
+   * PERSONNE NE REÇOIVE RIEN : statut `clos`, `reponseEnvoyeeLe` posé, et aucun
+   * courriel parti. L'exploitant croirait avoir répondu.
+   */
+  const adresse = verrouille.courrielAuteur || verrouille.auteur?.email;
   if (!adresse) {
     // Compte supprimé entre-temps : le dossier reste clos, rien à envoyer.
     return { ticket: verrouille.versionExploitant(), canal: null };

@@ -265,6 +265,31 @@ export const compteTelegramService = asyncHandler(async (req, res) => {
   return res.json({ succes: true, compte });
 });
 
+/**
+ * POST /api/support/service/courriel
+ *
+ * L'assistant a relevé un courriel dans la boîte de support, rédigé une
+ * réponse, et dépose les deux d'un seul coup.
+ *
+ * AUCUN `administrateurDuBot` ICI, contrairement aux trois routes qui suivent.
+ * Celles-là instruisent un dossier au nom d'un humain, et doivent donc savoir
+ * lequel. Celle-ci ne fait que déposer ce que l'assistant a écrit : il n'y a
+ * personne à nommer, et `traitePar` reste vide jusqu'à la validation.
+ *
+ * RIEN NE PART D'ICI. Le texte attend un clic dans le back-office, et c'est
+ * tout l'objet de cette route : rendre au courriel le même garde-fou que le
+ * widget, au lieu de répondre sans relecture.
+ */
+export const courrielService = asyncHandler(async (req, res) => {
+  const ticket = await support.enregistrerCourriel(req.body);
+
+  return res.status(201).json({
+    succes: true,
+    message: 'Demande enregistrée, brouillon en attente de validation',
+    dossier: ticket.versionExploitant(),
+  });
+});
+
 /* ================================================================== *
  *  RÉPONDRE À LA PERSONNE — depuis Telegram ou depuis le back-office
  * ================================================================== */

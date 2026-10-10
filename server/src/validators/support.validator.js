@@ -181,28 +181,65 @@ const referenceDossier = param('reference')
   .withMessage('Référence invalide');
 
 /**
- * Le texte d'un brouillon.
+ * Le texte d'un brouillon, quel que soit le champ qui le porte.
  *
  * DIX SIGNES AU MINIMUM : « ok » n'est pas une réponse, et une validation
  * accidentelle sur un message vide partirait chez un utilisateur.
+ *
+ * PARAMÉTRÉE PAR LE CHAMP, comme `conversationPrivee` plus haut, parce que
+ * trois points d'entrée déposent un brouillon sous deux noms différents —
+ * `texte` depuis Telegram et le back-office, `brouillon` depuis le courriel.
+ * Une borne recopiée aurait fini par diverger de l'une des trois.
  */
-const texteBrouillon = body('texte')
-  .exists().withMessage('Le texte est requis').bail()
-  .isString().trim()
-  .isLength({ min: 10, max: 4000 })
-  .withMessage('Le brouillon doit contenir entre 10 et 4000 caractères');
+const texteBrouillon = (champ) =>
+  champ
+    .exists().withMessage('Le texte est requis').bail()
+    .isString().trim()
+    .isLength({ min: 10, max: 4000 })
+    .withMessage('Le brouillon doit contenir entre 10 et 4000 caractères');
 
 export const reglesDossierService = [referenceDossier, conversationPrivee(query('conversation'))];
 
 export const reglesBrouillonService = [
   referenceDossier,
   conversationPrivee(body('conversation')),
-  texteBrouillon,
+  texteBrouillon(body('texte')),
 ];
 
 export const reglesEnvoiService = [referenceDossier, conversationPrivee(body('conversation'))];
 
 export const reglesBrouillonAdmin = [
   param('id').isMongoId().withMessage('Identifiant de ticket invalide'),
-  texteBrouillon,
+  texteBrouillon(body('texte')),
+];
+
+/**
+ * Dépôt d'une demande arrivée par COURRIEL, brouillon compris.
+ *
+ * PAS DE `conversation` ICI, et c'est délibéré : les autres routes de service
+ * l'exigent parce qu'un administrateur agit depuis Telegram. Ici, personne
+ * n'agit — l'assistant dépose, et la validation viendra plus tard, d'un humain.
+ *
+ * L'ADRESSE EST LA SEULE IDENTITÉ DE CETTE PERSONNE, puisqu'elle n'a pas
+ * forcément de compte : c'est à elle que partira la réponse. Une adresse mal
+ * formée produirait un dossier impossible à clore — brouillon relu, validé,
+ * puis envoi en échec. On la refuse à l'entrée plutôt qu'au bout.
+ */
+export const reglesCourrielService = [
+  body('expediteur')
+    .exists().withMessage('L’adresse de l’expéditeur est requise').bail()
+    .isString().trim()
+    .customSanitizer((v) => String(v).toLowerCase())
+    .isEmail().withMessage('Adresse d’expéditeur invalide')
+    .isLength({ max: 254 }).withMessage('Adresse d’expéditeur trop longue'),
+
+  body('sujet').optional().isString().trim().isLength({ max: 120 }),
+
+  body('question')
+    .exists().withMessage('La question est requise').bail()
+    .isString().trim()
+    .isLength({ min: 3, max: 2000 })
+    .withMessage('La question doit contenir entre 3 et 2000 caractères'),
+
+  texteBrouillon(body('brouillon')),
 ];

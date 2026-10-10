@@ -70,14 +70,53 @@ const appelOutilSchema = new Schema(
 const ticketSchema = new Schema(
   {
     /**
+     * PAR OÙ LA DEMANDE EST ARRIVÉE, et c'est ce qui décide si elle a un compte.
+     *
+     * `widget` : tapée dans l'application, derrière un jeton. L'auteur est donc
+     * toujours un compte connu, et les règles ci-dessous l'exigent.
+     *
+     * `courriel` : écrite à la boîte de support par quelqu'un qui n'a peut-être
+     * aucun compte — un prospect, un partenaire, ou un utilisateur qui écrit
+     * depuis une autre adresse que la sienne. Exiger un compte fermerait la
+     * porte à ces gens, ou obligerait à leur en inventer un.
+     */
+    canal: {
+      type: String,
+      enum: ['widget', 'courriel'],
+      default: 'widget',
+      index: true,
+    },
+
+    /**
+     * L'ADRESSE QUI A ÉCRIT, pour le canal `courriel` uniquement.
+     *
+     * C'est à elle que repart la réponse. On ne cherche volontairement PAS à
+     * la rattacher à un compte existant : il suffirait de falsifier un en-tête
+     * `From` pour ouvrir un dossier au nom d'autrui. Répondre à l'adresse qui
+     * a écrit est le comportement le moins surprenant, et le seul sûr.
+     */
+    courrielAuteur: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      maxlength: [254, 'Adresse trop longue'], // RFC 5321
+    },
+
+    /**
      * L'AUTEUR EST DÉDUIT DU JETON, JAMAIS DU CORPS DE LA REQUÊTE.
      * Le contrôleur pose `req.user._id`. Accepter un identifiant envoyé par
      * l'appelant laisserait n'importe qui écrire un ticket au nom d'un autre.
+     *
+     * CET INVARIANT RESTE ENTIER POUR LE WIDGET. Seul le canal `courriel`,
+     * derrière la clé de service, se passe de compte — et il n'accepte alors
+     * qu'une adresse, jamais un identifiant d'utilisateur.
      */
     auteur: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: function () {
+        return this.canal !== 'courriel';
+      },
       index: true,
     },
 
@@ -85,7 +124,9 @@ const ticketSchema = new Schema(
     roleAuteur: {
       type: String,
       enum: ['utilisateur', 'coach', 'admin'],
-      required: true,
+      required: function () {
+        return this.canal !== 'courriel';
+      },
     },
 
     question: {
@@ -291,6 +332,13 @@ ticketSchema.methods.versionExploitant = function () {
     reference: referenceDe(this._id),
     auteur,
     roleAuteur: this.roleAuteur,
+    /*
+     * LE CANAL ET L'ADRESSE VONT ENSEMBLE. Sur `courriel`, `auteur` est vide
+     * par construction : sans ces deux champs, le back-office afficherait un
+     * dossier sans savoir à qui il répond, et l'exploitant devrait deviner.
+     */
+    canal: this.canal,
+    courrielAuteur: this.courrielAuteur,
     question: this.question,
     origine: this.origine,
     intention: this.intention,
