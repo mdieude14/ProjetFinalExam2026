@@ -126,9 +126,14 @@ for (const [nom, w, attendus] of [
     'Répondre sur Telegram',
   ]],
   ['Courriel', ml.workflowCourriel, [
-    'Courriel reçu', 'Préparer la question', 'Demande valide ?', 'Chercher des fiches',
+    // La relève passe par l'API Gmail depuis le 9 octobre : Avast intercepte
+    // le port IMAP et le resigne avec une autorité qu'il désavoue lui-même.
+    'Relève périodique', 'Chercher les courriels', 'Un élément par courriel',
+    'Lire le courriel', 'Normaliser le courriel', 'Marquer comme lu',
+    'Préparer la question', 'Demande valide ?', 'Chercher des fiches',
     'Préparer la rédaction', 'Faut-il rédiger ?', 'Rédiger la réponse', 'Lire la rédaction',
-    'Composer la réponse', 'Envoyer la réponse',
+    // Le canal n'expédie plus : il dépose un brouillon que l'exploitant valide.
+    'Composer la réponse', 'Déposer le brouillon',
   ]],
 ]) {
   section(`Structure — ${nom}`);
@@ -169,9 +174,19 @@ for (const [nom, w, attendus] of [
   ok('**la recherche passe par la route de service, sans jeton d’utilisateur**',
     parNom['Chercher des fiches'].parameters.url.includes('/support/service/fiches/recherche'));
 
+  /*
+   * LE CONTRÔLE PORTE SUR NOTRE API, PAS SUR CELLE DE GMAIL.
+   *
+   * L'API Gmail s'adresse elle aussi en `users/me` — c'est sa façon de désigner
+   * le compte autorisé par le jeton OAuth, et non l'identité d'un utilisateur
+   * de CoachConnect. Chercher la chaîne nue faisait tomber ce test sur la
+   * relève du courriel, pour un motif étranger à ce qu'il défend : qu'aucun
+   * nœud n'appelle NOTRE API au nom de quelqu'un.
+   */
+  const sansGmail = JSON.stringify(w.nodes).split('https://gmail.googleapis.com/gmail/v1/users/me').join('');
   ok('**aucun nœud n’emprunte l’identité d’un utilisateur** (ni `/users/me`, ni `/support/tickets`)',
-    !JSON.stringify(w.nodes).includes('/users/me') &&
-    !JSON.stringify(w.nodes).includes('/support/tickets'));
+    !sansGmail.includes('/users/me') &&
+    !sansGmail.includes('/support/tickets'));
 
   /*
    * LES DÉCLENCHEURS SONT EXCLUS, et ce n'est pas un oubli : « continuer sur
@@ -207,23 +222,121 @@ ok('**Telegram : la réponse part en texte brut** — un chevron du modèle fera
 ok('Telegram : la réponse va à la conversation d’origine',
   tgNoeuds['Répondre sur Telegram'].parameters.chatId === '={{ $json.chatId }}');
 
-ok('**Courriel : la réponse part vers l’adresse d’expédition**',
-  mlNoeuds['Envoyer la réponse'].parameters.toEmail === '={{ $json.expediteur }}');
+/*
+ * CE CANAL N'EXPÉDIE PLUS RIEN LUI-MÊME, et c'est la garantie à défendre.
+ *
+ * Il envoyait sa rédaction par SMTP d'affilée, sans qu'aucun humain ne la
+ * relise. Il dépose désormais un brouillon que l'exploitant valide depuis le
+ * back-office. Un nœud d'envoi réintroduit un jour rouvrirait cette porte sans
+ * bruit : on vérifie donc SON ABSENCE, et pas seulement la présence du dépôt.
+ */
+ok('**Courriel : aucun nœud ne peut expédier un courriel** — rien ne part sans validation humaine',
+  ml.workflowCourriel.nodes.every((n) => !/emailSend/.test(n.type)));
 
-ok('**Courriel : le message lu est marqué, pour ne pas être retraité — ni repayé**',
-  mlNoeuds['Courriel reçu'].parameters.postProcessAction === 'read');
-
-ok('Courriel : seuls les messages non lus sont relevés',
-  mlNoeuds['Courriel reçu'].parameters.options.customEmailConfig.includes('UNSEEN'));
+ok('**Courriel : le brouillon est déposé dans l’API, derrière la clé de service**',
+  mlNoeuds['Déposer le brouillon'].parameters.url.includes('/support/service/courriel') &&
+  mlNoeuds['Déposer le brouillon'].parameters.method === 'POST' &&
+  mlNoeuds['Déposer le brouillon'].credentials.httpHeaderAuth.id === 'ccCleServiceSup1');
 
 /*
- * LA SIGNATURE PUBLICITAIRE DE n8n EST ACTIVE PAR DÉFAUT sur les deux nœuds
- * d'envoi. Oubliée une première fois sur le courriel : chaque réponse du
- * support se serait terminée par une réclame pour l'outil.
+ * LA RELÈVE NE PASSE PLUS PAR L'IMAP, ET CE TEST LE DÉFEND.
+ *
+ * Avast intercepte `imap.gmail.com:993` et le resigne avec
+ * `Avast Web/Mail Shield Untrusted Root` — l'autorité que le 15.32 interdit
+ * d'ajouter à la confiance, puisque l'antivirus lui-même la désavoue. Et la
+ * parade du SMTP ne se transpose pas : le 143 ne répond pas. Le HTTPS, lui,
+ * n'est pas intercepté — mesuré. Un retour à l'IMAP rouvrirait ce mur sans
+ * bruit, et l'activation échouerait en silence.
  */
-ok('**aucune signature n8n au bas des réponses** — ni sur Telegram, ni par courriel',
-  tgNoeuds['Répondre sur Telegram'].parameters.additionalFields.appendAttribution === false &&
-  mlNoeuds['Envoyer la réponse'].parameters.options.appendAttribution === false);
+ok('**Courriel : la relève passe par l’API Gmail en HTTPS, jamais par l’IMAP**',
+  ml.workflowCourriel.nodes.every((n) => !/emailReadImap/.test(n.type)) &&
+  mlNoeuds['Chercher les courriels'].parameters.url.startsWith('https://gmail.googleapis.com/'));
+
+const rechercheCourriel = String(
+  (mlNoeuds['Chercher les courriels'].parameters.queryParameters.parameters
+    .find((p) => p.name === 'q') ?? {}).value ?? ''
+);
+
+ok('Courriel : seuls les non-lus de la boîte de réception sont relevés',
+  /in:inbox/.test(rechercheCourriel) && /is:unread/.test(rechercheCourriel), rechercheCourriel);
+
+ok('**Courriel : l’arriéré est écarté** — `after:` borne la première relève',
+  /after:\d{4}\/\d{2}\/\d{2}/.test(rechercheCourriel));
+
+ok('**Courriel : on ne se relève pas soi-même** — garde-fou posé à la source, qui ne dépend d’aucune constante',
+  /-from:me/.test(rechercheCourriel));
+
+ok('**Courriel : le message est marqué comme lu**, pour ne pas être retraité ni repayé',
+  mlNoeuds['Marquer comme lu'].parameters.url.includes('/modify') &&
+  mlNoeuds['Marquer comme lu'].parameters.jsonBody.includes('UNREAD'));
+
+/*
+ * LE MARQUAGE EST EN DÉRIVATION, et ce n'est pas une question d'esthétique : un
+ * nœud HTTP rend la réponse HTTP. Le placer dans la chaîne principale
+ * remplacerait le courriel normalisé par un code de statut, et tout ce qui suit
+ * perdrait sa donnée.
+ */
+ok('**Courriel : le marquage est en dérivation** — la donnée normalisée n’est pas écrasée',
+  ml.workflowCourriel.connections['Normaliser le courriel'].main[0]
+    .map((l) => l.node).includes('Marquer comme lu'));
+
+/*
+ * LA NORMALISATION REND EXACTEMENT LA STRUCTURE QUE `preparerQuestion` LIT.
+ * C'est ce qui a permis de changer le transport sans toucher aux garde-fous
+ * anti-boucle ni à leurs quatorze vérifications, plus bas.
+ */
+const normalise = executer(ml.normaliserCourriel, {
+  entree: [{ json: { statusCode: 200, body: {
+    id: 'm1', threadId: 't1', labelIds: ['INBOX', 'UNREAD'],
+    payload: {
+      headers: [
+        { name: 'From', value: 'Alice <alice@exemple.fr>' },
+        { name: 'Subject', value: 'Question sur les stories' },
+        { name: 'Precedence', value: 'bulk' },
+      ],
+      mimeType: 'multipart/alternative',
+      parts: [{ mimeType: 'text/plain', body: { data: Buffer.from('Bonjour, comment publier une story ?', 'utf8').toString('base64url') } }],
+    },
+  } } }],
+});
+ok('**Courriel : la normalisation rend `from`, `subject`, `textPlain` et `headers`**',
+  normalise.length === 1 &&
+  normalise[0].json.from === 'Alice <alice@exemple.fr>' &&
+  normalise[0].json.subject === 'Question sur les stories' &&
+  normalise[0].json.textPlain === 'Bonjour, comment publier une story ?' &&
+  normalise[0].json.headers.precedence === 'bulk',
+  normalise[0] ? normalise[0].json.textPlain : 'aucune sortie');
+
+ok('**Courriel : les en-têtes sont en minuscules**, comme `preparerQuestion` les cherche',
+  normalise[0] && Object.keys(normalise[0].json.headers).every((k) => k === k.toLowerCase()));
+
+ok('**Courriel : ses propres envois et brouillons ne sont pas traités**',
+  executer(ml.normaliserCourriel, {
+    entree: [{ json: { statusCode: 200, body: { id: 'm2', labelIds: ['SENT'], payload: { headers: [] } } } }],
+  }).length === 0);
+
+ok('Courriel : une lecture en échec est ignorée, pas traitée à vide',
+  executer(ml.normaliserCourriel, { entree: [{ json: { error: 'timeout' } }] }).length === 0);
+
+ok('**Courriel : la recherche sans résultat ne produit aucun élément** — Gmail omet alors la clé `messages`',
+  executer(ml.unElementParCourriel, { entree: [{ json: { statusCode: 200, body: {} } }] }).length === 0);
+
+ok('Courriel : chaque message trouvé devient un élément',
+  executer(ml.unElementParCourriel, {
+    entree: [{ json: { statusCode: 200, body: { messages: [{ id: 'a1', threadId: 't1' }, { id: 'b2', threadId: 't2' }] } } }],
+  }).length === 2);
+
+/*
+ * LA SIGNATURE PUBLICITAIRE DE n8n EST ACTIVE PAR DÉFAUT sur ses nœuds d'envoi.
+ * Oubliée une première fois sur le courriel : chaque réponse du support se
+ * serait terminée par une réclame pour l'outil.
+ *
+ * LE COURRIEL N'EST PLUS CONCERNÉ : il n'a plus de nœud d'envoi du tout, et
+ * l'expédition se fait côté API. Le risque a disparu avec le nœud, il ne reste
+ * donc à vérifier que Telegram.
+ */
+ok('**aucune signature n8n au bas des réponses sur Telegram**',
+  tgNoeuds['Répondre sur Telegram'].parameters.additionalFields.appendAttribution === false);
 
 /* ================================================================== *
  *  2 — TELEGRAM : CE QUI ATTEINT LE MODÈLE
@@ -902,7 +1015,7 @@ const mail = (surcharge = {}) => [{ json: {
 } }];
 
 ok('**on ne se répond pas à soi-même**',
-  executer(ml.preparerQuestion, { entree: mail({ from: 'support@coachconnect.local' }) }).length === 0);
+  executer(ml.preparerQuestion, { entree: mail({ from: 'support.coachconnect.app@gmail.com' }) }).length === 0);
 
 ok('**une adresse no-reply est ignorée**',
   executer(ml.preparerQuestion, { entree: mail({ from: 'no-reply@banque.fr' }) }).length === 0);
@@ -982,7 +1095,7 @@ ok('le quota est par expéditeur',
 section('Courriel — rédaction et réponse');
 
 const demandeMl = { 'Préparer la question': [{ json: {
-  api: 'http://x/api', appli: 'http://localhost:5173', boite: 'support@coachconnect.local',
+  api: 'http://x/api', appli: 'http://localhost:5173', boite: 'support.coachconnect.app@gmail.com',
   modele: 'claude-opus-5', effortRedaction: 'medium', valide: true,
   expediteur: 'alice@exemple.fr', sujet: 'Question sur les stories',
   question: 'Comment publier une story ?',
@@ -1013,6 +1126,65 @@ ok('**« Re: » n’est pas empilé** sur un fil déjà entamé',
   executer(ml.composerReponse, {
     entree: [{ json: { sujet: 'RE: Question sur les stories', texte: 'x' } }],
   })[0].json.sujetReponse === 'RE: Question sur les stories');
+
+/* ------------------------------------------------------------------ *
+ *  LE DÉPÔT : CE QUI PART VERS L'API
+ * ------------------------------------------------------------------ */
+
+/*
+ * L'ADRESSE DU DÉPÔT EST CELLE DU `From`, JAMAIS DE `Reply-To`.
+ *
+ * C'est ce qui rend une usurpation inoffensive : quelqu'un qui se ferait passer
+ * pour autrui verrait la réponse arriver dans la boîte de la personne usurpée,
+ * pas dans la sienne. Honorer `Reply-To` rouvrirait exactement cette porte —
+ * et c'est l'API qui enregistrera cette adresse comme destinataire, donc elle
+ * doit être juste ici.
+ */
+ok('**Courriel : le dépôt porte l’adresse retenue par `Préparer la question`**, issue du `From`',
+  composee.depot.expediteur === 'alice@exemple.fr', composee.depot.expediteur);
+
+ok('le dépôt porte la question, le sujet et le brouillon',
+  composee.depot.question === 'Comment publier une story ?' &&
+  composee.depot.sujet === 'Question sur les stories' &&
+  composee.depot.brouillon === 'Bonjour…');
+
+/*
+ * LE REPLI SUR LE SUJET QUAND LA QUESTION MANQUE.
+ *
+ * Sur les branches où la demande est écartée — message trop court, aucune fiche
+ * trouvée — `Préparer la question` ne fournit qu'un `texte` fixe, sans
+ * `question`. L'envoyer tel quel ferait refuser le dépôt par l'API, qui borne la
+ * question à trois signes au minimum, et LE COURRIEL SERAIT PERDU EN SILENCE :
+ * le nœud de dépôt ne lève pas d'erreur, et le message est déjà marqué comme lu.
+ */
+const sansQuestion = executer(ml.composerReponse, {
+  entree: [{ json: { expediteur: 'bob@exemple.fr', sujet: 'Problème de paiement', texte: 'Bonjour…' } }],
+})[0].json;
+
+ok('**Courriel : sans question, le dépôt se replie sur le sujet** — jamais un dépôt vide',
+  sansQuestion.depot.question === 'Problème de paiement', sansQuestion.depot.question);
+
+ok('**et sans sujet non plus, il reste une question lisible**',
+  executer(ml.composerReponse, { entree: [{ json: { expediteur: 'bob@exemple.fr', texte: 'Bonjour…' } }] })[0]
+    .json.depot.question.length >= 3);
+
+/*
+ * LES BORNES DE L'API SONT RESPECTÉES À LA SOURCE. La question est plafonnée à
+ * 2000 signes et le brouillon à 4000 : un courriel démesuré ferait sinon
+ * refuser le dépôt, et là encore le message serait perdu en silence.
+ */
+const demesure = executer(ml.composerReponse, {
+  entree: [{ json: {
+    expediteur: 'bob@exemple.fr', sujet: 'x'.repeat(400),
+    question: 'q'.repeat(5000), texte: 't'.repeat(9000),
+  } }],
+})[0].json;
+
+ok('**Courriel : le dépôt respecte les bornes de l’API** — 120 / 2000 / 4000',
+  demesure.depot.sujet.length === 120 &&
+  demesure.depot.question.length === 2000 &&
+  demesure.depot.brouillon.length === 4000,
+  `${demesure.depot.sujet.length} / ${demesure.depot.question.length} / ${demesure.depot.brouillon.length}`);
 
 /* ================================================================== *
  *  4 — AGENT DU WIDGET : DEUX MODÈLES, CHACUN À SA PLACE

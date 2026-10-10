@@ -1,43 +1,184 @@
 {
   "id": "ccAgentCourri01",
   "name": "CoachConnect — support par courriel",
-  "versionId": "0432ff8d-73f5-ab72-1127-4901b1a9597f",
+  "versionId": "ccc2ea4e-9d2f-cb0d-357c-3a0a9b89430d",
   "active": false,
   "nodes": [
     {
       "parameters": {
-        "mailbox": "INBOX",
-        "postProcessAction": "read",
-        "format": "simple",
-        "options": {
-          "customEmailConfig": "[\"UNSEEN\"]"
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
         }
       },
-      "id": "c3c8ffa6-b16d-0e60-94eb-54445961a27d",
-      "name": "Courriel reçu",
-      "type": "n8n-nodes-base.emailReadImap",
-      "typeVersion": 2,
+      "id": "0db1d696-d94d-a60a-1dc0-3ddfa29a6e04",
+      "name": "Relève périodique",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
       "position": [
         0,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "in:inbox is:unread -from:me after:2026/10/09"
+            },
+            {
+              "name": "maxResults",
+              "value": "5"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "bcfd8ea9-ea26-bb50-1c63-286a317e82a0",
+      "name": "Chercher les courriels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "onError": "continueRegularOutput",
+      "position": [
+        260,
+        0
       ],
       "credentials": {
-        "imap": {
-          "id": "ccImapSupport001",
-          "name": "Boîte support (IMAP) — CoachConnect"
+        "oAuth2Api": {
+          "id": "ccGmailOAuth0001",
+          "name": "Gmail (assistant de messagerie) — CoachConnect"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "/*\n * CONFIGURATION — le seul endroit à adapter. `boite` doit être l'adresse\n * que surveille le déclencheur IMAP : c'est elle qu'on refuse de se\n * répondre à soi-même.\n */\nconst CONFIG = {\n  api: 'http://host.docker.internal:5000/api',\n  appli: 'http://localhost:5173',\n  boite: 'support@coachconnect.local',\n  modele: 'claude-opus-5',\n  effortRedaction: 'medium',\n  questionsParHeure: 5,\n};\n\nconst courriel = $input.first().json ?? {};\n\n/*\n * LE NŒUD IMAP NE NOMME PAS SES CHAMPS DE LA MÊME FAÇON SELON SON FORMAT\n * (`simple` ou `resolved`). On lit les deux plutôt que d'imposer un réglage\n * qu'un exploitant changerait un jour sans savoir qu'il casse le workflow.\n */\nconst entetes = courriel.headers ?? courriel.metadata ?? {};\nconst entete = (nom) => String(entetes[nom] ?? entetes[nom.toLowerCase()] ?? '');\n\nconst brutExpediteur = String(courriel.from?.value?.[0]?.address ?? courriel.from ?? entete('from') ?? '');\nconst expediteur = (brutExpediteur.match(/[^\\s<>,;]+@[^\\s<>,;]+/) ?? [''])[0].toLowerCase();\n\nconst sujet = String(courriel.subject ?? entete('subject') ?? '').trim();\nconst corps = String(courriel.textPlain ?? courriel.text ?? courriel.textHtml ?? '');\n\nconst base = {\n  api: CONFIG.api,\n  appli: CONFIG.appli,\n  boite: CONFIG.boite,\n  modele: CONFIG.modele,\n  effortRedaction: CONFIG.effortRedaction,\n  expediteur,\n  sujet: sujet || 'Votre question',\n};\nconst fixe = (texte) => [{ json: { ...base, valide: false, texte } }];\n\n/* ---- Garde-fous anti-boucle : on IGNORE, on ne répond pas ---- */\n\n// Sans adresse exploitable, il n'y a nulle part où répondre.\nif (!expediteur) return [];\n\n// Se répondre à soi-même est la boucle la plus courte qui soit.\nif (expediteur === CONFIG.boite.toLowerCase()) return [];\n\nif (/^(no-?reply|mailer-daemon|postmaster|bounce|bounces|do-?not-?reply)@/i.test(expediteur)) return [];\n\nconst automatique =\n  entete('Auto-Submitted').toLowerCase().startsWith('auto') ||\n  entete('X-Autoreply') !== '' ||\n  entete('X-Autorespond') !== '' ||\n  entete('List-Id') !== '' ||\n  entete('List-Unsubscribe') !== '' ||\n  /^(bulk|list|junk|auto_reply)$/i.test(entete('Precedence').trim());\n\nif (automatique) return [];\n\n/* ---- Extraction de la question ---- */\n\n/*\n * ON NE GARDE QUE CE QUE LA PERSONNE A ÉCRIT. Un courriel de réponse\n * transporte l'historique entier : sans découpe, la question envoyée au\n * modèle contiendrait ses propres réponses précédentes, et coûterait de\n * plus en plus cher à chaque échange.\n */\nconst lignes = corps.replace(/\\r\\n/g, '\\n').split('\\n');\nconst separateur = lignes.findIndex((l) =>\n  /^(-{2,}\\s*(message d'origine|original message)|le .+ a écrit\\s*:|on .+ wrote:|_{5,})/i.test(l.trim())\n);\n\nconst question = (separateur === -1 ? lignes : lignes.slice(0, separateur))\n  .filter((l) => !l.trimStart().startsWith('>'))\n  .join('\\n')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim();\n\nif (question.length < 3) {\n  return fixe(\n    'Votre message ne contient pas de question lisible. Réécrivez-nous en formulant ' +\n    'votre question en une ou deux phrases.'\n  );\n}\n\n/* ---- Quota par expéditeur et par heure ---- */\n\nconst etat = $getWorkflowStaticData('global');\nif (!etat.compteurs) etat.compteurs = {};\n\nconst maintenant = Date.now();\nconst FENETRE = 3600000;\n\nfor (const [cle, valeur] of Object.entries(etat.compteurs)) {\n  if (maintenant - valeur.depuis > FENETRE) delete etat.compteurs[cle];\n}\n\nif (!etat.compteurs[expediteur]) etat.compteurs[expediteur] = { depuis: maintenant, nombre: 0 };\netat.compteurs[expediteur].nombre += 1;\n\n/*\n * AU-DELÀ DU QUOTA, ON SE TAIT PLUTÔT QUE DE RÉPONDRE « trop de messages ».\n * Une réponse de refus reste un courriel envoyé : face à un expéditeur\n * automatique emballé, elle entretiendrait la boucle qu'elle prétend\n * éteindre.\n */\nif (etat.compteurs[expediteur].nombre > CONFIG.questionsParHeure) return [];\n\n// Borne du validateur de la recherche côté API : 2000 caractères suffisent\n// largement, et évitent d'envoyer un fil entier au modèle.\nconst bornee = question.length > 2000 ? `${question.slice(0, 2000)}…` : question;\n\nreturn [{ json: { ...base, valide: true, question: bornee } }];"
+        "jsCode": "const reponse = $input.first().json;\nif (reponse.error || reponse.statusCode !== 200) return [];\n\n// Gmail omet la clé `messages` quand la recherche ne trouve rien.\nconst messages = Array.isArray(reponse.body?.messages) ? reponse.body.messages : [];\n\nreturn messages\n  .filter((m) => typeof m.id === 'string' && /^[a-zA-Z0-9]+$/.test(m.id))\n  .map((m) => ({ json: { id: m.id, threadId: m.threadId } }));"
+      },
+      "id": "dd6091f8-fe7a-1d7d-bbde-c65268f358d6",
+      "name": "Un élément par courriel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "full"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "5bd22f1e-fd92-844e-c421-0afd8b245a3d",
+      "name": "Lire le courriel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "onError": "continueRegularOutput",
+      "position": [
+        780,
+        0
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "ccGmailOAuth0001",
+          "name": "Gmail (assistant de messagerie) — CoachConnect"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const decoder = (donnees) =>\n  Buffer.from(String(donnees).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');\n\n// La charge est un arbre : le texte peut être à n'importe quelle profondeur.\nconst parties = (p) => (p ? [p, ...(p.parts ?? []).flatMap(parties)] : []);\n\nconst sorties = [];\n\nfor (const element of $input.all()) {\n  const r = element.json;\n  if (r.error || r.statusCode !== 200 || !r.body?.id) continue;\n  const m = r.body;\n\n  /*\n   * SES PROPRES ENVOIS ET BROUILLONS NE SE TRAITENT PAS. La recherche les\n   * écarte déjà, mais un libellé posé entre-temps les y ramènerait : la\n   * garde est ici aussi, là où la donnée est lisible.\n   */\n  const etiquettes = m.labelIds ?? [];\n  if (etiquettes.includes('SENT') || etiquettes.includes('DRAFT')) continue;\n\n  const entetes = Object.fromEntries(\n    (m.payload?.headers ?? []).map((h) => [String(h.name).toLowerCase(), String(h.value ?? '')])\n  );\n\n  const toutes = parties(m.payload);\n  const texte = toutes.find((p) => p.mimeType === 'text/plain' && p.body?.data);\n  const html = toutes.find((p) => p.mimeType === 'text/html' && p.body?.data);\n\n  /*\n   * LE TEXTE BRUT D'ABORD, LE HTML DÉBALISÉ ENSUITE, L'EXTRAIT EN DERNIER.\n   * Un courriel sans partie texte existe ; le laisser vide ferait répondre\n   * « votre message ne contient pas de question » à quelqu'un qui en a posé\n   * une, simplement parce que son client n'envoie que du HTML.\n   */\n  const corps = texte\n    ? decoder(texte.body.data)\n    : html\n      ? decoder(html.body.data).replace(/<[^>]+>/g, ' ')\n      : m.snippet ?? '';\n\n  sorties.push({\n    json: {\n      id: m.id,\n      threadId: m.threadId,\n      from: entetes.from ?? '',\n      subject: entetes.subject ?? '',\n      textPlain: corps.replace(/\\s+\\n/g, '\\n').replace(/[ \\t]{2,}/g, ' ').trim(),\n      headers: entetes,\n    },\n  });\n}\n\nreturn sorties;"
+      },
+      "id": "275e357d-6b3a-445c-5db2-b084256bf3dd",
+      "name": "Normaliser le courriel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "method": "POST",
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id + '/modify' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ removeLabelIds: [\"UNREAD\"] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "948dc3ac-9abf-6b05-2a43-c3a9fc3893f4",
+      "name": "Marquer comme lu",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "onError": "continueRegularOutput",
+      "position": [
+        1300,
+        200
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "ccGmailOAuth0001",
+          "name": "Gmail (assistant de messagerie) — CoachConnect"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/*\n * CONFIGURATION — le seul endroit à adapter.\n *\n * `boite` DOIT ÊTRE L'ADRESSE RÉELLEMENT RELEVÉE : c'est elle qu'on refuse de\n * se répondre à soi-même. Elle valait `support@coachconnect.local` — une\n * adresse d'exemple — jusqu'au 10 octobre, et le garde-fou ne protégeait donc\n * rien : aucun message réel ne pouvait correspondre.\n *\n * CE N'EST PLUS LE SEUL REMPART, ET C'EST VOLONTAIRE. La recherche Gmail porte\n * `-from:me`, qui écarte ses propres envois À LA SOURCE et ne dépend d'aucune\n * constante — Gmail sait qui est « me », nous le supposions. Ce test reste en\n * second rideau, pour le jour où la recherche changerait.\n */\nconst CONFIG = {\n  api: 'http://host.docker.internal:5000/api',\n  appli: 'http://localhost:5173',\n  boite: 'support.coachconnect.app@gmail.com',\n  modele: 'claude-opus-5',\n  effortRedaction: 'medium',\n  questionsParHeure: 5,\n};\n\n/*\n * UNE BOUCLE, ET NON `$input.first()`.\n *\n * Le déclencheur IMAP délivrait UN message par exécution. La relève par\n * l'API Gmail en rend plusieurs : ne lire que le premier perdrait les\n * suivants EN SILENCE — ils auraient été marqués comme lus sans que personne\n * ne les voie passer. Chaque message est donc traité indépendamment, et un\n * message écarté par un garde-fou n'empêche pas les autres d'aboutir.\n */\n\n/* ---- Quota par expéditeur et par heure, partagé par tous les messages ---- */\n\nconst etat = $getWorkflowStaticData('global');\nif (!etat.compteurs) etat.compteurs = {};\n\nconst maintenant = Date.now();\nconst FENETRE = 3600000;\n\nfor (const [cle, valeur] of Object.entries(etat.compteurs)) {\n  if (maintenant - valeur.depuis > FENETRE) delete etat.compteurs[cle];\n}\n\nconst sorties = [];\n\nfor (const element of $input.all()) {\n  const courriel = element.json ?? {};\n\n  /*\n   * LES NOMS DE CHAMPS NE SONT PAS GARANTIS. Le nœud de normalisation rend\n   * `from`, `subject`, `textPlain` et `headers` ; l'ancien nœud IMAP les\n   * nommait parfois autrement selon son format. On lit les deux plutôt que\n   * d'imposer un réglage qu'un exploitant changerait un jour sans savoir\n   * qu'il casse le workflow.\n   */\n  const entetes = courriel.headers ?? courriel.metadata ?? {};\n  const entete = (nom) => String(entetes[nom] ?? entetes[nom.toLowerCase()] ?? '');\n\n  const brutExpediteur = String(courriel.from?.value?.[0]?.address ?? courriel.from ?? entete('from') ?? '');\n  const expediteur = (brutExpediteur.match(/[^\\s<>,;]+@[^\\s<>,;]+/) ?? [''])[0].toLowerCase();\n\n  const sujet = String(courriel.subject ?? entete('subject') ?? '').trim();\n  const corps = String(courriel.textPlain ?? courriel.text ?? courriel.textHtml ?? '');\n\n  const base = {\n    api: CONFIG.api,\n    appli: CONFIG.appli,\n    boite: CONFIG.boite,\n    modele: CONFIG.modele,\n    effortRedaction: CONFIG.effortRedaction,\n    expediteur,\n    sujet: sujet || 'Votre question',\n  };\n\n  /* ---- Garde-fous anti-boucle : on IGNORE, on ne répond pas ---- */\n\n  // Sans adresse exploitable, il n'y a nulle part où répondre.\n  if (!expediteur) continue;\n\n  // Se répondre à soi-même est la boucle la plus courte qui soit.\n  if (expediteur === CONFIG.boite.toLowerCase()) continue;\n\n  if (/^(no-?reply|mailer-daemon|postmaster|bounce|bounces|do-?not-?reply)@/i.test(expediteur)) continue;\n\n  const automatique =\n    entete('Auto-Submitted').toLowerCase().startsWith('auto') ||\n    entete('X-Autoreply') !== '' ||\n    entete('X-Autorespond') !== '' ||\n    entete('List-Id') !== '' ||\n    entete('List-Unsubscribe') !== '' ||\n    /^(bulk|list|junk|auto_reply)$/i.test(entete('Precedence').trim());\n\n  if (automatique) continue;\n\n  /* ---- Extraction de la question ---- */\n\n  /*\n   * ON NE GARDE QUE CE QUE LA PERSONNE A ÉCRIT. Un courriel de réponse\n   * transporte l'historique entier : sans découpe, la question envoyée au\n   * modèle contiendrait ses propres réponses précédentes, et coûterait de\n   * plus en plus cher à chaque échange.\n   */\n  const lignes = corps.replace(/\\r\\n/g, '\\n').split('\\n');\n  const separateur = lignes.findIndex((l) =>\n    /^(-{2,}\\s*(message d'origine|original message)|le .+ a écrit\\s*:|on .+ wrote:|_{5,})/i.test(l.trim())\n  );\n\n  const question = (separateur === -1 ? lignes : lignes.slice(0, separateur))\n    .filter((l) => !l.trimStart().startsWith('>'))\n    .join('\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n\n  if (question.length < 3) {\n    sorties.push({\n      json: {\n        ...base,\n        valide: false,\n        texte:\n          'Votre message ne contient pas de question lisible. Réécrivez-nous en formulant ' +\n          'votre question en une ou deux phrases.',\n      },\n    });\n    continue;\n  }\n\n  /* ---- Le quota, compté par expéditeur ---- */\n\n  if (!etat.compteurs[expediteur]) etat.compteurs[expediteur] = { depuis: maintenant, nombre: 0 };\n  etat.compteurs[expediteur].nombre += 1;\n\n  /*\n   * AU-DELÀ DU QUOTA, ON SE TAIT PLUTÔT QUE DE RÉPONDRE « trop de messages ».\n   * Une réponse de refus reste un courriel envoyé : face à un expéditeur\n   * automatique emballé, elle entretiendrait la boucle qu'elle prétend\n   * éteindre.\n   */\n  if (etat.compteurs[expediteur].nombre > CONFIG.questionsParHeure) continue;\n\n  // Borne du validateur de la recherche côté API : 2000 caractères suffisent\n  // largement, et évitent d'envoyer un fil entier au modèle.\n  const bornee = question.length > 2000 ? `${question.slice(0, 2000)}…` : question;\n\n  sorties.push({ json: { ...base, valide: true, question: bornee } });\n}\n\nreturn sorties;"
       },
       "id": "619d5ebd-1450-edd1-ee2e-1ea699259010",
       "name": "Préparer la question",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        260,
+        1300,
         0
       ]
     },
@@ -71,7 +212,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        520,
+        1560,
         0
       ]
     },
@@ -109,7 +250,7 @@
       "typeVersion": 4.3,
       "onError": "continueRegularOutput",
       "position": [
-        780,
+        1820,
         0
       ],
       "credentials": {
@@ -128,7 +269,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1040,
+        2080,
         0
       ]
     },
@@ -162,7 +303,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1300,
+        2340,
         0
       ]
     },
@@ -204,7 +345,7 @@
       "typeVersion": 4.3,
       "onError": "continueRegularOutput",
       "position": [
-        1560,
+        2600,
         0
       ],
       "credentials": {
@@ -216,65 +357,121 @@
     },
     {
       "parameters": {
-        "jsCode": "const demande = $('Préparer la question').first().json;\nconst reponse = $input.first().json;\n\nconst SECOURS =\n  'Bonjour,\\n\\nNous n’avons pas pu formuler de réponse à votre message. ' +\n  'N’hésitez pas à nous réécrire.\\n\\nL’équipe CoachConnect';\n\nif (reponse.error || reponse.statusCode !== 200) return [{ json: { ...demande, texte: SECOURS } }];\n\nconst corps = reponse.body ?? {};\nif (corps.stop_reason === 'refusal') {\n  return [{\n    json: {\n      ...demande,\n      texte: 'Bonjour,\\n\\nNous ne pouvons pas répondre à cette demande.\\n\\nL’équipe CoachConnect',\n    },\n  }];\n}\n\nconst texte = (corps.content ?? [])\n  .filter((bloc) => bloc.type === 'text')\n  .map((bloc) => bloc.text)\n  .join('\\n')\n  .trim();\n\nreturn [{ json: { ...demande, texte: texte || SECOURS } }];"
+        "jsCode": "const demande = $('Préparer la question').first().json;\nconst reponse = $input.first().json;\n\n/*\n * LE CADRATIN EST PROSCRIT DANS LES TEXTES DU PROJET, et la consigne donnée\n * au modèle ne suffit pas à l'en empêcher : c'est ici que cela devient\n * certain. Implémentation reprise à l'identique de\n * `construire-agent-support.mjs` — deux versions finiraient par diverger, et\n * le même texte ne se lirait pas pareil selon le canal qui l'a produit.\n *\n * `[ \\t]` ET NON `\\s` : les retours à la ligne structurent la réponse, et\n * les avaler recollerait les paragraphes en un seul bloc.\n */\nconst sansCadratin = (texte) =>\n  String(texte)\n    // En fin de ligne, le tiret n'introduit plus rien : il disparaît.\n    .replace(/[ \\t]*[—–][ \\t]*$/gm, '')\n    // En tête de ligne, il fait office de puce : il disparaît aussi.\n    .replace(/^[ \\t]*[—–][ \\t]*/gm, '')\n    // Après une ponctuation, une virgule de plus serait fautive.\n    .replace(/([,;:.!?…])[ \\t]*[—–][ \\t]*/g, '$1 ')\n    // Incise ordinaire : la virgule reprend le rôle du tiret.\n    .replace(/[ \\t]+[—–][ \\t]+/g, ', ')\n    // Collé à un mot (« 5–10 jours ») : un trait d'union ordinaire suffit.\n    .replace(/[—–]/g, '-')\n    // Une virgule laissée devant un point final serait une faute de frappe.\n    .replace(/,([ \\t]*[.!?…])/g, '$1')\n    .replace(/[ \\t]{2,}/g, ' ')\n    .trim();\n\nconst SECOURS =\n  'Bonjour,\\n\\nNous n’avons pas pu formuler de réponse à votre message. ' +\n  'N’hésitez pas à nous réécrire.\\n\\nL’équipe CoachConnect';\n\nif (reponse.error || reponse.statusCode !== 200) return [{ json: { ...demande, texte: SECOURS } }];\n\nconst corps = reponse.body ?? {};\nif (corps.stop_reason === 'refusal') {\n  return [{\n    json: {\n      ...demande,\n      texte: 'Bonjour,\\n\\nNous ne pouvons pas répondre à cette demande.\\n\\nL’équipe CoachConnect',\n    },\n  }];\n}\n\n/*\n * UNE RÉPONSE TRONQUÉE NE DEVIENT PAS UN BROUILLON. Elle se relirait comme\n * un texte fini, et s'arrêterait au milieu d'une phrase : l'exploitant\n * risquerait de la valider sans voir la coupure. Le texte de secours dit au\n * moins la vérité.\n */\nif (corps.stop_reason === 'max_tokens') return [{ json: { ...demande, texte: SECOURS } }];\n\nconst texte = sansCadratin(\n  (corps.content ?? [])\n    .filter((bloc) => bloc.type === 'text')\n    .map((bloc) => bloc.text)\n    .join('\\n')\n);\n\nreturn [{ json: { ...demande, texte: texte || SECOURS } }];"
       },
       "id": "a5c46416-7ec8-8652-91c0-4d6818ded888",
       "name": "Lire la rédaction",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1820,
+        2860,
         0
       ]
     },
     {
       "parameters": {
-        "jsCode": "const d = $input.first().json;\n\n// « Re: » une seule fois, quelle que soit la casse du sujet d'origine.\nconst sujet = /^\\s*re\\s*:/i.test(d.sujet) ? d.sujet : `Re: ${d.sujet}`;\n\nreturn [{ json: { ...d, sujetReponse: sujet.slice(0, 200) } }];"
+        "jsCode": "const d = $input.first().json;\n\n// « Re: » une seule fois, quelle que soit la casse du sujet d'origine.\nconst sujet = /^\\s*re\\s*:/i.test(d.sujet) ? d.sujet : `Re: ${d.sujet}`;\n\n/*\n * LA QUESTION N'EXISTE PAS SUR TOUTES LES BRANCHES. Quand la demande est\n * écartée — message trop court, aucune fiche trouvée — `Préparer la question`\n * ne fournit qu'un `texte` fixe, sans `question`. L'envoyer tel quel ferait\n * refuser le dépôt par l'API (la question est bornée à 3 signes au minimum),\n * et LE COURRIEL SERAIT PERDU EN SILENCE : le nœud suivant ne lève pas\n * d'erreur, le message est déjà marqué comme lu, et personne n'en saurait\n * rien. D'où ce repli sur le sujet.\n */\nconst question = String(\n  d.question || d.sujet || 'Message reçu sans texte exploitable'\n).slice(0, 2000);\n\n/*\n * CE QUI PART VERS L'API, ET CE QUI N'EN PART PLUS.\n *\n * Ce nœud composait autrefois un courriel qu'un nœud SMTP expédiait aussitôt.\n * Il compose désormais un DÉPÔT : l'API crée le dossier, garde le texte en\n * brouillon, et n'envoie rien. Un humain validera depuis le back-office.\n *\n * `expediteur` RESTE L'ADRESSE DU `From`, jamais `Reply-To` : c'est elle que\n * l'API enregistrera comme destinataire, donc l'invariant décrit en tête de\n * fichier tient toujours — une usurpation fait arriver la réponse chez la\n * personne usurpée, pas chez l'usurpateur.\n */\nconst depot = {\n  expediteur: d.expediteur,\n  sujet: String(d.sujet ?? '').slice(0, 120),\n  question,\n  brouillon: String(d.texte ?? '').slice(0, 4000),\n};\n\nreturn [{ json: { ...d, sujetReponse: sujet.slice(0, 200), depot } }];"
       },
       "id": "7d475835-7192-35b1-2451-98c968a27f3f",
       "name": "Composer la réponse",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
+        3120,
         0
       ]
     },
     {
       "parameters": {
-        "fromEmail": "={{ $('Préparer la question').first().json.boite }}",
-        "toEmail": "={{ $json.expediteur }}",
-        "subject": "={{ $json.sujetReponse }}",
-        "emailFormat": "text",
-        "text": "={{ $json.texte }}",
+        "method": "POST",
+        "url": "={{ $('Préparer la question').first().json.api }}/support/service/courriel",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.depot) }}",
         "options": {
-          "replyTo": "={{ $('Préparer la question').first().json.boite }}",
-          "appendAttribution": false
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 15000
         }
       },
-      "id": "a75fe419-57ac-bd45-0439-de6807c1503d",
-      "name": "Envoyer la réponse",
-      "type": "n8n-nodes-base.emailSend",
-      "typeVersion": 2.1,
+      "id": "ee2e7110-5136-5bb5-6328-d03db18bceb9",
+      "name": "Déposer le brouillon",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
       "onError": "continueRegularOutput",
       "position": [
-        2340,
+        3380,
         0
       ],
       "credentials": {
-        "smtp": {
-          "id": "ccSmtpSupport001",
-          "name": "Envoi support (SMTP) — CoachConnect"
+        "httpHeaderAuth": {
+          "id": "ccCleServiceSup1",
+          "name": "Clé de service — CoachConnect"
         }
       }
     }
   ],
   "connections": {
-    "Courriel reçu": {
+    "Relève périodique": {
+      "main": [
+        [
+          {
+            "node": "Chercher les courriels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chercher les courriels": {
+      "main": [
+        [
+          {
+            "node": "Un élément par courriel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Un élément par courriel": {
+      "main": [
+        [
+          {
+            "node": "Lire le courriel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire le courriel": {
+      "main": [
+        [
+          {
+            "node": "Normaliser le courriel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliser le courriel": {
       "main": [
         [
           {
             "node": "Préparer la question",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Marquer comme lu",
             "type": "main",
             "index": 0
           }
@@ -376,7 +573,7 @@
       "main": [
         [
           {
-            "node": "Envoyer la réponse",
+            "node": "Déposer le brouillon",
             "type": "main",
             "index": 0
           }
