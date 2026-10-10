@@ -6011,3 +6011,1120 @@ SMTP renseignés. `verifierSmtp()` échoue sur
 - [~] Les chiffres sont un peu au-dessus de ceux du 1er octobre — la machine
       faisait tourner les serveurs détachés en plus des suites. Tous les budgets
       restent tenus avec une marge d'un ordre de grandeur
+
+---
+
+## Envoi des courriels par OAuth2 Gmail  `TERMINÉ`
+
+Le mot de passe d'application SMTP fonctionne, mais Google le déprécie. Bascule vers
+OAuth2, qui ne transmet jamais de mot de passe : l'application présente son identité et
+un jeton de rafraîchissement tenant lieu d'autorisation du compte.
+
+- [x] `server/scripts/autoriser-gmail.mjs` — ouvre l'écran de consentement Google,
+      récupère le jeton et l'écrit lui-même dans `server/.env` sans jamais l'afficher
+- [x] `server/src/config/env.js` accepte les deux modes : OAuth2 s'il est configuré
+      (lignes 67-69), repli sur `SMTP_PASS` sinon
+- [x] `server/src/config/env.js:173-176` expose `config.mail.oauth`, que
+      `server/src/services/mail.service.js` consomme en 56 (detection, avec un
+      chainage optionnel qui tolere l'absence) et en 84 (passage au transporteur)
+- [x] Les trois clés `GOOGLE_OAUTH_*` ajoutées vides à `server/.env` (62 lignes)
+- [x] **Valeurs retirées de `server/.env.example`**, qui est suivi par git : un
+      identifiant et un code secret n'ont rien à faire dans un fichier destiné au
+      dépôt public. Rien n'avait été commité, vérifié avant correction
+- [~] **En attente** : coller `CLIENT_ID` et `CLIENT_SECRET` dans `server/.env`
+      (console Google Cloud → API et services → Identifiants)
+- [ ] Puis `node server/scripts/autoriser-gmail.mjs` pour obtenir le jeton
+- [ ] Le projet étant en mode Test, **le jeton expire tous les 7 jours** ; le passage
+      en production lèvera cette limite
+- [ ] Renouveler le code secret dans Google Cloud : il a transité par un fichier
+      destiné au dépôt public. Pour un client « application de bureau » Google ne le
+      tient pas pour véritablement confidentiel, le risque est faible — mais le
+      renouvellement prend deux minutes
+
+## Incident disque du 8 octobre  `PARTIELLEMENT RÉSOLU`
+
+- [x] **C: saturé à 100 %, 0 octet libre** sur 222 Go. Découvert parce que l'écriture
+      dans `server/.env` a échoué. **C'est l'explication des pannes des jours
+      précédents** : Docker refusant de démarrer et WSL dépassant ses délais
+      (`HCS_E_CONNECTION_TIMEOUT`) — un disque virtuel ne peut pas s'étendre sans
+      espace libre
+- [x] Redémarrage : 0 → 7,71 Go (fichiers verrouillés et fichier d'échange relâchés)
+- [x] Cache npm vidé : 537 Mo
+- [x] `Temp` vidé : ~2,8 Go, 2 726 éléments, 19 verrouillés ignorés. `Temp\claude`
+      volontairement épargné — il héberge la session de travail en cours
+- [x] Nettoyage Docker : **0 octet**. Cache de construction déjà vide, aucune image
+      orpheline. Les 600 Mo que Docker annonce récupérables sont des images
+      *étiquetées mais inutilisées* (`n8n-mcp`, `cloudflared`), hors de portée de
+      `image prune` par conception
+- [x] **Commande resserrée en cours de route** : `docker system prune` supprime aussi
+      les conteneurs arrêtés. Remplacée par `image prune` + `builder prune`, qui ne
+      touchent ni aux conteneurs ni aux volumes
+- [~] **Toujours à 97 %.** Les caches n'étaient pas le problème. Leviers restants :
+      `Downloads` 21 Go · `AppData` 53 Go · fichiers système via `cleanmgr`
+- [x] **Mémoire vive : 7,7 Go seulement.** Ne pas désactiver le fichier d'échange,
+      contrairement au conseil courant : sur cette machine ce serait échanger 4 Go de
+      disque contre un système instable
+- [~] **Observation de sécurité** : le journal du serveur de développement contenait
+      des requêtes de balayage automatisé (`/boaform/admin/formTracert`,
+      `/cgi/get.cgi?cmd=home_login`). `app.listen()` en `server/src/server.js:61`
+      n'indique aucune interface, donc Node écoute sur toutes. Une image
+      `cloudflare/cloudflared` est présente, inutilisée. Origine non établie —
+      à éclaircir avant la mise en production
+- [x] **Images dormantes retirées** : `n8n-mcp` (429 Mo) et `cloudflared` (93,9 Mo),
+      nommées explicitement plutôt que par `prune -a`, pour ne rien ratisser d'autre.
+      Restent `mongo:8` et `n8nio/n8n:1.121.0`, tous deux actifs
+- [x] **Serveur de développement relancé** (`npm run dev`, nodemon) : MongoDB,
+      Cloudinary, Stripe et Socket.io connectés, port 5000 répond. Aucun avertissement
+      de messagerie au démarrage — vérification **à l'exécution** que des clés OAuth
+      incomplètes laissent l'envoi sur `SMTP_PASS`
+- [x] **`CLIENT_ID` et `CLIENT_SECRET` renouvelés et posés** dans `server/.env`, aux
+      formats attendus (71 caractères finissant par `.apps.googleusercontent.com`,
+      35 caractères commençant par `GOCSPX-`)
+- [x] **`AppData` mesuré, 53 Go répartis ainsi** : `Ankama` 12,02 Go (lanceur de jeux
+      Zaap) · `Docker` 6,66 Go · `Programs` 5,43 Go · `wsl` 4,02 Go · `Google` 2,94 Go ·
+      les trois éditeurs `Code` + `Cursor` + `Windsurf` 3,36 Go · `Zoom` 1,73 Go ·
+      `AnthropicClaude` 1,32 Go · `AVAST` 1,1 Go
+- [ ] **Plus gros levier identifié : `Ankama`, 12 Go**, sans rapport avec le projet.
+      Décision personnelle, non touché
+
+### Autorisation obtenue le 8 octobre, au soir
+
+- [x] **Pré-contrôle à distance avant d'ouvrir le parcours** : une requête anonyme sur
+      l'URL de consentement a renvoyé `Sign in - Google Accounts` sans aucun
+      `invalid_scope`, `invalid_client` ni `redirect_uri_mismatch`, et le nom
+      « CoachConnect » apparaissait dans la page. La portée et le type de client
+      étaient donc validés **par la mesure** avant toute tentative
+- [x] **Jeton obtenu** : 103 caractères, ligne remplacée dans `server/.env`, portée
+      accordée `https://mail.google.com/`
+- [x] **Première tentative abandonnée** : délai de 5 minutes expiré pendant les
+      réglages de la console. Sans dégât — `.env` intact, aucune écriture partielle.
+      Délai porté à **15 minutes** (`ATTENTE_MAX_MS`, ligne 53)
+- [x] **Le script ouvre le navigateur PAR DÉFAUT**, ici Avast Secure Browser, où le
+      compte n'était pas connecté. L'URL a été réouverte dans Chrome : le script
+      écoute un port, peu lui importe quel navigateur répond
+- [ ] **Bogue à corriger : le script sort en code 127 APRÈS avoir réussi.**
+      `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c:94` —
+      `process.exit(0)` est appelé juste après `serveur.close()` alors que le minuteur
+      de quinze minutes se referme encore. Le jeton est déjà écrit, donc c'est
+      cosmétique, mais un succès signalé comme un échec est trompeur. Correctif :
+      `clearTimeout` du minuteur et laisser la boucle d'événements se vider au lieu
+      de forcer la sortie
+- [x] **Vérifié par `npm run test:mot-de-passe` : 52/52**, dont « OAuth2 seul suffit à
+      envoyer », « les deux présents : OAuth2 l'emporte », « un OAuth incomplet est
+      ignoré », et la section « La portée de l'identifiant d'envoi » — aucun appel à
+      l'API Gmail, aucune capacité de suppression ni de brouillon dans les 101 fichiers
+      du serveur. La contrepartie de la portée large est donc tenue par la machine
+- [x] **`SMTP_PASS` conservé** : le repli reste opérationnel si le jeton expire
+
+---
+
+## Soumettre à validation les réponses du support par courriel  `EN COURS`
+
+Le flux `ccAgentCourri01` **répondait tout seul** : rédaction par Anthropic puis
+expédition SMTP d'affilée, sans relecture humaine. Le canal du widget, lui, exigeait
+déjà un brouillon validé. Objectif : aligner le courriel sur le widget en réutilisant ce
+mécanisme. Plan arbitré avec le porteur du projet : validation **back-office + alerte
+Telegram**, et **arriéré de non-lus ignoré** à la première activation.
+
+### Fait, et vérifié
+
+- [x] **Le blocage structurel levé.** `Ticket.auteur` était un `ObjectId` obligatoire
+      vers `User` : un expéditeur sans compte n'avait rien où accrocher son dossier.
+      Ajout de `canal` (`widget` | `courriel`) et `courrielAuteur` ; `auteur` et
+      `roleAuteur` ne sont plus obligatoires que hors canal courriel.
+      **L'invariant de sécurité du widget reste entier** — vérifié par un test qui tente
+      de le contourner en déclarant `canal: courriel` dans le corps de la requête
+- [x] **Le piège silencieux corrigé** (`support.service.js:363`). `envoyerReponse` lisait
+      l'adresse sur le compte et, absente, **refermait le dossier sans rien envoyer** —
+      branche écrite pour un compte supprimé. Tout dossier du courriel y tombait :
+      statut `clos`, `reponseEnvoyeeLe` posé, et personne ne recevait rien. Repli ajouté
+      sur `courrielAuteur`, et deux vérifications existent pour ce seul cas
+- [x] **`POST /api/support/service/courriel`** — clé de service **seule**, sans
+      `conversation` : aucun administrateur n'agit, c'est l'assistant qui dépose.
+      Crée le dossier et son brouillon en une écriture, `traitePar` laissé vide
+- [x] **L'alerte Telegram ne coûte aucun flux.** `aNotifier()` filtre sur
+      `{ statut: 'escalade', notifieExploitant: false }` sans regarder le canal : le
+      relais `ccReleveTelegr01` ramasse donc le dossier tout seul. Vérifié par un test
+- [x] **Le générateur modifié, pas le JSON.** Découvert en route : les flux sont
+      **produits** par `construire-agent-*.mjs`, et `test:canaux` **importe ces
+      générateurs**. Modifier le JSON aurait été écrasé à la génération suivante
+- [x] Nœud `Envoyer la réponse` (`emailSend`) **supprimé**, remplacé par
+      `Déposer le brouillon` (`httpRequest`). **Le flux ne compte plus aucun nœud
+      capable d'expédier un courriel**, et un test défend cette absence
+- [x] `sansCadratin()` **ajouté — il manquait ici** alors qu'il existe dans
+      `construire-agent-support.mjs`. Implémentation recopiée à l'identique
+- [x] **Une réponse tronquée (`max_tokens`) ne devient plus un brouillon** : elle se
+      relirait comme un texte fini en s'arrêtant au milieu d'une phrase
+- [x] **Repli sur le sujet quand `question` manque.** Sur les branches où la demande est
+      écartée, `Préparer la question` ne fournit aucun `question` : le dépôt aurait été
+      refusé en 400 et **le courriel perdu en silence**, le message étant déjà marqué lu
+- [x] `SINCE` posé sur le déclencheur IMAP (`9-Oct-2026`) pour écarter l'arriéré
+- [x] **Nouvelle suite `test:courriel`** — 46/46, le canal n'était couvert par aucun test
+- [x] **Non-régression : `test:reponse` 49/49, `test:support` 93/93, `test:canaux`
+      215/215**, et `test:mot-de-passe` 52/52
+- [x] **Tout rejoué le 9 octobre au matin, APRÈS les travaux : 455/455**, les cinq suites
+      concernées sans un seul échec. La veille, `test:mot-de-passe` n'avait été vérifiée
+      qu'avant de toucher au modèle : savoir que l'envoi OAuth2 survit au passage de
+      `Ticket.auteur` en obligatoire conditionnel écarte le risque principal du lot
+
+### À reprendre
+
+- [x] **Back-office fait le 9 octobre** — `client/src/pages/admin/Moderation.jsx`, la page
+      qui héberge modération et support. Quatre changements :
+      - un `destinataire` **lu dans le même ordre que le serveur** (`courrielAuteur`
+        d'abord, puis l'adresse du compte). Dans l'autre ordre, la confirmation aurait
+        nommé une adresse différente de celle qui reçoit — et ce second clic, dont tout
+        l'objet est de faire vérifier le destinataire, n'aurait plus rien garanti
+      - le bloc d'auteur **se dédouble selon le canal** : sans compte, ni avatar ni lien.
+        En l'état il affichait un avatar vide, un lien vers `/profile/undefined` et
+        « @undefined · undefined » — de quoi faire douter du dossier avant de l'affichage
+      - un badge « Reçu par courriel » dans l'en-tête, pour scanner la file
+      - les deux mentions du destinataire (l'indication et le bouton de confirmation)
+        passent par `destinataire`
+- [x] **Vérifié par l'interface réelle, pas par les seules règles.** Dix assertions
+      ajoutées à `client/tests/support.mjs` (68/68 → **79/79**) : le badge, l'adresse en
+      guise d'identité, l'absence de lien vers un profil inexistant, le brouillon de
+      l'assistant déjà dans le champ, puis **le clic de validation** et l'état en base —
+      texte figé, dossier clos, administrateur inscrit, et `reponseCanal` réel et non
+      `null`. `purger()` a dû être étendue : elle supprimait par `auteur`, et ne voyait
+      donc pas des dossiers qui n'en ont pas
+- [x] `test:moderation` **48/48** (même page), `oxlint` en code 0, build Vite en 628 ms,
+      aucun avertissement nouveau
+- [ ] **Réimporter le flux dans le conteneur** :
+      `docker exec coachconnect-n8n n8n import:workflow --input=/workflows/agent-courriel.json`
+- [ ] **Activer le flux** — délibérément non fait, cela demande un feu vert explicite
+- [ ] **Essai de bout en bout** : un courriel envoyé depuis une adresse personnelle,
+      le brouillon constaté dans le back-office, l'alerte Telegram, puis validation
+- [ ] Deux assertions écartées faute de connaître la signature de l'outil `executer` de
+      `agents-canaux.mjs` : que le dépôt porte bien l'adresse du `From`, et que le repli
+      sur le sujet fonctionne. À ajouter en exerçant `composerReponse`
+
+### Signalé, hors périmètre
+
+- [ ] **`CONFIG.boite` vaut `support@coachconnect.local`**, pas la vraie boîte
+      `support.coachconnect.app@gmail.com`. C'est l'adresse du garde-fou anti-boucle, et
+      `test:canaux:905` est écrite dessus. Le risque a beaucoup baissé — une boucle
+      produirait des brouillons, plus des courriels — mais le décalage reste
+- [x] **Disque réglé le 9 octobre : 4,1 Go → 23,6 Go libres** (99 % → 89 %).
+      `Downloads` est passé de **21,14 Go à 1,9 Go**, et de 149 448 à 3 768 fichiers.
+      Trois catégories retirées sur décision du porteur du projet : images disque
+      obsolètes (Win11 23H2 de 2024, deux ISO Debian 11 de 2022), 94 installateurs de
+      logiciels déjà présents — avec des doublons jusqu'à trois copies — et ~5 Go de
+      caches régénérables (`.next`, `node_modules`, `dist`). Les archives ont été
+      laissées de côté, leur contenu étant inconnu
+- [ ] **Dégât collatéral à réparer si besoin** : le balayage des installateurs était
+      récursif et a emporté les binaires de `Downloads/php-8.2.1-Win32-vs16-x64`
+      (`php.exe`, `php-cgi.exe`, `php-win.exe`, `phpdbg.exe`, `deplister.exe`). Le
+      dossier ne fonctionne plus ; PHP se retélécharge sur `windows.php.net`. La leçon :
+      borner un tel balayage à la racine de `Downloads`, jamais en récursif
+- [ ] **`Ankama` : 12 Go toujours en place.** Le porteur du projet prévoit de déplacer le
+      jeu sur un disque externe. Les 12 Go sont **entièrement** `Dofus-dofus3` (dont
+      `Dofus_Data` 11,84 Go) ; le lanceur Zaap vit ailleurs et ne pèse que 0,46 Go, donc
+      il n'est pas concerné. **Ne pas glisser le dossier à la main** : Zaap le chercherait
+      à son ancienne adresse. Passer par le lanceur (désinstaller puis réinstaller sur le
+      disque externe), ou à défaut par une jonction de répertoire
+
+---
+---
+
+# JOURNAL DE BORD
+
+Tenu à partir du 8 octobre 2026. Chaque tâche y figure avec sa description, **les
+erreurs réellement rencontrées** et le raisonnement qui a conduit à les trancher. Les
+sections par module, plus haut, disent CE QUI a été fait ; celle-ci dit COMMENT, et au
+prix de quelles fausses pistes.
+
+Une tâche ne passe en « réalisée » qu'après avoir été **testée et vérifiée**.
+
+---
+
+## I. TÂCHES RÉALISÉES
+
+### 1. Bascule de l'envoi des courriels en OAuth2 Gmail — `TERMINÉ le 8 octobre`
+
+**Description.** Le mot de passe d'application SMTP fonctionnait, mais Google le déprécie
+et sa page de configuration était déjà fermée sur la boîte du projet le 6 octobre.
+Bascule vers OAuth2, qui ne transmet aucun mot de passe : l'application présente son
+identité, et un jeton de rafraîchissement tient lieu d'autorisation du compte. Le même
+client OAuth servira l'assistant de messagerie du module 15.
+
+**Erreurs rencontrées, et ce qu'elles ont coûté.**
+
+1. **Identifiant et code secret collés dans `server/.env.example`.** Ce fichier est suivi
+   par git : les deux valeurs seraient parties sur le dépôt public au prochain commit.
+   *Décision :* retirées du modèle, posées dans `server/.env` (ignoré), et renouvellement
+   du code secret conseillé puis fait par le porteur du projet. Vérifié qu'aucun commit
+   ne les contenait avant correction.
+2. **Une sauvegarde de `.env` créée hors de portée de `.gitignore`.** Ma propre
+   maladresse : le fichier contenait tous les secrets du projet et aurait été commité.
+   *Décision :* déplacée hors du dépôt, dans le répertoire de travail de la session.
+   Leçon : une sauvegarde de secret ne se crée pas dans un dépôt.
+3. **Le script sort en code 127 après avoir réussi.** `Assertion failed: !(handle->flags
+   & UV_HANDLE_CLOSING), src\win\async.c:94` — défaut connu de libuv sous Windows :
+   `process.exit(0)` est appelé juste après `serveur.close()` alors que le minuteur se
+   referme encore. Le jeton était déjà écrit. *Décision :* laissé en l'état pour ne pas
+   retarder la suite, mais consigné — **un succès signalé comme un échec est trompeur
+   pour qui relancera le script dans sept jours.** Reste à corriger.
+4. **Le script ouvre le navigateur PAR DÉFAUT**, ici Avast Secure Browser, où le compte
+   n'était pas connecté. *Décision :* réouverture de l'URL dans Chrome — le script écoute
+   un port, peu lui importe quel navigateur répond. Aucune modification nécessaire.
+5. **Délai de cinq minutes trop court.** Première tentative abandonnée pendant les
+   réglages de la console Google. Sans dégât : fichier intact, aucune écriture partielle.
+   *Décision :* porté à quinze minutes, pour que réglages et consentement tiennent dans
+   la même fenêtre.
+6. **`dotenv` dépend du répertoire courant.** L'en-tête du script indique de le lancer
+   depuis la racine du dépôt ; or `import 'dotenv/config'` lit le `.env` du répertoire
+   courant, et aucun n'existe à la racine. Lancé comme documenté, le script s'arrête sur
+   « CLIENT_ID et CLIENT_SECRET sont requis » alors qu'ils sont bien renseignés.
+   *Décision :* lancé depuis `server/`, et correction inscrite en mémoire projet pour
+   avant la production — le script fonctionne, mais seulement si l'on ignore sa propre
+   documentation.
+
+**Un choix de conception à signaler.** Avant d'ouvrir le parcours, j'ai interrogé l'URL
+de consentement par une simple requête anonyme. Google a renvoyé `Sign in - Google
+Accounts` sans `invalid_scope` ni `invalid_client`, et le nom « CoachConnect »
+apparaissait dans la page : **la portée et le type de client étaient donc validés par la
+mesure avant toute tentative**, ce qui a évité de brûler la fenêtre d'autorisation sur un
+réglage manquant. Seule l'inscription comme utilisateur de test restait invérifiable à
+distance, Google ne la contrôlant qu'après le choix du compte.
+
+**Vérification.** `test:mot-de-passe` 52/52, dont « OAuth2 seul suffit à envoyer », « les
+deux présents : OAuth2 l'emporte », « un OAuth incomplet est ignoré ». Jeton de
+103 signes, mot de passe d'application conservé en repli.
+
+### 2. Incident disque — `RÉSOLU le 9 octobre`
+
+**Description.** `C:` saturé à 100 %, 0 octet libre sur 222 Go. Découvert parce qu'une
+écriture dans `server/.env` a échoué. **C'est l'explication des pannes des jours
+précédents** : Docker refusant de démarrer et WSL dépassant ses délais
+(`HCS_E_CONNECTION_TIMEOUT`) — un disque virtuel ne peut pas s'étendre sans espace.
+
+**Erreurs rencontrées.**
+
+1. **Mes estimations étaient fausses, dans les deux sens.** J'annonçais 1 à 3 Go pour le
+   nettoyage Docker : le gain réel fut de **zéro** — cache de construction déjà vide,
+   aucune image orpheline. Et j'annonçais 1,73 Go de cache Zoom : la réalité était
+   0,314 Go d'application, 0,043 de réglages et **1,344 Go de journaux jamais rotés**.
+   *Décision :* mesurer avant d'annoncer, et corriger publiquement quand le chiffre tombe.
+2. **Un garde-fou de l'environnement a bloqué une commande** en rattachant un fragment de
+   calcul aux arguments d'une suppression. Faux positif. *Décision :* séparer les étapes
+   au lieu de chercher à contourner la protection — plus propre de toute façon.
+3. **`docker system prune` aurait supprimé les conteneurs arrêtés.** Je l'avais annoncé
+   sans y penser ; les conteneurs n'avaient pas encore redémarré après le reboot. Leurs
+   données étaient en volumes, mais noms, ports et variables auraient été perdus.
+   *Décision :* commande resserrée en `image prune` + `builder prune`, qui ne touchent ni
+   aux conteneurs ni aux volumes. Même objectif, sans ce risque.
+4. **Le balayage des installateurs était récursif.** Il a emporté les binaires de
+   `Downloads/php-8.2.1-Win32-vs16-x64`, qui ne sont **pas** des installateurs et ne
+   relevaient pas de la catégorie approuvée. Le dossier ne fonctionne plus. *Décision :*
+   signalé immédiatement au porteur du projet ; PHP se retélécharge. **Leçon : borner un
+   tel balayage à la racine de `Downloads`.**
+5. **Mon propre calcul des caches comptait double.** J'annonçais 7,09 Go, mais
+   `turbopack` (2,1 Go) est à l'intérieur de `.next` (2,87 Go). Vrai chiffre : environ
+   5 Go. *Décision :* corrigé avant de proposer les catégories, pour ne pas promettre un
+   gain inexistant.
+
+**Un conseil courant écarté.** La machine n'a que **7,7 Go de mémoire vive**. Désactiver
+le fichier d'échange aurait rendu environ 4 Go de disque, et c'est ce qu'on lit partout —
+mais ici cela aurait échangé de l'espace contre un système instable. Écarté délibérément.
+
+**Résultat.** 0 → **24 Go libres**. `Downloads` : 21,14 Go → 1,9 Go, et 149 448 → 3 768
+fichiers. Les caches (npm, Temp, Docker) n'ont rendu que 3,3 Go : **le problème n'était
+pas là**, et seules les décisions du porteur du projet — images disque, installateurs,
+caches de projets — ont débloqué la situation.
+
+### 3. Soumettre à validation les réponses du support par courriel — `TERMINÉ le 9 octobre`
+
+**Description.** Le flux n8n `ccAgentCourri01` **répondait tout seul** : rédaction par
+Anthropic puis expédition SMTP d'affilée, sans relecture humaine. Le canal du widget
+exigeait déjà un brouillon validé. Objectif : aligner le courriel sur le widget en
+réutilisant ce mécanisme, et non en construisant un second.
+
+**Erreurs et obstacles rencontrés.**
+
+1. **Un blocage structurel, découvert à l'exploration.** `Ticket.auteur` était un
+   `ObjectId` **obligatoire** vers `User`, sans champ de canal ni d'adresse : un
+   expéditeur sans compte n'avait rien où accrocher son dossier. C'est précisément
+   pourquoi le flux contournait les tickets. *Décision :* ajouter `canal` et
+   `courrielAuteur`, et rendre `auteur` et `roleAuteur` obligatoires **seulement hors
+   canal courriel** — l'invariant de sécurité du widget restant entier, et un test
+   tentant de le contourner par le corps de la requête.
+2. **Un piège silencieux dans l'envoi** (`support.service.js:363`). `envoyerReponse`
+   lisait l'adresse sur le compte et, absente, **refermait le dossier sans rien
+   envoyer** — branche écrite pour un compte supprimé. Tout dossier du courriel y
+   tombait : statut `clos`, horodatage posé, et personne ne recevait rien. **L'exploitant
+   aurait cru avoir répondu.** *Décision :* repli sur `courrielAuteur`, et deux
+   vérifications dédiées à ce seul cas.
+3. **Mon plan visait le mauvais fichier.** Il prévoyait de modifier `agent-courriel.json`.
+   Or les flux sont **générés** par `construire-agent-*.mjs`, et
+   `server/tests/agents-canaux.mjs` **importe ces générateurs**. Modifier le JSON aurait
+   été écrasé à la génération suivante. *Décision :* modifier le générateur, régénérer, et
+   corriger les attentes de `test:canaux` — ce que le plan n'avait pas anticipé, et que
+   j'ai annoncé avant de le faire.
+4. **`question` n'existe pas sur toutes les branches.** Quand la demande est écartée,
+   `Préparer la question` ne fournit qu'un texte fixe. Mon dépôt serait parti avec une
+   question indéfinie, l'API aurait répondu 400, et **le courriel aurait été perdu en
+   silence** : le nœud ne lève pas d'erreur et le message est déjà marqué comme lu.
+   *Décision :* repli sur le sujet.
+5. **`sansCadratin()` manquait dans ce flux** alors qu'il existe dans l'agent du widget.
+   *Décision :* implémentation recopiée à l'identique — deux versions auraient divergé, et
+   le même texte ne se lirait pas pareil selon le canal.
+6. **Trois défauts dans mes propres tests**, dont un plus grave que les échecs :
+   - retirer la clé en passant `undefined` ne la retirait pas : **une valeur par défaut
+     de paramètre s'applique justement sur `undefined`**. Le test réussissait en croyant
+     mesurer son absence ;
+   - un appel à la purge en cours de campagne supprimait **mon propre administrateur**,
+     invalidant son jeton — d'où des 401 en cascade sans rapport avec la mesure ;
+   - **deux assertions passaient à vide**, comparant deux valeurs indéfinies entre elles.
+     *Elles auraient masqué une vraie régression*, c'est-à-dire exactement ce qu'elles
+     étaient censées surveiller. *Décision :* rendues strictes — on exige une chaîne non
+     vide, pas seulement une inégalité.
+7. **`CONFIG.boite` vaut `support@coachconnect.local`**, pas la vraie boîte. C'est
+   l'adresse du garde-fou anti-boucle. *Décision :* **signalé, pas corrigé** — hors du
+   périmètre validé, et une assertion de `test:canaux` est écrite sur cette valeur. Le
+   risque a d'ailleurs baissé : une boucle produirait désormais des brouillons, plus des
+   courriels.
+
+**Une économie trouvée en route.** `aNotifier()` filtre sur le statut et l'absence
+d'annonce, **sans regarder le canal**. Un dossier du courriel né dans cet état est donc
+ramassé par le relais Telegram existant : l'alerte demandée n'a coûté **aucun flux
+supplémentaire**.
+
+**Vérification.** Nouvelle suite `test:courriel` 46/46. Non-régression `test:reponse`
+49/49, `test:support` 93/93, `test:canaux` 215/215, `test:mot-de-passe` 52/52. Le flux
+régénéré **ne contient plus aucun nœud capable d'expédier un courriel**, et un test
+défend cette absence pour qu'une réintroduction se voie.
+
+### 4. Back-office : afficher l'auteur d'un dossier venu du courriel — `TERMINÉ le 9 octobre`
+
+**Description.** Un dossier du courriel n'a pas de compte.
+`client/src/pages/admin/Moderation.jsx` affichait donc un avatar vide, un lien vers un
+profil inexistant et un pseudo indéfini.
+
+**Le point qui comptait le plus.** L'écran devait lire l'adresse **dans le même ordre que
+le serveur** : `envoyerReponse` prend `courrielAuteur` d'abord, puis l'adresse du compte.
+Dans l'autre ordre, le bouton « Confirmer l'envoi à… » aurait nommé une adresse
+différente de celle qui reçoit — **et ce second clic, dont tout l'objet est de faire
+vérifier le destinataire, n'aurait plus rien garanti.**
+
+**Erreurs rencontrées.**
+
+1. **J'ai lancé `npx eslint`** alors que le projet utilise **oxlint**, installant un
+   paquet inutile. *Décision :* utiliser les scripts du projet, pas mes habitudes.
+2. **Mon contrôle du port de Vite était faux** : j'ai testé `127.0.0.1` alors que Vite
+   écoute sur `localhost`, qui résout d'abord en IPv6. J'ai cru le serveur muet alors
+   qu'il répondait. *Décision :* vérifier par `curl` sur le nom d'hôte.
+3. **Collision de noms dans la suite de tests** : une variable existait déjà sous le même
+   nom, provoquant une erreur de syntaxe à l'exécution. *Décision :* renommée.
+4. **La purge ne voyait pas les dossiers du courriel**, les cherchant par `auteur`. Ils se
+   seraient accumulés d'une campagne à l'autre dans la file de l'exploitant. *Décision :*
+   purge étendue à `courrielAuteur`.
+
+**Un choix que je n'avais pas à faire, et que j'ai fait quand même.** Les suites
+existantes ne couvraient que des dossiers du widget : mon nouveau rendu n'était vérifié
+par rien. Dans un projet aussi testé, une branche d'interface non couverte finit par
+pourrir — et sans test je ne pouvais affirmer que « j'ai changé l'interface », pas
+qu'elle fonctionne. **Dix assertions ajoutées**, dont le clic de validation réel.
+
+**Vérification.** `client/tests/support.mjs` 68/68 → **79/79**, `test:moderation` 48/48,
+`oxlint` en code 0 sans avertissement nouveau, build Vite en 628 ms.
+
+### 5. Leçon de méthode retenue le 9 octobre
+
+**Le problème.** J'avais déclaré la tâche 3 vérifiée sur quatre suites, choisies à
+l'intuition. Il en manquait une : `test:mot-de-passe` **inspecte le code source de
+`support.service.js`** — le fichier même que je venais de modifier. Elle extrait le texte
+de `envoyerReponse()` par expression régulière et exige d'y trouver `brouillonReponse`,
+« Aucun brouillon à envoyer » et `reponseEnvoyeeLe: null` ; elle vérifie aussi que
+**seuls deux fichiers** appellent `envoyerMail`.
+
+Un refactor plaçant la résolution de l'adresse avant le verrou, ou ajoutant un troisième
+appelant, aurait fait tomber ce test — et **aucune des quatre suites lancées ne l'aurait
+vu**.
+
+**La correction est méthodologique, pas dans le code.** Avant de déclarer une tâche
+vérifiée, déterminer quelles suites **touchent les fichiers modifiés** — un `grep` du nom
+du fichier dans `server/tests/` et `client/tests/` suffit — et les lancer toutes. Ne plus
+choisir un sous-ensemble à l'instinct.
+
+---
+
+## II. TÂCHE EN COURS
+
+### Mettre le canal courriel en service
+
+**Description.** Tout le code est écrit, testé et vérifié ; l'instance n8n, elle, tourne
+encore sur **l'ancienne version du flux — celle qui expédie sans relecture**. Le nouveau
+flux n'existe pour l'instant que dans le dépôt git. Trois étapes, dont deux sans effet
+visible et une qui engage.
+
+**Étape A — réimporter le flux dans le conteneur. `FAITE ET VÉRIFIÉE le 9 octobre`**
+
+`n8n import:workflow` a remplacé la définition par celle du dépôt. Vérifié après coup :
+10 nœuds, dernier nœud « Déposer le brouillon », **zéro nœud `emailSend`**, `active:
+false`, déclencheur portant le filtre `SINCE`, dépôt pointant sur
+`/support/service/courriel` avec la clé de service. Six flux, aucun doublon, et le
+courriel **ne figure pas parmi les actifs**. Aucun courriel n'est donc relevé ni envoyé.
+
+*Précaution prise :* la définition **en service** a été exportée hors du conteneur avant
+l'import (14 388 octets), et il a été vérifié qu'elle contenait bien un nœud `emailSend`
+et « Envoyer la réponse ». Le retour arrière ne dépend donc pas de git.
+
+*Erreur rencontrée.* Le premier import a échoué sur
+`ENOENT: 'C:/Program Files/Git/workflows/agent-courriel.json'`. **Git Bash avait traduit
+le chemin POSIX en chemin Windows** — la conversion automatique de MSYS lorsqu'un chemin
+absolu est passé en argument à un exécutable Windows comme `docker.exe`. Rien n'a été
+cassé : six flux toujours présents, flux toujours inactif, l'import n'a simplement pas eu
+lieu. *Décision :* envelopper la commande dans `sh -c` pour que le chemin soit interprété
+par le shell **du conteneur**. C'est d'ailleurs pourquoi les inspections précédentes
+fonctionnaient : elles passaient déjà par `sh -c`.
+
+**Étape B — activer le flux. `TENTÉE le 9 octobre, BLOQUÉE par Avast`**
+
+Feu vert donné, flux activé en base, conteneur redémarré — n8n prévenant qu'une
+activation par la ligne de commande n'est prise en compte qu'au redémarrage. **Le
+déclencheur IMAP refuse de s'enregistrer :**
+
+```
+There was a problem activating the workflow: "unable to verify the first certificate"
+→ retry in 4s, 8s, 16s…
+```
+
+**C'est le défaut du 15.32, revenu par une autre porte.** Mesuré depuis l'intérieur du
+conteneur :
+
+| Cible | Émetteur présenté | Verdict |
+|---|---|---|
+| `imap.gmail.com:993` | **`Avast Web/Mail Shield Untrusted Root`** | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` |
+| `smtp.gmail.com:465` | **`Avast Web/Mail Shield Untrusted Root`** | idem — le 15.32 est toujours exact |
+| `accounts.google.com:443` | `CN=WR2, O=Google Trust Services` | **accepté** |
+
+Trois faits en découlent :
+
+1. **La chaîne présentée sur le 993 ne contient qu'un seul certificat**, un
+   `imap.gmail.com` forgé, sans son émetteur. D'où « unable to verify the FIRST
+   certificate » : il n'y a rien derrière lui.
+2. **Avast n'intercepte pas le HTTPS** — le témoin sur le 443 reçoit la vraie chaîne de
+   Google. Seuls les ports de courrier sont inspectés.
+3. **La parade du 15.32 ne se transpose pas.** Le 587 avait sauvé le SMTP parce qu'Avast
+   ne l'intercepte pas de la même façon ; or **`imap.gmail.com:143` ne répond pas du
+   tout** (délai dépassé). Gmail ne propose l'IMAP qu'en TLS direct sur le 993, et c'est
+   précisément le port intercepté.
+
+*Erreur de mesure à signaler :* mon test du 587 a renvoyé `ECONNRESET`, parce que j'y ai
+tenté un TLS direct sur un port qui attend `STARTTLS`. Ce n'est pas un résultat, et cela
+ne remet pas en cause le choix du 15.32.
+
+**La décision du 1er octobre reste la règle** : ajouter cette autorité à la confiance
+reviendrait à accepter ce qu'Avast lui-même désavoue. Aucun correctif de code ne doit la
+contourner. Deux voies restent ouvertes, et le choix appartient au porteur du projet :
+
+- **Exclure les ports de courrier du Mail Shield d'Avast.** Ce n'est pas un contournement
+  de code mais la suppression de l'interception : Gmail présente alors sa vraie chaîne, et
+  la vérification réussit légitimement. Rapide et réversible, mais dépend d'un réglage
+  d'antivirus qu'une mise à jour pourrait rétablir.
+- **Lire la boîte par l'API Gmail au lieu de l'IMAP.** Le HTTPS n'est pas intercepté,
+  c'est mesuré. L'identifiant OAuth2 `Gmail (assistant de messagerie)` existe déjà et
+  `ccMessagerieTri1` interroge déjà `gmail.googleapis.com`. **C'est d'ailleurs l'intention
+  écrite en tête de `mail.service.js`** : « le même client OAuth sert l'assistant de
+  messagerie — un seul mécanisme pour lire la boîte et pour en envoyer ». L'identifiant
+  IMAP est l'exception qui reste. Coût : remplacer le déclencheur par une relève planifiée
+  sur le modèle de `ccMessagerieTri1`, et reprendre les attentes de `test:canaux`.
+
+**Étape B bis — la relève passe à l'API Gmail. `FAITE ET VÉRIFIÉE le 9 octobre`**
+
+Voie retenue par le porteur du projet : abandonner l'IMAP plutôt que de toucher au
+réglage de l'antivirus. Le HTTPS n'étant pas intercepté, la relève passe par l'API Gmail
+avec le client OAuth déjà en place — ce qui réalise enfin l'intention écrite en tête de
+`mail.service.js` : un seul mécanisme pour lire la boîte et pour en envoyer.
+
+*Le flux passe de 10 à 15 nœuds :*
+
+```
+Relève périodique (10 min)  →  Chercher les courriels (Gmail messages.list)
+  →  Un élément par courriel  →  Lire le courriel (messages.get, format=full)
+  →  Normaliser le courriel   →  ├─ Préparer la question → … → Déposer le brouillon
+                                 └─ Marquer comme lu (messages.modify, -UNREAD)
+```
+
+**Le choix de conception qui a tout simplifié : un nœud de NORMALISATION.** Plutôt que de
+réécrire `preparerQuestion` pour la charge Gmail, un nœud intercalé rend exactement la
+structure plate qu'elle lit déjà (`from`, `subject`, `textPlain`, `headers`). Les
+**quatorze vérifications des garde-fous anti-boucle portent donc sur une unité
+inchangée** : le transport change, les règles non. Une seule chose à la fois.
+
+*L'extraction MIME est recopiée à l'identique de `construire-agent-messagerie.mjs`*, qui
+relève la même boîte par la même API depuis des semaines. Deux implémentations du même
+décodage base64url auraient fini par diverger.
+
+**Un piège évité de justesse.** L'IMAP délivrait UN message par exécution ; l'API en rend
+plusieurs. Or `preparerQuestion` lisait `$input.first()` : les messages suivants auraient
+été **perdus en silence**, marqués comme lus sans que personne ne les voie. Converti en
+boucle sur `$input.all()`, ce qui s'est révélé **rétrocompatible avec les quatorze
+assertions existantes** — elles passent un seul élément, et la version en boucle en rend
+zéro ou un.
+
+*Garde-fou gagné au passage :* la recherche porte `-from:me`. Le « ne pas se répondre à
+soi-même » ne dépend donc plus de `CONFIG.boite`, dont la valeur est justement erronée
+(voir les tâches à venir) : **Gmail sait qui est « me », nous le supposions.**
+
+*Erreurs rencontrées.*
+
+1. **Une assertion tombée pour un faux motif.** « Aucun nœud n'emprunte l'identité d'un
+   utilisateur (ni `/users/me`…) » échouait, parce que l'API Gmail s'adresse elle aussi en
+   `users/me` — sa façon de désigner le compte du jeton OAuth, sans rapport avec un
+   utilisateur de CoachConnect. *Décision :* **préciser l'assertion, pas l'affaiblir** —
+   les URL de Gmail sont retirées avant la recherche, et l'intention est conservée.
+2. **L'import remet le flux en inactif.** Le JSON porte `active: false` ; après
+   réimportation il a fallu réactiver puis redémarrer à nouveau. Bon à savoir pour les
+   prochaines fois.
+3. **L'exécution manuelle par la ligne de commande est impossible** tant que n8n tourne :
+   `n8n execute` démarre une seconde instance et bute sur le port 5679 du répartiteur de
+   tâches. Ce n'est pas un défaut du flux. *Décision :* s'en remettre à la relève
+   périodique, l'absence d'erreur d'activation prouvant que le déclencheur est enregistré.
+
+*Vérifié.* Définition vue par l'instance : **15 nœuds, déclencheur `scheduleTrigger`, zéro
+`emailReadImap`, `active: true`, et ZÉRO erreur d'activation après le redémarrage** — à
+distinguer des messages de l'ancien processus, que `docker logs` conserve à travers les
+redémarrages et qui m'avaient d'abord fait croire à un échec.
+
+**Campagne complète après la migration : 689 vérifications, aucun échec**, sur les huit
+suites désignées par la méthode du matin (chercher celles qui nomment les fichiers
+modifiés) : `test:canaux` **226/226** (215 avant, quatorze assertions ajoutées sur la
+relève Gmail), `test:courriel` 46/46, `test:reponse` 49/49, `test:support` 93/93,
+`test:mot-de-passe` 52/52, `test:releve` 68/68, `test:telegram` 57/57, et côté navigateur
+`support` 79/79, `telegram` 19/19.
+
+**Étape C — essai de bout en bout. `RÉUSSIE le 9 octobre au soir`**
+
+Courriel « Demande de remboursement » envoyé depuis l'adresse personnelle et bien reçu,
+non lu, dans la boîte de réception. Le flux a tourné quatre fois (12 h 00, 12 h 10,
+12 h 20, 12 h 30) **avec succès** et n'a rien produit.
+
+*Diagnostic, mené par la mesure et non par l'hypothèse.* La donnée d'exécution de n8n a
+été lue directement dans sa base SQLite (`node:sqlite`, disponible en Node 22, en lecture
+seule, avec expurgation systématique de tout ce qui ressemble à un jeton). La sortie du
+nœud `Chercher les courriels` est `{ error: … }` : **l'appel a échoué, il n'a pas rendu un
+résultat vide.** Cela écarte une inquiétude que j'avais sur la syntaxe `after:` de Gmail.
+
+*Le réseau est innocent, et c'est mesuré.* Depuis le conteneur :
+`gmail.googleapis.com`, `oauth2.googleapis.com` et `api.anthropic.com` sont interceptés
+par Avast **mais avec son autorité de CONFIANCE** (`Avast Web/Mail Shield Root`, celle du
+15.29, installée dans le conteneur) — et non l'« Untrusted Root » du courrier. Un appel
+réel à `gmail.googleapis.com` sans jeton renvoie **401** : réseau et certificat sont bons.
+
+*La vraie cause était écrite dans ce journal depuis le 22 septembre.* Section 15.x,
+tâche restée **non cochée** : « Saisir l'identifiant et le secret du client dans “Gmail
+(assistant de messagerie)” puis Connect my account ». **Le `Client ID` de l'identifiant
+est vide** : c'est une coquille créée ce jour-là, jamais autorisée. Personne ne l'avait vu
+parce que les deux flux de messagerie n'ont jamais été activés, « en attendant leurs
+identifiants ». **Mon hypothèse d'un jeton expiré depuis sept jours était fausse** : le
+`updatedAt` du 22 septembre datait la création de la coquille, pas un rafraîchissement.
+
+*Second obstacle, réel.* n8n fabrique son URL de rappel OAuth à partir de `WEBHOOK_URL`,
+qui valait encore **le tunnel Cloudflare du 22 septembre** — un nom en
+`*.trycloudflare.com` tiré au hasard à chaque lancement, et mort depuis. Or une URI de
+redirection doit être **enregistrée chez Google** : un nom aléatoire est donc
+inutilisable pour autoriser.
+
+- [x] **`WEBHOOK_URL` neutralisée dans `docker/n8n/.env`** (sauvegarde hors dépôt ; le
+      fichier porte la clé de chiffrement et reste ignoré par git). Le défaut de
+      `docker-compose.yml:73` est **déjà** `http://localhost:5678/` : le rappel OAuth
+      devient `http://localhost:5678/rest/oauth2-credential/callback`, seule forme
+      enregistrable. La ligne est conservée en commentaire, et le script de tunnel la
+      réécrira quand Telegram en aura besoin — le jeton obtenu entre-temps survivra.
+- [x] **Conteneur `n8n` recréé seul**, en le nommant pour que `cloudflared` ne démarre
+      pas. Vérifié après coup : `WEBHOOK_URL=http://localhost:5678/`, certificat Avast
+      toujours monté (1 526 o), **6 flux intacts, 4 actifs, 7 identifiants**, le relais
+      Telegram obtient toujours des `200` sur `a-notifier` — preuve que la clé de
+      chiffrement fonctionne — et **zéro erreur d'activation ou de déchiffrement**.
+- [x] **Le widget n'a rien perdu** : `client/.env` pointe sur `http://localhost:5678`,
+      pas sur le tunnel. Le changement l'aligne, il ne le casse pas.
+
+*Question de sécurité : CONCLUSION RÉTRACTÉE le 10 octobre.* J'avais écrit que les
+requêtes de balayage reçues par le serveur de développement
+(`/boaform/admin/formTracert`, `/cgi/get.cgi?cmd=home_login`) venaient du tunnel
+Cloudflare. **C'est faux, et la vérification le montre** : le tunnel n'expose que
+`http://n8n:5678` (`docker-compose.tunnel.yml:47`). Il ne peut donc pas produire des
+requêtes arrivant sur l'API Express, qui écoute sur le **port 5000 de l'hôte**, hors
+Docker. J'avais raisonné par coïncidence — la présence d'une image `cloudflared` — au lieu
+de lire ce que le tunnel desservait.
+
+**L'origine de ces requêtes reste donc inconnue**, et la question se rouvre. Deux faits à
+verser au dossier :
+
+- `app.listen(config.port)` en `server/src/server.js:61` n'indique aucune interface : Node
+  écoute donc sur **toutes** les interfaces, et l'API est joignable depuis le réseau local.
+- **MongoDB publie son port sur toutes les interfaces** : `0.0.0.0:27017->27017/tcp`. Si
+  l'hôte est joignable, la base l'est aussi. À examiner avant toute mise en production,
+  au même titre que l'API.
+
+- [x] **Fait par l'exploitant le 9 octobre à 17 h 39** : client OAuth de type
+      **Application Web** « CoachConnect n8n » créé, portant l'URI
+      `http://localhost:5678/rest/oauth2-credential/callback`, identifiant et secret
+      saisis dans n8n, « Account connected » obtenu.
+- [x] **La portée n'a pas eu besoin d'être déclarée**, et c'est instructif. L'écran de
+      consentement ne porte que `https://mail.google.com/` ; n8n demande
+      `gmail.modify`, qui est une portée différente. L'autorisation a néanmoins abouti.
+      *Observé :* « Account connected » puis un appel à l'API Gmail réussi. *Déduit :*
+      en mode **Test**, Google n'impose pas qu'une portée figure dans la liste déclarée
+      pour un utilisateur de test. **Conséquence :** à déclarer avant toute publication
+      de l'application, sans quoi la portée serait refusée. Porté aux tâches à venir.
+
+### La chaîne complète, exercée pour de vrai
+
+**Exécution 3067, 9 octobre 19 h 40-19 h 41 (heure locale), `SUCCESS`** — tous les nœuds
+parcourus : `Chercher les courriels` → `Un élément par courriel` → `Lire le courriel` →
+`Normaliser` → `Préparer la question` → `Chercher des fiches` → `Préparer la rédaction` →
+`Rédiger la réponse` → `Lire la rédaction` → `Composer la réponse` → `Déposer le
+brouillon` → `Marquer comme lu`.
+
+Dossier créé, `b28e1259` :
+
+```
+canal           courriel
+adresse         martin.dieude@gmail.com    ← lue sur le From
+objet           Demande de remboursement   ← le sujet tient lieu d'origine
+statut          escalade
+ecritParAgent   true
+auteur          (aucun)                    ← conforme à la conception
+traitePar       (vide)                     ← personne n'avait encore relu
+notifieExploit. true                        ← annoncé par le relais existant
+reponseEnvoyée  non                         ← attendait la validation
+```
+
+- [x] **Le brouillon tient les garde-fous** : aucune promesse de remboursement, mention
+      explicite de l'absence d'accès au compte, rappel qu'une adresse d'expédition ne
+      prouve pas l'identité, renvoi vers l'assistant authentifié, annonce qu'un humain
+      tranchera. **Et aucun cadratin** — `sansCadratin()` a fait son office.
+- [x] **Validé depuis le back-office** par le compte `mdieude` : le badge « Reçu par
+      courriel » et l'adresse en guise d'identité s'affichaient bien, le brouillon était
+      présent et modifiable.
+- [x] **Le courriel de réponse est réellement parti par Gmail en OAuth2** et a été reçu à
+      `martin.dieude@gmail.com`. C'est le dernier maillon jamais éprouvé jusque-là : tous
+      les tests automatisés emploient des adresses en `.local`, qui partent dans la boîte
+      de dépôt locale.
+- [x] **L'alerte Telegram est bien arrivée** sur le compte rattaché.
+
+### Un défaut trouvé par cet essai, et corrigé le même soir
+
+**L'alerte Telegram n'affichait pas l'adresse de l'expéditeur.** Cause : le relais lisait
+`ticket.auteur?.email`, vide par conception sur le canal courriel. Il annonçait donc
+« `@compte supprimé (inconnu)` · `adresse inconnue` · `Écran : Demande de remboursement` »
+— **trois fois faux** : rien n'avait été supprimé, le rôle n'existait pas, l'adresse était
+connue mais rangée ailleurs, et l'objet du courriel était présenté comme un écran de
+l'application.
+
+**C'est une omission de ma part** : j'avais corrigé l'affichage du back-office le matin et
+oublié le relais. Même cause, deux endroits, un seul traité.
+
+- [x] `construire-releve-telegram.mjs` : branche sur `ticket.canal === 'courriel'` ;
+      l'adresse est lue **dans le même ordre que le serveur** (`courrielAuteur` d'abord) ;
+      l'absence de compte est dite explicitement ; `origine` est annoncée comme un
+      **objet** et non comme un écran ; le canal figure dans l'en-tête.
+- [x] **`test:releve` 68/68 → 78/78**, dix vérifications ajoutées, dont une qui garantit
+      que **le canal widget n'a rien perdu** (pseudo, rôle, écran).
+- [x] Flux régénéré, réimporté, réactivé, redémarré. Vérifié en service : `parCourriel`,
+      `courrielAuteur`, le libellé `Objet` et « aucun compte rattaché » présents,
+      `active: true`, **quatre flux actifs, zéro erreur d'activation**.
+
+**Ce que l'alerte annonce désormais :**
+
+```
+🔔 Escalade support — CoachConnect (courriel)
+
+✉️ martin.dieude@gmail.com
+👤 Écrit à la boîte de support — aucun compte rattaché
+📌 Motif : demande reçue par courriel
+✉️ Objet : Demande de remboursement
+🕒 Reçu le 09/10/2026 à 19 h 41
+🏷️ Réf. b28e1259
+```
+
+### Second essai réel, le 10 octobre — le correctif confirmé en service
+
+Un second courriel envoyé depuis l'adresse personnelle, pour rejouer la chaîne après la
+correction du relais.
+
+- [x] **Dossier `e54d835f` créé le 10 octobre à 04 h 00**, objet « Information concernant
+      les Evenement », adresse `martin.dieude@gmail.com`, statut `escalade`, brouillon de
+      **1 754 signes**, `traitePar` vide, aucune réponse envoyée. Présent dans l'onglet
+      « À traiter » du back-office par construction, puisque `escalade` est le filtre de
+      cette file.
+- [x] **L'extraction du corps tient sur un message long et à plusieurs questions** : la
+      citation de l'alerte porte l'intégralité du texte écrit par la personne.
+- [x] **Le correctif du relais est vérifié EN SERVICE, et non seulement par les tests.**
+      Le texte réellement envoyé a été relu dans la donnée d'exécution 3118 de n8n :
+
+```
+🔔 Escalade support — CoachConnect (courriel)
+
+✉️ martin.dieude@gmail.com
+👤 Écrit à la boîte de support — aucun compte rattaché
+📌 Motif : demande reçue par courriel
+✉️ Objet : Information concernant les Evenement
+🕒 Reçu le 10/10/2026 à 04 h 00
+🏷️ Réf. e54d835f
+```
+
+- [x] **Le premier dossier est bien clos** : `b28e1259`, réponse envoyée le 10 octobre à
+      03 h 08, `traitePar` renseigné. Le verrou a donc tenu sur un envoi réel.
+
+**Ce que cet essai a confirmé, et que les tests ne pouvaient pas montrer.** Les 689
+vérifications automatisées portaient sur les règles, les structures et l'interface.
+**Aucune ne regardait le texte d'une alerte Telegram pour un dossier sans compte** — et
+c'est précisément là que se cachait le défaut. C'est l'essai réel du porteur du projet qui
+l'a trouvé. La leçon rejoint celle du 9 octobre au matin : une branche non couverte finit
+toujours par se manifester, et il vaut mieux qu'elle se manifeste devant quelqu'un qui
+regarde.
+
+**Ce qui reste invérifié jusqu'à cet essai.** Les 455 vérifications actuelles portent sur
+les règles et l'interface. **Aucune n'a fait transiter un vrai courriel par Gmail.** La
+relève IMAP, l'appel réel à Anthropic et l'envoi OAuth2 vers une adresse publique
+n'existent encore que sur le papier.
+
+---
+
+## III. TÂCHES À VENIR
+
+### Priorité haute
+
+1. ~~**Corriger le bogue du code 127 de `autoriser-gmail.mjs`.**~~ **FAIT le 10 octobre.**
+   Les **cinq** points de sortie appelaient `serveur.close()` puis `process.exit()`, alors
+   que le minuteur d'attente était encore en cours de fermeture — d'où l'assertion de
+   libuv et le code 127 **après** l'écriture du jeton. Ils passent désormais par une
+   fonction unique `terminer(code)` qui annule le minuteur, pose `process.exitCode` et
+   laisse la boucle d'événements se vider. `serveur.closeAllConnections()` y est ajouté :
+   sans lui, `close()` attendrait l'expiration du maintien en vie du navigateur — cinq
+   secondes — et le script paraîtrait figé alors que tout a réussi.
+   **Vérifié par l'exécution** : chemin de refus déclenché par
+   `curl "http://localhost:53682/?error=access_denied_test"` → réponse HTTP 200, puis
+   `[exited with code 1]`, **aucune assertion de libuv**, port libéré, extinction
+   immédiate. *Le chemin de succès appelle la même fonction avec `0` ; il n'a pas été
+   déclenché, cela aurait demandé un vrai code d'autorisation de Google.*
+
+2. **Les sept jours du jeton.** En mode Test, Google révoque le jeton de rafraîchissement
+   au bout d'une semaine. Deux voies : relancer le script quand l'envoi échoue (trente
+   secondes, indéfiniment reproductible grâce à `prompt=consent`), ou publier
+   l'application. **Réserve :** avec une portée restreinte comme
+   `https://mail.google.com/`, Google peut exiger une vérification, procédure longue.
+   Pour un projet d'examen, la première voie est la bonne.
+
+### Priorité moyenne
+
+3. ~~**Deux assertions à ajouter dans `agents-canaux.mjs`.**~~ **FAIT le 10 octobre, et
+   cinq plutôt que deux.** La signature de l'outil `executer` de la suite est
+   `(fonction, { entree, nœuds, etat })` — elle avait été lue entre-temps, et il n'y avait
+   donc plus rien à deviner. Ajouté : le dépôt porte l'adresse retenue par
+   `Préparer la question`, issue du `From` et jamais de `Reply-To` ; il porte la question,
+   le sujet et le brouillon ; **sans question il se replie sur le sujet** ; **sans sujet
+   non plus il reste une question lisible** ; et **il respecte les bornes de l'API**
+   (120 / 2000 / 4000), car un courriel démesuré ferait refuser le dépôt et le message
+   serait perdu en silence. `test:canaux` **226/226 → 231/231**.
+
+4. ~~**Corriger `dotenv` dans `autoriser-gmail.mjs`.**~~ **FAIT le 10 octobre.**
+   `import 'dotenv/config'` remplacé par `config({ path: FICHIER_ENV })`, où
+   `FICHIER_ENV` est résolu depuis `import.meta.url` — donc le même chemin d'où que l'on
+   appelle, et exactement celui où le jeton est écrit. **L'en-tête du script n'a pas eu
+   besoin d'être corrigé : c'est lui qui avait raison**, et le code qui ne suivait pas.
+   **Vérifié par l'exécution** : `node server/scripts/autoriser-gmail.mjs` lancé **depuis
+   la racine du dépôt** — la commande documentée, qui échouait sur « CLIENT_ID et
+   CLIENT_SECRET sont requis » — charge désormais les clés et atteint « en écoute sur
+   http://localhost:53682 ». *Un premier test d'isolement avait échoué pour une raison
+   étrangère au correctif : lancé depuis `C:\`, Node ne résout pas le paquet `dotenv`,
+   faute de `node_modules`. Le script réel, lui, résout ses imports depuis son propre
+   dossier, indépendamment du répertoire courant.*
+
+5. ~~**`CONFIG.boite` dans `construire-agent-courriel.mjs`.**~~ **FAIT le 10 octobre.**
+   Elle vaut désormais `support.coachconnect.app@gmail.com`. Vérifié avant de changer :
+   `boite` ne sert qu'à **deux** endroits — le champ porté dans `base`, qu'**aucune
+   expression de nœud ne lit**, et le garde-fou anti-boucle. Aucun effet de bord possible.
+   Les deux références de `test:canaux` ont été reprises, et la suite rend **231/231**.
+   *Le dépôt public n'y perd rien : l'adresse figurait déjà dans ce journal, qui est
+   suivi par git.* Et ce test reste un **second rideau** : la recherche Gmail porte
+   `-from:me`, qui écarte ses propres envois à la source sans dépendre d'aucune constante.
+
+### Priorité basse, mais à ne pas perdre
+
+6. **Établir l'origine des requêtes de balayage** reçues par le serveur de développement
+   (`/boaform/admin/formTracert`, `/cgi/get.cgi?cmd=home_login`). `app.listen()` n'indique
+   aucune interface, donc Node écoute sur toutes ; une image `cloudflare/cloudflared` est
+   présente, inutilisée. **À éclaircir avant la mise en production**, avec MongoDB
+   derrière.
+
+7. **Déplacer Dofus sur le disque externe** si le porteur du projet le souhaite encore —
+   l'urgence est passée avec les 24 Go récupérés. Les 12 Go sont **entièrement**
+   `Dofus-dofus3` ; le lanceur Zaap vit ailleurs (0,46 Go) et n'est pas concerné. **Ne pas
+   glisser le dossier à la main.**
+
+8. **Réparer ou retirer `Downloads/php-8.2.1-Win32-vs16-x64`**, dont j'ai supprimé les
+   binaires par erreur.
+
+### Rappel permanent
+
+9. **Aucun commit n'a encore été fait**, conformément à la règle du projet : les commits
+   n'interviennent que lorsque l'agent support fonctionne **de bout en bout** —
+   c'est-à-dire après l'étape C ci-dessus. Dix-huit fichiers sont en attente.
+
+---
+
+## Campagne du 10 octobre — 35 suites
+
+Lancée après la validation de bout en bout du canal courriel, et après la correction des
+deux défauts de `autoriser-gmail.mjs`.
+
+| | Suites | Vérifications |
+|---|---|---|
+| Serveur — API et workflows | 18 | **1 230 / 1 230** |
+| Navigateur, terminées pendant la campagne | 12 | **422 / 422** |
+| Navigateur, rejouées seules après interruption | 4 | **118 / 118** |
+| **Total vérifié** | **34** | **1 770 / 1 770** |
+| Bloquée par un prérequis absent | 1 | — |
+
+- [x] **Aucun échec d'assertion, nulle part.** Les seuls défauts sont environnementaux, et
+      chacun est expliqué ci-dessous.
+
+### Les 18 suites serveur, toutes vertes
+
+```
+test:api              73/73    test:stripe            50/50    test:evenements    76/76
+test:geocodage        19/19    test:recherche         64/64    test:messagerie    62/62
+test:notifications    47/47    test:perf              18/18    test:relations     28/28
+test:moderation       90/90    test:support           93/93    test:mot-de-passe  52/52
+test:releve           78/78    test:canaux          226/226    test:telegram      57/57
+test:messagerie-agent 102/102  test:reponse           49/49    test:courriel      46/46
+```
+
+### Quatre interruptions, et la cause est la mémoire
+
+**La machine n'a que 7,74 Go de mémoire vive, et il en restait 0,79 Go libre** pendant la
+campagne — Windows comprimait déjà 0,61 Go. Playwright lance un Chromium par suite : les
+pages dépassaient leurs délais et les requêtes tombaient par intermittence.
+
+Le motif le dit : les cinq défauts sont groupés aux positions 2, 3, 5, 6 et 7, puis
+**neuf suites d'affilée passent**, dont `support` 79/79 et `moderation` 48/48. Une pénurie
+qui se desserre explique cela ; un défaut de code ne l'expliquerait pas. Et l'API répondait
+`200` pendant tout ce temps.
+
+**Rejouées seules, les quatre passent** : `premium` 18/18, `evenements` 38/38,
+`recherche` 36/36, `messagerie` 26/26.
+
+- [ ] **À retenir pour les prochaines campagnes** : la moitié navigateur demande de la
+      place. Fermer les fenêtres d'éditeur en trop et le navigateur, et au besoin arrêter
+      n8n le temps de la campagne — il n'est utile qu'à la relève du courriel, qui peut
+      attendre une demi-heure.
+
+### `test:paiement` : un prérequis absent, pas une régression
+
+La suite parcourt **tout** le circuit Stripe avec succès — session Checkout créée, page de
+paiement chargée, carte `4242…` acceptée, redirection vers le site — puis s'arrête sur :
+
+```
+→ attente du webhook checkout.session.completed…
+  (délai dépassé : création de l'abonnement)
+```
+
+Le projet reçoit les webhooks Stripe par le **CLI Stripe**, pas par un tunnel :
+`stripe listen --forward-to localhost:5000/api/webhooks/stripe`, prérequis écrit dans
+l'en-tête de la suite elle-même (`client/tests/paiement-e2e.mjs:14`) et dans le README.
+**Aucun processus `stripe` ne tournait**, et aucune connexion établie vers le port 5000.
+
+Les 13 échecs qui suivent sont tous la cascade de cet unique manque : sans webhook, pas
+d'abonnement en base, donc pas de déverrouillage du contenu premium. `test:stripe` côté
+serveur rend d'ailleurs **50/50**, car elle ne dépend pas du webhook réel.
+
+**Ce piège est déjà consigné deux fois dans ce journal** — « des prérequis qui échouent
+sans le dire » (2561), et un relais non relancé (3531). Il mériterait un contrôle de
+prérequis au démarrage de la suite, qui dirait « `stripe listen` absent » au lieu de
+laisser treize vérifications échouer.
+
+### Une erreur de méthode de ma part, la quatrième du même genre
+
+Le premier script de campagne **n'a rien exécuté** : démarré et terminé à la même seconde.
+Il passait un chemin POSIX (`/c/Users/...`) à Node, qui ne les résout pas sous Windows ; la
+liste des suites revenait vide et la boucle tournait zéro fois.
+
+**C'est la quatrième fois que la traduction de chemin de Git Bash me piège** — après
+l'import n8n, la copie d'un script de diagnostic, et l'inspection d'une sauvegarde.
+Corrigé en entrant dans le dossier avant de lire son `package.json`, et le piège est
+inscrit en commentaire dans le script pour que la leçon survive à son auteur.
+
+---
+
+## 15.x — Deux adresses pour n8n, et la danse hebdomadaire supprimée (10 octobre)
+
+### Le problème, tel qu'il s'est manifesté
+
+Le porteur du projet reçoit une alerte d'escalade sur Telegram, y répond avec ce qu'il
+veut dire — et **aucun brouillon n'apparaît** dans « À traiter ».
+
+**Cause, et c'est une asymétrie.** `ccAgentTelegr01` a un déclencheur `telegramTrigger`,
+donc un **webhook** : ce sont les serveurs de Telegram qui doivent appeler n8n.
+
+```
+ALERTE  (fonctionne)   n8n ──appelle──▶ API de Telegram     une sortie suffit
+RÉPONSE (échoue)       Telegram ──appelle──▶ n8n            exige une adresse publique
+```
+
+`WEBHOOK_URL` valait `http://localhost:5678/`, que Telegram ne peut pas joindre — et
+Telegram **exige en outre du HTTPS**. Preuve : `ccAgentTelegr01` comptait **zéro
+exécution**. Le widget, lui, continuait de fonctionner pour la raison inverse : c'est le
+navigateur, sur la même machine, qui appelle `localhost:5678`.
+
+**Part de responsabilité.** Le tunnel était **déjà mort** avant intervention — mesuré le
+9 octobre, l'adresse `trycloudflare` renvoyait un code `000`. La réception Telegram était
+donc déjà cassée. Mais `WEBHOOK_URL` a été mise sur `localhost` pour rendre le rappel
+OAuth enregistrable, **et le tunnel n'a pas été rouvert ensuite** : la conséquence a été
+mentionnée en passant au lieu de devenir une tâche visible.
+
+### La découverte qui supprime le conflit au lieu de le contourner
+
+Le premier réflexe était de rouvrir le tunnel. Mais cela réintroduisait un conflit :
+l'adresse d'un tunnel rapide est **tirée au hasard** à chaque ouverture, alors qu'un
+rappel OAuth doit être **enregistré chez Google à l'avance**. Il aurait fallu, chaque
+semaine, fermer le tunnel, remettre `localhost`, réautoriser le jeton Gmail, puis
+rouvrir.
+
+**Lu dans le code de n8n** (`dist/services/url.service.js`) :
+
+```js
+getWebhookBaseUrl()  { return process.env.WEBHOOK_URL || this.baseUrl; }
+getInstanceBaseUrl() { return this.globalConfig.editorBaseUrl || this.getWebhookBaseUrl(); }
+```
+
+`editorBaseUrl` est lié à `N8N_EDITOR_BASE_URL` (`@n8n/config:288`), et c'est
+`getInstanceBaseUrl()` qui construit le rappel OAuth. **Les deux adresses sont donc
+séparables** :
+
+| | Variable | Usage | Valeur retenue |
+|---|---|---|---|
+| Webhooks | `WEBHOOK_URL` | ce que Telegram appelle | le tunnel, quand il est ouvert |
+| Rappel OAuth | `N8N_EDITOR_BASE_URL` | ce qui est enregistré chez Google | `http://localhost:5678/` |
+
+- [x] **`N8N_EDITOR_BASE_URL` ajoutée à `docker-compose.yml`**, avec `localhost` par
+      défaut, et le raisonnement inscrit en commentaire — vingt lignes, parce que
+      confondre ces deux adresses coûte une demi-journée.
+- [x] Le commentaire périmé de `docker/n8n/.env` réécrit : il expliquait une
+      neutralisation dont la raison n'existe plus.
+- [x] Conteneur recréé. Vérifié : les deux variables distinctes côté conteneur, certificat
+      Avast toujours monté (1 526 o), **4 flux actifs, zéro erreur d'activation ou de
+      déchiffrement**.
+
+**Conséquence sur les priorités.** La publication de l'application Google avait été mise
+en tête parce qu'elle supprimait cette danse hebdomadaire. **Ce n'est plus son seul
+mérite** : elle reste souhaitable pour en finir avec le renouvellement du jeton, mais elle
+n'est plus bloquante — et la réserve tient toujours, une portée *restreinte* comme
+`mail.google.com` pouvant déclencher une vérification longue.
+
+### Une conclusion rétractée dans la même journée
+
+La neutralisation du tunnel avait conduit à écrire que les requêtes de balayage reçues par
+l'API venaient de lui. **C'est faux** : il n'expose que `http://n8n:5678`
+(`docker-compose.tunnel.yml:47`), et l'API Express écoute sur le port 5000 de l'hôte, hors
+Docker. Raisonnement par coïncidence — la présence d'une image `cloudflared` — au lieu de
+lire ce que le tunnel desservait. Voir la rétractation plus haut, et les deux faits qui
+restent au dossier : l'API écoute sur toutes les interfaces, et **MongoDB publie son port
+27017 sur `0.0.0.0`**.
+
+---
+
+## 15.x — Ménage, tunnel rouvert, et campagne du 10 octobre (après-midi)
+
+### A. L'identifiant IMAP supprimé
+
+Fait par le porteur du projet depuis l'interface de n8n — **le CLI de n8n ne sait
+qu'exporter et importer, il n'a aucune commande de suppression**, et écrire dans sa base
+de données derrière son dos aurait été imprudent.
+
+- [x] Vérifié : **six identifiants restants, zéro de type `imap`**. Anthropic, les deux
+      clés d'en-tête, Gmail OAuth2, SMTP et le bot Telegram sont intacts.
+
+### B. Le dossier PHP supprimé, après avoir établi ce qu'il était
+
+Consigne du porteur du projet : ne rien supprimer avant de savoir si c'était un projet.
+**Vérifié avant d'agir**, et le verdict était sans ambiguïté :
+
+| Signe | Constat |
+|---|---|
+| Marqueurs de distribution officielle | `php.ini-development`, `php.ini-production`, `license.txt`, `snapshot.txt`, `news.txt` |
+| README | celui de php.net, logo officiel |
+| **Fichiers `.php` écrits à la main** | **zéro** |
+| `composer.json`, `.git`, `src`, `index.php` | **aucun** |
+
+Une archive officielle de PHP 8.2.1 extraite dans `Downloads`, sans une ligne de code du
+projet, et privée de ses binaires par mon erreur du 9 octobre.
+
+- [x] **72 fichiers supprimés**, 81 Mo rendus. Disque à 15,77 Go.
+
+### C. Le tunnel rouvert, et le découplage vérifié
+
+`node docker/n8n/ouvrir-tunnel.mjs` — le script maison, qui enchaîne le démarrage de
+`cloudflared`, la lecture de l'adresse tirée au hasard, son inscription dans
+`docker/n8n/.env` et la recréation de n8n.
+
+*Prérequis vérifiés avant de lancer :* l'image `cloudflared` avait été **supprimée le
+matin** pendant le nettoyage du disque (elle a été retéléchargée), et le certificat
+`faisceau-avec-avast.crt` que la surcharge monte pour elle était bien présent.
+
+**La vérification qui comptait :**
+
+```
+WEBHOOK_URL         = https://[…].trycloudflare.com/     ← ce que Telegram appelle
+N8N_EDITOR_BASE_URL = http://localhost:5678/              ← le rappel OAuth, inchangé
+```
+
+- [x] **Les deux adresses sont distinctes.** Le tunnel ne gouverne plus que les webhooks,
+      et une réautorisation du jeton Gmail reste possible **tunnel ouvert**. La danse
+      hebdomadaire est supprimée.
+- [x] **Le troisième geste manuel que le script réclame s'avère inutile** dans cette
+      version de n8n. Le journal montre `Start Active Workflows:` suivi des **quatre**
+      flux activés, dont `ccAgentTelegr01`, et **zéro erreur** — si Telegram avait refusé
+      l'adresse, n8n l'aurait signalé comme il l'a fait pour le certificat IMAP. La
+      recréation suffit donc à réenregistrer le webhook. *À confirmer par une réponse
+      réelle sur Telegram, seule preuve définitive.*
+- [x] Certificat Avast toujours monté après recréation (1 526 o), n8n répond `200` par le
+      tunnel, conteneur `coachconnect-tunnel` debout.
+- [ ] **Refermer le tunnel après usage** : `node docker/n8n/ouvrir-tunnel.mjs --fermer`.
+      L'adresse mène à n8n, **éditeur compris** — protégé par authentification, mais à ne
+      publier nulle part.
+
+### Campagne du 10 octobre, après-midi — 35 suites
+
+| | Suites | Vérifications |
+|---|---|---|
+| Serveur — API et workflows | 18 | **1 235 / 1 235** |
+| Navigateur | 16 | **540 / 540** |
+| **Total vérifié** | **34** | **1 775 / 1 775** |
+| Bloquée par un prérequis absent | 1 | — |
+
+- [x] **Aucun échec d'assertion.** Les tests de performance sont compris, des deux côtés.
+- [x] Le total passe de 1 770 à **1 775** grâce aux cinq assertions ajoutées à
+      `test:canaux`, qui rend désormais **231/231**.
+- [x] **Les quatre suites navigateur interrompues le matin passent toutes** cette fois :
+      `premium` 18/18, `evenements` 38/38, `recherche` 36/36, `messagerie` 26/26. La
+      mémoire s'était desserrée — la cause environnementale est donc confirmée deux fois.
+
+**`test:paiement` reste la seule bloquée**, et toujours pour la même raison : le relais
+`stripe listen` n'est pas lancé. **Le CLI Stripe est pourtant installé** (version 1.50.5,
+par WinGet) — la suite n'est qu'à une commande de passer :
+
+```
+stripe listen --forward-to localhost:5000/api/webhooks/stripe
+```
+
+- [ ] **Attention au secret** : le README exige que `STRIPE_WEBHOOK_SECRET` corresponde à
+      celui qu'affiche `stripe listen`. Comparer, et mettre à jour `server/.env` s'ils
+      diffèrent — sinon les signatures seront refusées et la suite échouera autrement.
+- [ ] **Ce prérequis mériterait un contrôle au démarrage de la suite**, qui dirait
+      « `stripe listen` absent » au lieu de laisser treize vérifications échouer dans le
+      vide. Le piège est désormais consigné **trois fois** dans ce journal.
+
+### La mémoire, contrainte désormais établie
+
+**7,74 Go au total, et entre 0,74 et 0,81 Go libres** pendant toute la journée. C'est la
+vraie limite de ce poste pour les campagnes navigateur, chaque suite lançant un Chromium.
+Rien n'était arrêtable aujourd'hui : n8n devait rester debout pour l'essai Telegram, Vite
+et l'API servent les suites.
+
+- [ ] **Pour une campagne complète fiable** : fermer les fenêtres d'éditeur en trop et le
+      navigateur, et arrêter n8n si aucun essai de messagerie n'est en cours.
