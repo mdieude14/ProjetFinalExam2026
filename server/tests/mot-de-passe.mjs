@@ -22,6 +22,7 @@ import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, unlinkSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const API = process.env.API_URL || 'http://localhost:5000/api';
@@ -318,7 +319,15 @@ const mail = await import('../src/services/mail.service.js');
 ok('**une adresse en .local n’est jamais envoyée par SMTP** hors production',
   mail.destinationPour(`quelquun${DOM}`) === 'boite');
 
-const smtpRenseigne = Boolean(lireEnv('SMTP_USER') && lireEnv('SMTP_PASS'));
+/*
+ * « RENSEIGNÉ » VEUT DIRE « PAR L'UNE OU L'AUTRE VOIE ». Ne regarder que
+ * SMTP_PASS rendrait ce test faux dès qu OAuth2 est configuré seul.
+ */
+const smtpRenseigne = Boolean(
+  lireEnv('SMTP_USER') &&
+  (lireEnv('SMTP_PASS') ||
+    (lireEnv('GOOGLE_OAUTH_CLIENT_ID') && lireEnv('GOOGLE_OAUTH_CLIENT_SECRET') && lireEnv('GOOGLE_OAUTH_REFRESH_TOKEN')))
+);
 ok(`adresse réelle : ${smtpRenseigne ? 'envoyée par SMTP (identifiants renseignés)' : 'déposée (SMTP non configuré)'}`,
   mail.destinationPour('quelquun@gmail.com') === (smtpRenseigne ? 'smtp' : 'boite'));
 
@@ -336,13 +345,193 @@ const chargerConfig = (variables) => spawnSync(
   }
 );
 
-const sansSmtp = chargerConfig({ SMTP_USER: '', SMTP_PASS: '' });
+/*
+ * LES CINQ VARIABLES SONT EFFACÉES, pas seulement les deux anciennes :
+ * avec un OAuth configuré, l'API démarrerait et ce test passerait à tort.
+ */
+const sansSmtp = chargerConfig({
+  SMTP_USER: '', SMTP_PASS: '',
+  GOOGLE_OAUTH_CLIENT_ID: '', GOOGLE_OAUTH_CLIENT_SECRET: '', GOOGLE_OAUTH_REFRESH_TOKEN: '',
+});
 ok('**en production, sans SMTP, l’API refuse de démarrer**',
   sansSmtp.status === 1 && /SMTP_USER/.test(sansSmtp.stderr), `code ${sansSmtp.status}`);
 
 const avecSmtp = chargerConfig({ SMTP_USER: 'exemple@gmail.com', SMTP_PASS: 'abcdabcdabcdabcd' });
 ok('avec des identifiants SMTP, elle démarre', avecSmtp.status === 0 && avecSmtp.stdout.includes('CONFIG CHARGEE'),
   `code ${avecSmtp.status}${avecSmtp.stderr ? ' — ' + avecSmtp.stderr.trim().split('\n')[0] : ''}`);
+
+/*
+ * ET AVEC OAUTH SEUL, ELLE DÉMARRE AUSSI. Sans cette vérification, retirer la
+ * reconnaissance d'OAuth2 du garde-fou de production ne ferait tomber aucun
+ * test — une mutation l'a démontré le 6 octobre.
+ */
+const avecOAuth = chargerConfig({
+  SMTP_USER: 'exemple@gmail.com', SMTP_PASS: '',
+  GOOGLE_OAUTH_CLIENT_ID: 'id-exemple',
+  GOOGLE_OAUTH_CLIENT_SECRET: 'secret-exemple',
+  GOOGLE_OAUTH_REFRESH_TOKEN: 'jeton-exemple',
+});
+ok('**en production, OAuth2 seul suffit à démarrer** — sans mot de passe d’application',
+  avecOAuth.status === 0 && avecOAuth.stdout.includes('CONFIG CHARGEE'),
+  `code ${avecOAuth.status}${avecOAuth.stderr ? ' — ' + avecOAuth.stderr.trim().split('\n')[0] : ''}`);
+
+
+/* ------------------------------------------------------------------ *
+ *  DEUX FAÇONS DE S'AUTHENTIFIER, ET L'ORDRE COMPTE
+ *
+ *  OAuth2 passe en premier : c'est la méthode recommandée par Google, et la
+ *  seule ouverte à tous les comptes. La page des mots de passe d'application
+ *  exige la validation en deux étapes — qu'une clé d'accès ne remplace pas —
+ *  et Google la ferme sur certains comptes : le 6 octobre 2026, elle était
+ *  indisponible sur la boîte dédiée du projet.
+ *
+ *  Chaque cas est éprouvé dans un PROCESSUS SÉPARÉ, avec son environnement :
+ *  le module lit la configuration une fois, au chargement.
+ * ------------------------------------------------------------------ */
+
+const VIDE_OAUTH = { GOOGLE_OAUTH_CLIENT_ID: '', GOOGLE_OAUTH_CLIENT_SECRET: '', GOOGLE_OAUTH_REFRESH_TOKEN: '' };
+const PLEIN_OAUTH = { GOOGLE_OAUTH_CLIENT_ID: 'id-exemple', GOOGLE_OAUTH_CLIENT_SECRET: 'secret-exemple', GOOGLE_OAUTH_REFRESH_TOKEN: 'jeton-exemple' };
+
+/** Charge le service d'envoi avec un environnement donné, et rend son verdict. */
+const modeAvec = (variables) => {
+  const r = spawnSync(
+    process.execPath,
+    ['--input-type=module', '-e',
+      "const m = await import('./src/services/mail.service.js');" +
+      "console.log(m.modeEnvoi() + '|' + m.destinationPour('quelquun@gmail.com') + '|' + m.destinationPour('quelquun@exemple.local'));"],
+    {
+      cwd: new URL('..', import.meta.url),
+      env: { ...process.env, NODE_ENV: 'development', SMTP_USER: 'exemple@gmail.com', ...variables },
+      encoding: 'utf8',
+      timeout: 20000,
+    }
+  );
+  return (r.stdout || '').trim().split('\n').pop() || `(echec: ${r.stderr?.trim().split('\n')[0] ?? r.status})`;
+};
+
+ok('**OAuth2 seul suffit à envoyer**',
+  modeAvec({ SMTP_PASS: '', ...PLEIN_OAUTH }) === 'oauth2|smtp|boite',
+  modeAvec({ SMTP_PASS: '', ...PLEIN_OAUTH }));
+
+ok('un mot de passe d’application seul fonctionne encore',
+  modeAvec({ SMTP_PASS: 'abcdabcdabcdabcd', ...VIDE_OAUTH }) === 'mot de passe|smtp|boite');
+
+ok('**les deux présents : OAuth2 l’emporte** — c’est la voie recommandée',
+  modeAvec({ SMTP_PASS: 'abcdabcdabcdabcd', ...PLEIN_OAUTH }) === 'oauth2|smtp|boite');
+
+ok('aucun des deux : dépôt local, et rien n’est tenté',
+  modeAvec({ SMTP_PASS: '', ...VIDE_OAUTH }) === 'aucun|boite|boite');
+
+/*
+ * UN OAUTH INCOMPLET N'EST PAS UN OAUTH. Trois valeurs sont nécessaires :
+ * avec deux, nodemailer échouerait à l'envoi, après avoir laissé croire que
+ * la configuration était bonne.
+ */
+ok('**un OAuth incomplet est ignoré**, il ne fait pas croire que l’envoi marche',
+  modeAvec({ SMTP_PASS: '', ...PLEIN_OAUTH, GOOGLE_OAUTH_REFRESH_TOKEN: '' }) === 'aucun|boite|boite');
+
+
+/* ================================================================== *
+ *  LA PORTÉE DE L'IDENTIFIANT D'ENVOI
+ *
+ *  POURQUOI CES VÉRIFICATIONS EXISTENT. L'authentification SMTP par OAuth2
+ *  exige la portée `https://mail.google.com/` : l'identifiant posé dans
+ *  `server/.env` POURRAIT lire la boîte et y supprimer définitivement. Le
+ *  porteur du projet a choisi cette voie en connaissance de cause, le
+ *  8 octobre, à condition que rien ne puisse envoyer ni supprimer sans son
+ *  accord.
+ *
+ *  La garantie ne vient donc plus de la permission accordée par Google : elle
+ *  vient du CODE. Et un code qu'aucun test ne surveille finit par dériver —
+ *  c'est tout l'objet de cette section. Elle lit les sources, sans rien
+ *  exécuter : elle tombe dès qu'une capacité nouvelle apparaît, même inutilisée.
+ * ================================================================== */
+
+section('La portée de l’identifiant d’envoi');
+
+const sourcesServeur = (() => {
+  const racine = fileURLToPath(new URL('../src/', import.meta.url));
+  const fichiers = [];
+  const parcourir = (dossier) => {
+    for (const e of readdirSync(dossier, { withFileTypes: true })) {
+      const chemin = join(dossier, e.name);
+      if (e.isDirectory()) parcourir(chemin);
+      else if (e.name.endsWith('.js')) fichiers.push({ chemin, nom: e.name, texte: readFileSync(chemin, 'utf8') });
+    }
+  };
+  parcourir(racine);
+  return fichiers;
+})();
+
+ok('condition réunie : les sources du serveur sont lisibles',
+  sourcesServeur.length > 20, `${sourcesServeur.length} fichier(s)`);
+
+/*
+ * AUCUN APPEL À L'API GMAIL DEPUIS LE SERVEUR. L'envoi passe par SMTP, qui ne
+ * sait que déposer un message. Un appel à l'API ouvrirait la lecture et la
+ * suppression, que la portée autorise désormais.
+ */
+const appelsGmail = sourcesServeur.filter((f) => /gmail\.googleapis\.com|googleapis\.com\/gmail/.test(f.texte));
+ok('**aucun appel à l’API Gmail dans tout le serveur**',
+  appelsGmail.length === 0, appelsGmail.map((f) => f.nom).join(', ') || 'aucun');
+
+/*
+ * AUCUNE CAPACITÉ DE SUPPRESSION, même inutilisée. La mise à la corbeille
+ * reste l'affaire du workflow n8n dédié, qui n'agit que sur les messages
+ * étiquetés par l'exploitant lui-même.
+ */
+const MOTIFS_SUPPRESSION = /messages\/[^/'"`]+\/trash|batchDelete|messages\.delete|\/drafts\b/;
+const capacitesSuppression = sourcesServeur.filter((f) => MOTIFS_SUPPRESSION.test(f.texte));
+ok('**aucune capacité de suppression ni de brouillon Gmail dans le serveur**',
+  capacitesSuppression.length === 0, capacitesSuppression.map((f) => f.nom).join(', ') || 'aucune');
+
+/*
+ * LE SERVICE D'ENVOI N'EXPORTE QUE DE QUOI ENVOYER. Une fonction de lecture,
+ * même pratique pour un diagnostic, ferait de cet identifiant un outil
+ * d'inspection de la boîte.
+ */
+const serviceEnvoi = sourcesServeur.find((f) => f.chemin.endsWith('mail.service.js'));
+const exportsEnvoi = [...serviceEnvoi.texte.matchAll(/^export (?:async )?function (\w+)|^export (?:const|let) (\w+)/gm)]
+  .map((m) => m[1] ?? m[2]).sort();
+ok('**le service d’envoi n’expose que l’envoi et son diagnostic**',
+  JSON.stringify(exportsEnvoi) === JSON.stringify(['destinationPour', 'envoyerMail', 'modeEnvoi', 'verifierSmtp']),
+  exportsEnvoi.join(', '));
+
+/*
+ * LISTE BLANCHE DES ENDROITS QUI ENVOIENT.
+ *
+ * C'est la vérification qui compte le plus. Trois appels seulement, et chacun
+ * a sa justification :
+ *
+ *   motDePasse.service  déclenché par l'UTILISATEUR lui-même (lien de
+ *                       réinitialisation, puis alerte de modification) ;
+ *                       jamais par une IA
+ *   support.service     la réponse à un dossier, dans `envoyerReponse()`, qui
+ *                       exige un brouillon VALIDÉ par l'exploitant
+ *
+ * Un quatrième appel ferait tomber ce test, et obligerait à se demander qui le
+ * déclenche — et si l'exploitant doit l'autoriser.
+ */
+const appelants = sourcesServeur
+  .filter((f) => !f.chemin.endsWith('mail.service.js') && /envoyerMail\s*\(/.test(f.texte))
+  .map((f) => f.nom)
+  .sort();
+ok('**seuls deux services envoient un courriel**, et aucune IA n’en fait partie',
+  JSON.stringify(appelants) === JSON.stringify(['motDePasse.service.js', 'support.service.js']),
+  appelants.join(', '));
+
+/*
+ * ET L'ENVOI DU SUPPORT RESTE ADOSSÉ AU BROUILLON VALIDÉ. `envoyerReponse()`
+ * refuse sans brouillon, et verrouille le dossier avant d'expédier : deux
+ * validations ne font jamais deux courriels.
+ */
+const servicesSupport = sourcesServeur.find((f) => f.chemin.endsWith('support.service.js')).texte;
+const corpsEnvoyerReponse = (servicesSupport.match(/export async function envoyerReponse[\s\S]*?\n}/) ?? [''])[0];
+ok('**la réponse du support exige un brouillon, et verrouille avant d’expédier**',
+  /brouillonReponse/.test(corpsEnvoyerReponse) &&
+  /Aucun brouillon à envoyer/.test(corpsEnvoyerReponse) &&
+  /reponseEnvoyeeLe: null/.test(corpsEnvoyerReponse),
+  `${corpsEnvoyerReponse.split('\n').length} ligne(s) analysée(s)`);
 
 /* ------------------------------ Fin ------------------------------ */
 

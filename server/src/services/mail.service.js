@@ -32,15 +32,64 @@ import { config, estProduction } from '../config/env.js';
 
 const BOITE = fileURLToPath(new URL('../../.boite-mails/', import.meta.url));
 
-const smtpConfigure = () => Boolean(config.mail.utilisateur && config.mail.motDePasse);
+/**
+ * DEUX FAÇONS DE S'AUTHENTIFIER AUPRÈS DE GMAIL, ET L'ORDRE N'EST PAS NEUTRE.
+ *
+ * OAuth2 D'ABORD, parce que c'est la méthode que Google recommande et la seule
+ * qui reste ouverte à tous les comptes. La page des mots de passe d'application
+ * exige la validation en deux étapes — qu'une clé d'accès NE remplace PAS — et
+ * Google la ferme sur les comptes récents ou sous Protection avancée. Le
+ * 6 octobre, elle répondait « Le paramètre que vous recherchez n'est pas
+ * disponible pour votre compte » sur la boîte dédiée du projet.
+ *
+ * LE MOT DE PASSE D'APPLICATION RESTE ACCEPTÉ, en second : une installation qui
+ * en détient déjà un ne doit pas cesser de fonctionner.
+ *
+ * LE MÊME CLIENT OAUTH SERT L'ASSISTANT DE MESSAGERIE (module 15). Un seul
+ * mécanisme pour lire la boîte et pour en envoyer, au lieu de deux secrets de
+ * natures différentes pour le même compte.
+ */
+const oauthConfigure = () => Boolean(
+  config.mail.utilisateur &&
+  config.mail.oauth?.clientId &&
+  config.mail.oauth?.clientSecret &&
+  config.mail.oauth?.refreshToken
+);
+
+const motDePasseConfigure = () => Boolean(config.mail.utilisateur && config.mail.motDePasse);
+
+/** L'envoi est-il configuré, par l'une ou l'autre voie ? */
+const smtpConfigure = () => oauthConfigure() || motDePasseConfigure();
+
+/** Quel mode sera employé — utile aux diagnostics, et aux messages d'erreur. */
+export function modeEnvoi() {
+  if (oauthConfigure()) return 'oauth2';
+  if (motDePasseConfigure()) return 'mot de passe';
+  return 'aucun';
+}
 
 let transporteur = null;
 function transporteurSmtp() {
+  /*
+   * NODEMAILER RAFRAÎCHIT LE JETON LUI-MÊME. On ne lui donne que le jeton de
+   * RAFRAÎCHISSEMENT : il obtient un jeton d'accès quand il en a besoin, et le
+   * renouvelle à l'expiration. Rien à planifier de notre côté.
+   */
+  const auth = oauthConfigure()
+    ? {
+        type: 'OAuth2',
+        user: config.mail.utilisateur,
+        clientId: config.mail.oauth.clientId,
+        clientSecret: config.mail.oauth.clientSecret,
+        refreshToken: config.mail.oauth.refreshToken,
+      }
+    : { user: config.mail.utilisateur, pass: config.mail.motDePasse };
+
   transporteur ??= nodemailer.createTransport({
     host: config.mail.hote,
     port: config.mail.port,
     secure: config.mail.securise,
-    auth: { user: config.mail.utilisateur, pass: config.mail.motDePasse },
+    auth,
   });
   return transporteur;
 }
@@ -87,11 +136,14 @@ export async function envoyerMail({ a, sujet, texte, html }) {
  * diagnostic : identifiants refusés, port bloqué, certificat intercepté.
  */
 export async function verifierSmtp() {
-  if (!smtpConfigure()) return { ok: false, raison: 'identifiants SMTP non renseignés' };
+  const mode = modeEnvoi();
+  if (mode === 'aucun') {
+    return { ok: false, mode, raison: 'aucune authentification configurée (ni OAuth2, ni mot de passe)' };
+  }
   try {
     await transporteurSmtp().verify();
-    return { ok: true };
+    return { ok: true, mode };
   } catch (erreur) {
-    return { ok: false, raison: erreur.message };
+    return { ok: false, mode, raison: erreur.message };
   }
 }

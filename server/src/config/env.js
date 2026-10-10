@@ -49,11 +49,32 @@ if (process.env.NODE_ENV === 'production') {
  * personne attendrait un lien qui n'arrivera pas. En développement, les
  * e-mails sont déposés localement (voir `services/mail.service.js`).
  */
-if (process.env.NODE_ENV === 'production' && !(process.env.SMTP_USER && process.env.SMTP_PASS)) {
-  console.error(
-    '[CONFIG] SMTP_USER et SMTP_PASS sont requis en production : ' +
-      'sans eux, les e-mails de réinitialisation du mot de passe ne partiraient pas.'
-  );
+/*
+ * DEUX FAÇONS DE S'AUTHENTIFIER, ET L'UNE SUFFIT.
+ *
+ * OAuth2 est la méthode recommandée par Google, et la seule qui reste ouverte :
+ * la page des mots de passe d'application n'est pas disponible pour tous les
+ * comptes — elle exige la validation en deux étapes, qu'une clé d'accès ne
+ * remplace pas, et Google la ferme sur les comptes récents ou sous Protection
+ * avancée. Le mot de passe d'application reste accepté pour ne pas casser une
+ * installation qui en détient déjà un.
+ *
+ * LE MÊME CLIENT OAUTH SERT L'ASSISTANT DE MESSAGERIE (module 15) : un seul
+ * mécanisme pour lire la boîte et pour en envoyer.
+ */
+const envoiParOAuth = Boolean(
+  process.env.SMTP_USER &&
+  process.env.GOOGLE_OAUTH_CLIENT_ID &&
+  process.env.GOOGLE_OAUTH_CLIENT_SECRET &&
+  process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+);
+const envoiParMotDePasse = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+
+if (process.env.NODE_ENV === 'production' && !envoiParOAuth && !envoiParMotDePasse) {
+  console.error('[CONFIG] L’envoi d’e-mails n’est pas configuré, et il est REQUIS en production.');
+  console.error('  OAuth2, recommandé : SMTP_USER + GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET + GOOGLE_OAUTH_REFRESH_TOKEN');
+  console.error('  ou mot de passe d’application : SMTP_USER + SMTP_PASS');
+  console.error('  Sans l’un des deux, « mot de passe oublié » répondrait normalement et aucun e-mail ne partirait jamais.');
   process.exit(1);
 }
 
@@ -136,6 +157,24 @@ export const config = {
     utilisateur: process.env.SMTP_USER,
     motDePasse: process.env.SMTP_PASS,
     expediteur: process.env.MAIL_FROM || process.env.SMTP_USER,
+
+    /*
+     * OAUTH2 — la voie recommandée, et celle que l'assistant de messagerie
+     * utilise déjà. Les trois valeurs viennent d'un client « application de
+     * bureau » créé dans Google Cloud ; le jeton de rafraîchissement est obtenu
+     * une fois, en autorisant le compte, puis il ne s'expire plus (sauf si
+     * l'application Google reste « en test », auquel cas Google le périme au
+     * bout de sept jours — voir docs/SUIVI.md).
+     *
+     * ABSENTES, L'ENVOI RETOMBE SUR LE MOT DE PASSE D'APPLICATION, puis sur la
+     * boîte de dépôt locale. Aucune configuration n'est obligatoire en
+     * développement.
+     */
+    oauth: {
+      clientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+      refreshToken: process.env.GOOGLE_OAUTH_REFRESH_TOKEN,
+    },
   },
 
   /**
