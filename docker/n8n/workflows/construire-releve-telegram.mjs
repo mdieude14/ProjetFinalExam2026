@@ -164,6 +164,26 @@ export function preparerAnnonces() {
     // le ferait réannoncer à chaque passage, indéfiniment.
     .filter((ticket) => typeof ticket._id === 'string' && ticket._id.length > 0)
     .flatMap((ticket) => {
+      /*
+       * DEUX SORTES DE DOSSIERS, ET UN SEUL A UN COMPTE.
+       *
+       * Un dossier du widget appartient à un compte : pseudo et rôle ont un
+       * sens. Un dossier venu du COURRIEL n'a qu'une adresse — celui qui écrit
+       * à la boîte de support n'a pas forcément de compte. Annoncer
+       * « @compte supprimé (inconnu) · adresse inconnue » serait trois fois
+       * faux : rien n'a été supprimé, le rôle n'existe pas, et l'adresse est
+       * parfaitement connue — elle est simplement rangée ailleurs.
+       */
+      const parCourriel = ticket.canal === 'courriel';
+
+      /*
+       * L'ADRESSE, LUE DANS LE MÊME ORDRE QUE LE SERVEUR ET QUE LE BACK-OFFICE.
+       * `envoyerReponse` prend `courrielAuteur` d'abord, puis celle du compte.
+       * Annoncer une autre adresse que celle qui recevra ferait douter
+       * l'exploitant du dossier qu'il a sous les yeux.
+       */
+      const adresse = ticket.courrielAuteur ?? ticket.auteur?.email ?? 'adresse inconnue';
+
       const pseudo = ticket.auteur?.pseudo ?? 'compte supprimé';
       const role = roles[ticket.roleAuteur] ?? ticket.roleAuteur ?? 'inconnu';
 
@@ -180,13 +200,38 @@ export function preparerAnnonces() {
        */
       const reference = ticket.reference ?? String(ticket._id).slice(-8);
 
+      /*
+       * L'IDENTITÉ, SELON CE QU'ON SAIT RÉELLEMENT DE LA PERSONNE. Sur le
+       * canal courriel, l'adresse passe en tête : c'est la seule identité
+       * disponible, et c'est elle qui sert à reconnaître la demande.
+       */
+      const identite = parCourriel
+        ? [
+            `✉️ ${echapper(adresse)}`,
+            '👤 Écrit à la boîte de support — aucun compte rattaché',
+          ]
+        : [
+            `👤 @${echapper(pseudo)} (${echapper(role)})`,
+            `✉️ ${echapper(adresse)}`,
+          ];
+
+      /*
+       * `origine` NE DIT PAS LA MÊME CHOSE SELON LE CANAL. Pour le widget,
+       * c'est l'écran d'où part la question. Pour le courriel, c'est l'OBJET du
+       * message. L'annoncer comme un « écran » afficherait « Écran : Demande de
+       * remboursement » — un libellé qui égare celui qui le lit sur son
+       * téléphone, et qui chercherait cet écran dans l'application.
+       */
+      const contexte = parCourriel
+        ? `✉️ Objet : ${echapper(ticket.origine || 'sans objet')}`
+        : `🖥 Écran : ${echapper(ticket.origine || 'non précisé')}`;
+
       const lignes = [
-        '🔔 <b>Escalade support</b> — CoachConnect',
+        `🔔 <b>Escalade support</b> — CoachConnect${parCourriel ? ' (courriel)' : ''}`,
         '',
-        `👤 @${echapper(pseudo)} (${echapper(role)})`,
-        `✉️ ${echapper(ticket.auteur?.email ?? 'adresse inconnue')}`,
+        ...identite,
         `📌 Motif : ${echapper(ticket.motifEscalade ?? 'non précisé')}`,
-        `🖥 Écran : ${echapper(ticket.origine || 'non précisé')}`,
+        contexte,
         `🕒 Reçu le ${echapper(dateFr(ticket.escaladeLe ?? ticket.createdAt))}`,
         `🏷️ Réf. ${echapper(reference)}`,
         '',

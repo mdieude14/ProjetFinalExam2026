@@ -381,6 +381,83 @@ ok('un motif absent ne laisse pas un trou dans le message',
   executer(preparerAnnonces, { entree: releve([ticket({ motifEscalade: undefined })]) })[0]
     .json.texte.includes('non précisé'));
 
+/* ================================================================== *
+ *  UN DOSSIER VENU DU COURRIEL, ANNONCÉ SUR TELEGRAM
+ * ================================================================== */
+
+section('Un dossier venu du courriel, annoncé sur Telegram');
+
+/*
+ * CE QUE CETTE SECTION DÉFEND.
+ *
+ * Un dossier du canal `courriel` n'a pas de compte : `auteur` est vide par
+ * conception. Le relais lisait l'adresse sur ce compte, et annonçait donc
+ * « @compte supprimé (inconnu) · adresse inconnue » — trois fois faux : rien
+ * n'avait été supprimé, le rôle n'existait pas, et l'adresse était connue,
+ * simplement rangée ailleurs. L'exploitant recevait une alerte sans savoir à
+ * qui elle se rapportait, et devait ouvrir le back-office pour l'apprendre.
+ *
+ * Défaut constaté le 9 octobre au soir, sur le premier essai réel de bout en
+ * bout : l'affichage du back-office avait été corrigé le matin, celui du relais
+ * avait été oublié.
+ */
+
+const parCourriel = (surcharge = {}) => ticket({
+  auteur: undefined,
+  roleAuteur: undefined,
+  canal: 'courriel',
+  courrielAuteur: 'visiteur@exemple.fr',
+  origine: 'Demande de remboursement',
+  motifEscalade: 'demande reçue par courriel',
+  ...surcharge,
+});
+
+const annonceCourriel = executer(preparerAnnonces, { entree: releve([parCourriel()]) })[0].json.texte;
+
+ok('**l’adresse de l’expéditeur est annoncée** — c’est sa seule identité',
+  annonceCourriel.includes('visiteur@exemple.fr'));
+
+ok('**et elle ne dit plus « adresse inconnue »**',
+  !annonceCourriel.includes('adresse inconnue'));
+
+ok('**ni « compte supprimé »** — rien n’a été supprimé, il n’y a jamais eu de compte',
+  !annonceCourriel.includes('compte supprimé'));
+
+ok('l’absence de compte est dite explicitement, pour ne pas faire chercher un pseudo',
+  annonceCourriel.includes('aucun compte rattaché'));
+
+ok('**le canal est annoncé dès l’en-tête**, pour trier d’un coup d’œil sur un téléphone',
+  annonceCourriel.includes('CoachConnect (courriel)'));
+
+/*
+ * `origine` PORTE L'OBJET DU COURRIEL, PAS UN ÉCRAN. L'annoncer comme un écran
+ * ferait chercher « Demande de remboursement » dans l'application.
+ */
+ok('**l’objet du courriel est annoncé comme un objet**, jamais comme un écran',
+  annonceCourriel.includes('Objet : Demande de remboursement') &&
+  !annonceCourriel.includes('Écran : Demande de remboursement'));
+
+ok('un courriel sans objet ne laisse pas un trou dans le message',
+  executer(preparerAnnonces, { entree: releve([parCourriel({ origine: undefined })]) })[0]
+    .json.texte.includes('sans objet'));
+
+ok('la référence et l’invitation à répondre sont les mêmes que sur le widget',
+  annonceCourriel.includes('Réf. 0d385b80') && annonceCourriel.includes('Répondez à ce message'));
+
+/*
+ * L'ORDRE DE LECTURE DE L'ADRESSE EST CELUI DU SERVEUR. `envoyerReponse` prend
+ * `courrielAuteur` d'abord, puis celle du compte. Annoncer l'autre ferait
+ * douter l'exploitant du dossier qu'il a sous les yeux.
+ */
+ok('**si les deux existent, c’est `courrielAuteur` qui est annoncée** — comme le fait l’envoi',
+  executer(preparerAnnonces, {
+    entree: releve([parCourriel({ auteur: { pseudo: 'alice', email: 'alice@exemple.fr' } })]),
+  })[0].json.texte.includes('visiteur@exemple.fr'));
+
+ok('**le canal widget n’a rien perdu** — pseudo, rôle et écran toujours annoncés',
+  avecMail.includes('(coach)') && avecMail.includes('bob@exemple.fr') &&
+  executer(preparerAnnonces, { entree: releve([ticket()]) })[0].json.texte.includes('Écran : /compte'));
+
 ok('une date invalide ne fait pas échouer la composition',
   executer(preparerAnnonces, { entree: releve([ticket({ escaladeLe: 'n’importe quoi', createdAt: null })]) })[0]
     .json.texte.includes('date inconnue'));
