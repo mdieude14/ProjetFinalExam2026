@@ -29,6 +29,7 @@ import { chromium } from '@playwright/test';
 import zlib from 'node:zlib';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 
 // Construit sans antislash litteral : les passes d'edition automatisees de ce
 // projet les ont deja mangés une fois, avec une expression rationnelle invalide
@@ -102,6 +103,66 @@ async function attendre(libelle, condition, timeoutMs = 40000) {
   }
   console.warn(`  (délai dépassé : ${libelle})`);
   return false;
+}
+
+/* ============ 0. PRÉREQUIS : LE RELAIS « stripe listen » ============ */
+
+/*
+ * CE CONTRÔLE EXISTE PARCE QUE SON ABSENCE NE SE VOIT PAS.
+ *
+ * Sans le relais, TOUT le parcours réussit — session Checkout créée, page de
+ * paiement chargée, carte de test acceptée, redirection vers le site — puis le
+ * webhook n'arrive jamais, et TREIZE vérifications échouent en cascade sur un
+ * abonnement qui n'a pas été créé. Rien dans ces treize messages ne nomme la
+ * cause, et on cherche un défaut dans le code qui n'y est pas.
+ *
+ * Le journal du projet enregistre ce piège trois fois, sous le même titre : des
+ * prérequis qui échouent sans le dire. On échoue donc TÔT, et en disant quoi
+ * faire — avant d'avoir fait passer un paiement chez Stripe pour rien.
+ *
+ * LE CONTRÔLE EST PERMISSIF EN CAS DE DOUTE, et c'est délibéré. Il cherche un
+ * processus `stripe`, ce qui dépend du système : s'il ne sait pas conclure, il
+ * avertit et laisse passer. Une suite qui refuserait de s'exécuter sur un poste
+ * qu'elle ne reconnaît pas serait pire que le piège qu'elle corrige.
+ *
+ * AUCUN ANTISLASH DANS CE BLOC, ni dans une expression rationnelle ni dans une
+ * chaîne — voir l'avertissement de SEPARATEUR_LIGNES plus haut : des passes
+ * d'édition automatisées les ont déjà mangés une fois dans ce fichier.
+ */
+function relaisStripeActif() {
+  const essais = process.platform === 'win32'
+    ? [['tasklist', ['/FI', 'IMAGENAME eq stripe.exe', '/NH']]]
+    : [['pgrep', ['-x', 'stripe']], ['ps', ['-A', '-o', 'comm']]];
+
+  for (const [commande, args] of essais) {
+    const r = spawnSync(commande, args, { encoding: 'utf8' });
+    if (r.error || typeof r.stdout !== 'string') continue;
+    return r.stdout.toLowerCase().includes('stripe');
+  }
+  return null; // Indéterminable sur ce système : on ne bloque pas.
+}
+
+const relaisStripe = relaisStripeActif();
+
+if (relaisStripe === false) {
+  throw new Error([
+    'le relais « stripe listen » ne tourne pas.',
+    '',
+    '  Sans lui, Stripe ne peut pas joindre l’API locale : le paiement',
+    '  aboutirait, mais aucun abonnement ne serait créé et treize',
+    '  vérifications échoueraient sans nommer la cause.',
+    '',
+    '  Dans un autre terminal :',
+    '      stripe listen --forward-to localhost:5000/api/webhooks/stripe',
+    '',
+    '  Puis vérifiez que STRIPE_WEBHOOK_SECRET, dans server/.env, correspond',
+    '  au secret affiché par cette commande — sinon les signatures seront',
+    '  refusées, et la suite échouerait pour une autre raison encore.',
+  ].join(String.fromCharCode(10)));
+}
+
+if (relaisStripe === null) {
+  console.warn('  (« stripe listen » invérifiable sur ce système — on continue)');
 }
 
 /* ============ 1. LE COACH DÉFINIT SON TARIF ============ */
