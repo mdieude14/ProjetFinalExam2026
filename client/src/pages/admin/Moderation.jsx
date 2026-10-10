@@ -457,6 +457,29 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
   const [decision, setDecision] = useState('');
   const { auteur } = ticket;
 
+  /*
+   * DEUX SORTES D'AUTEURS, ET UN SEUL A UN COMPTE.
+   *
+   * Un dossier venu du widget appartient à un compte : avatar, pseudo, lien
+   * vers le profil. Un dossier venu du COURRIEL n'a qu'une adresse — celui qui
+   * écrit à la boîte de support n'a pas forcément de compte, et c'est tout le
+   * sens de `canal: 'courriel'`. Lui afficher le bloc du compte donnerait un
+   * avatar vide, un lien vers `/profile/undefined` et « @undefined ·
+   * undefined » : de quoi faire douter l'exploitant du dossier lui-même.
+   */
+  const parCourriel = ticket.canal === 'courriel';
+
+  /*
+   * L'ADRESSE DE DESTINATION, LUE DU MÊME CÔTÉ QUE LE SERVEUR.
+   *
+   * `envoyerReponse` prend `courrielAuteur` d'abord, puis l'adresse du compte.
+   * Cet écran doit suivre exactement la même règle : s'il lisait le compte en
+   * premier, la confirmation nommerait une adresse différente de celle qui
+   * recevra réellement — et c'est précisément ce que ce second clic est censé
+   * donner à vérifier.
+   */
+  const destinataire = ticket.courrielAuteur || auteur?.email || null;
+
   // Aligné sur le validateur serveur : entre 3 et 2000 caractères.
   const decisionValide = decision.trim().length >= 3;
 
@@ -484,6 +507,17 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
     <li className="rounded-carte border border-ardoise-200 bg-white p-5" data-test="dossier-ticket">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          {/*
+            LE CANAL EN PREMIER, PARCE QU'IL CHANGE LA LECTURE DU DOSSIER. Un
+            dossier du courriel n'a pas de compte derrière lui : ni profil à
+            consulter, ni historique dans l'application. Le voir au premier
+            coup d'œil évite de chercher un pseudo qui n'existe pas.
+          */}
+          {parCourriel && (
+            <span data-test="badge-canal-courriel">
+              <Badge variante="marque">Reçu par courriel</Badge>
+            </span>
+          )}
           {ticket.intention && (
             <Badge variante={ticket.intention === 'decision' ? 'attente' : 'neutre'}>
               {LIBELLES_INTENTION[ticket.intention] || ticket.intention}
@@ -561,18 +595,36 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
       )}
 
       <div className="mt-4 flex items-center gap-2.5 border-t border-ardoise-100 pt-4">
-        <Avatar utilisateur={auteur} taille="sm" />
-        <div className="min-w-0">
-          <Link
-            to={`/profile/${auteur?.pseudo}`}
-            className="block truncate text-sm font-bold text-ardoise-900 hover:text-marque-600 hover:underline"
-          >
-            {auteur?.prenom} {auteur?.nom}
-          </Link>
-          <span className="block truncate text-xs text-ardoise-500">
-            @{auteur?.pseudo} · {LIBELLES_ROLE[ticket.roleAuteur] || ticket.roleAuteur}
-          </span>
-        </div>
+        {parCourriel ? (
+          /*
+            PAS D'AVATAR NI DE LIEN VERS UN PROFIL : il n'y a pas de compte à
+            ouvrir. L'adresse est la seule identité de cette personne, et on le
+            dit, pour qu'une fiche sans pseudo ne passe pas pour un défaut.
+          */
+          <div className="min-w-0" data-test="auteur-courriel">
+            <p className="block truncate text-sm font-bold text-ardoise-900">
+              {ticket.courrielAuteur ?? 'Adresse inconnue'}
+            </p>
+            <span className="block truncate text-xs text-ardoise-500">
+              Écrit à la boîte de support · aucun compte rattaché
+            </span>
+          </div>
+        ) : (
+          <>
+            <Avatar utilisateur={auteur} taille="sm" />
+            <div className="min-w-0">
+              <Link
+                to={`/profile/${auteur?.pseudo}`}
+                className="block truncate text-sm font-bold text-ardoise-900 hover:text-marque-600 hover:underline"
+              >
+                {auteur?.prenom} {auteur?.nom}
+              </Link>
+              <span className="block truncate text-xs text-ardoise-500">
+                @{auteur?.pseudo} · {LIBELLES_ROLE[ticket.roleAuteur] || ticket.roleAuteur}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Historique, pour les dossiers déjà instruits */}
@@ -628,9 +680,9 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
           <div className="space-y-3 rounded-carte bg-ardoise-50 p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm font-semibold text-ardoise-900">Répondre par courriel</p>
-              {auteur?.email && (
+              {destinataire && (
                 <p className="text-xs text-ardoise-500" data-test="destinataire-courriel">
-                  à {auteur.email}
+                  à {destinataire}
                 </p>
               )}
             </div>
@@ -685,7 +737,7 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
                     onClick={() => onEnvoyer(ticket._id)}
                     data-test="confirmer-envoi"
                   >
-                    Confirmer l’envoi à {auteur?.email ?? 'l’auteur'}
+                    Confirmer l’envoi à {destinataire ?? 'l’auteur'}
                   </Button>
                   <Button
                     variante="secondaire"

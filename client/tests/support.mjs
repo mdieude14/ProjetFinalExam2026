@@ -62,10 +62,11 @@ function afficher(interrompu) {
 process.on('uncaughtException', (e) => { afficher(e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { afficher(e?.message || e); process.exit(1); });
 
-async function appel(chemin, { methode = 'GET', corps, token, cleAgent } = {}) {
+async function appel(chemin, { methode = 'GET', corps, token, cleAgent, cleService } = {}) {
   const entetes = {};
   if (token) entetes.Authorization = `Bearer ${token}`;
   if (cleAgent) entetes['x-agent-key'] = cleAgent;
+  if (cleService) entetes['x-service-key'] = cleService;
   if (corps) entetes['Content-Type'] = 'application/json';
   const r = await fetch(API + chemin, {
     method: methode,
@@ -123,6 +124,14 @@ const bdd = clientMongo.db();
 const motifTest = /@supportfront[.]local$/;
 
 async function purger() {
+  /*
+   * LES DOSSIERS DU COURRIEL N'ONT AUCUN COMPTE, et la purge par `auteur` ne
+   * les verrait donc pas : ils resteraient en base d'une campagne à l'autre,
+   * et la file de l'exploitant se remplirait de dossiers de test. On les
+   * cherche par l'adresse, qui porte le même domaine réservé.
+   */
+  await bdd.collection('tickets').deleteMany({ courrielAuteur: motifTest });
+
   const comptes = await bdd.collection('users')
     .find({ email: motifTest }, { projection: { _id: 1 } })
     .toArray();
@@ -173,6 +182,18 @@ if (!CLE_AGENT) {
   console.error('SUPPORT_AGENT_KEY absente de server/.env — la suite ne peut pas s’exécuter.');
   process.exit(1);
 }
+
+/* La clé de SERVICE, distincte : elle ouvre le dépôt des demandes par courriel. */
+const CLE_SERVICE = lireEnv('../../server/.env', 'SUPPORT_SERVICE_KEY');
+if (!CLE_SERVICE) {
+  console.error('SUPPORT_SERVICE_KEY absente de server/.env — la suite ne peut pas s’exécuter.');
+  process.exit(1);
+}
+
+const ADRESSE_VISITEUR = `visiteur${S}${DOM}`;
+const QUESTION_COURRIEL_ENTRANT = `Ma carte est refusée au moment de payer ${S}`;
+const BROUILLON_ENTRANT =
+  'Bonjour, votre carte a expiré. Mettez-la à jour depuis « Mon compte », puis relancez le paiement.';
 
 /** Écriture directe par Alice, sans agent. */
 const creerTicket = (corps) => appel('/support/tickets', {
@@ -713,6 +734,87 @@ try {
   const conserve = await bdd.collection('tickets').findOne({ _id: new ObjectId(String(idConcurrent)) });
   ok('**la première décision n’est pas écrasée**',
     conserve?.decision === 'Compte réactivé par le second administrateur.', conserve?.decision);
+
+  /* =================================================================== *
+   *  UNE DEMANDE ARRIVÉE PAR COURRIEL, SANS COMPTE DERRIÈRE ELLE
+   * =================================================================== */
+  section('Un dossier venu du courriel, vu par l’administrateur');
+
+  /*
+   * CE QUE CETTE SECTION DÉFEND.
+   *
+   * Une demande écrite à la boîte de support n'a pas forcément de compte :
+   * `Ticket.auteur` est alors vide, et l'écran affichait un avatar sans image,
+   * un lien vers `/profile/undefined` et « @undefined · undefined ». Un
+   * exploitant aurait douté du dossier avant de douter de l'affichage.
+   *
+   * ET L'ADRESSE ANNONCÉE DOIT ÊTRE CELLE QUI RECEVRA. `envoyerReponse` prend
+   * `courrielAuteur` d'abord, puis l'adresse du compte. Si l'écran lisait dans
+   * l'autre ordre, la confirmation nommerait quelqu'un d'autre que le vrai
+   * destinataire — et ce second clic ne servirait plus à rien.
+   */
+  const depotAssistant = await appel('/support/service/courriel', {
+    methode: 'POST',
+    cleService: CLE_SERVICE,
+    corps: {
+      expediteur: ADRESSE_VISITEUR,
+      sujet: 'Problème de paiement',
+      question: QUESTION_COURRIEL_ENTRANT,
+      brouillon: BROUILLON_ENTRANT,
+    },
+  });
+  ok('condition réunie : le dépôt de l’assistant aboutit',
+    depotAssistant.statut === 201, `statut ${depotAssistant.statut}`);
+
+  await ecran.goto(`${BASE}/admin/moderation`, { waitUntil: 'domcontentloaded' });
+  await ecran.getByTestId('famille-support').click();
+  await ecran.getByRole('button', { name: 'À traiter' }).click();
+
+  const carteEntrante = ecran
+    .getByTestId('dossier-ticket')
+    .filter({ hasText: QUESTION_COURRIEL_ENTRANT });
+  await carteEntrante.waitFor({ state: 'visible', timeout: 15000 });
+
+  ok('**le canal est annoncé dès la file** — inutile de chercher un pseudo qui n’existe pas',
+    await carteEntrante.getByTestId('badge-canal-courriel').isVisible());
+
+  ok('**l’adresse tient lieu d’identité**, faute de compte',
+    (await carteEntrante.getByTestId('auteur-courriel').innerText()).includes(ADRESSE_VISITEUR));
+
+  ok('**aucun lien vers un profil inexistant**',
+    (await carteEntrante.locator('a[href*="/profile/"]').count()) === 0);
+
+  ok('**le destinataire affiché est l’adresse qui a écrit**, celle-là même où le serveur enverra',
+    (await carteEntrante.getByTestId('destinataire-courriel').innerText()).includes(ADRESSE_VISITEUR));
+
+  ok('le brouillon de l’assistant est déjà dans le champ, prêt à être relu',
+    (await carteEntrante.getByTestId('brouillon-reponse').inputValue()) === BROUILLON_ENTRANT);
+
+  ok('**« Envoyer » est ouvert** — un brouillon est bien enregistré en base, pas seulement affiché',
+    !(await carteEntrante.getByTestId('preparer-envoi').isDisabled()));
+
+  const avantEnvoiCourriel = await bdd.collection('tickets').findOne({ courrielAuteur: ADRESSE_VISITEUR });
+  ok('**en base, avant le clic : rien n’est parti, et aucun administrateur n’est inscrit**',
+    avantEnvoiCourriel && !avantEnvoiCourriel.reponseEnvoyeeLe && !avantEnvoiCourriel.traitePar &&
+      avantEnvoiCourriel.statut === 'escalade',
+    `statut « ${avantEnvoiCourriel?.statut} »`);
+
+  await carteEntrante.getByTestId('preparer-envoi').click();
+  await carteEntrante.getByTestId('confirmer-envoi').click();
+  // Le dossier clos quitte « À traiter » : sa disparition EST la confirmation.
+  await carteEntrante.waitFor({ state: 'detached', timeout: 15000 });
+
+  const apresEnvoiCourriel = await bdd.collection('tickets').findOne({ courrielAuteur: ADRESSE_VISITEUR });
+  ok('**après validation : le texte relu est figé, et le dossier clos**',
+    apresEnvoiCourriel?.statut === 'clos' && apresEnvoiCourriel?.reponseExploitant === BROUILLON_ENTRANT,
+    `statut « ${apresEnvoiCourriel?.statut} »`);
+
+  ok('l’administrateur qui a validé est inscrit',
+    String(apresEnvoiCourriel?.traitePar) === String(admin.id));
+
+  ok('**et le canal d’envoi est réel, pas `null`** — le dossier n’est pas clos sans réponse',
+    typeof apresEnvoiCourriel?.reponseCanal === 'string' && apresEnvoiCourriel.reponseCanal.length > 0,
+    String(apresEnvoiCourriel?.reponseCanal));
 
   /* =================================================================== *
    *  MOBILE
