@@ -7128,3 +7128,105 @@ et l'API servent les suites.
 
 - [ ] **Pour une campagne complète fiable** : fermer les fenêtres d'éditeur en trop et le
       navigateur, et arrêter n8n si aucun essai de messagerie n'est en cours.
+
+---
+
+## 15.x — Les commits, et deux chantiers menés seul (nuit du 10 au 11 octobre)
+
+### A. Huit commits, par thème, chacun avec ses tests
+
+La règle du 22 septembre est satisfaite : l'agent support fonctionne de bout en bout,
+prouvé **deux fois** sur de vrais courriels. Les 22 fichiers en attente sont répartis par
+thème, **sans aucun mélange** :
+
+```
+9460813  Support : un canal courriel pour les demandes sans compte        7 fichiers
+9e65897  Envoi des courriels : bascule en OAuth2, et un script            5 fichiers
+240f681  Flux courriel : brouillon validé, relève par l'API Gmail         3 fichiers
+f675063  Relève Telegram : annoncer un dossier qui n'a pas de compte      3 fichiers
+b9ba024  Back-office : l'auteur d'un dossier venu du courriel             2 fichiers
+e39894d  n8n : deux adresses, et la danse hebdomadaire supprimée          1 fichier
+778b96e  Journal de suivi : OAuth2, canal courriel, et deux campagnes     1 fichier
+cb937f6  Paiement : un prérequis qui ne se taira plus                     1 fichier
+```
+
+- [x] **Un choix à signaler : chaque commit porte SES tests**, plutôt qu'un commit
+      « tests » séparé. Chaque commit est ainsi cohérent seul, et la suite reste verte à
+      chaque étape de l'historique. Le fichier de test fait partie du thème.
+- [x] **Aucun co-auteur**, conformément à la règle du projet. Les huit commits sont
+      signés `mdieude14` et de personne d'autre.
+- [x] **Contrôle avant commit**, comme au 15.33 : les cinq fichiers sensibles restent
+      ignorés, `.env.example` ne porte que des gabarits vides, et une recherche de motifs
+      de secrets (`GOCSPX-`, `sk_live`, `whsec_`, `ya29.`, clés privées…) n'a relevé
+      qu'une occurrence — **la description du format dans ce journal**, suivie d'un accent
+      grave et non d'une valeur. Vérifié caractère par caractère avant de committer.
+
+### B. Le prérequis `stripe listen` ne se taira plus
+
+Le piège était consigné **trois fois** dans ce journal : sans le relais, tout le parcours
+réussit — session Checkout, page de paiement, carte acceptée, redirection — puis le
+webhook n'arrive jamais et **treize vérifications échouent en cascade** sur un abonnement
+qui n'existe pas. Aucun des treize messages ne nommait la cause.
+
+- [x] **Contrôle de prérequis ajouté en tête de `client/tests/paiement-e2e.mjs`.** La
+      suite s'arrête AVANT de faire passer un paiement chez Stripe pour rien, et affiche
+      la commande à lancer ainsi que l'avertissement sur `STRIPE_WEBHOOK_SECRET`.
+- [x] **Permissif en cas de doute, et c'est délibéré.** Il cherche un processus `stripe`,
+      ce qui dépend du système : s'il ne sait pas conclure, il avertit et laisse passer.
+      Une suite qui refuserait de s'exécuter sur un poste qu'elle ne reconnaît pas serait
+      pire que le piège qu'elle corrige.
+- [x] **Aucun antislash dans ce bloc**, ni en expression rationnelle ni en chaîne — le
+      fichier porte déjà l'avertissement de `SEPARATEUR_LIGNES`, des passes d'édition
+      automatisées les ayant mangés une fois. La jointure passe par
+      `String.fromCharCode(10)`. Vérifié : **zéro antislash sur les 61 lignes ajoutées**.
+- [x] Mesuré : la suite rend `0/0 vérifications` puis
+      `INTERROMPU : le relais « stripe listen » ne tourne pas.`
+
+### C. Les requêtes de balayage : la réponse, après une conclusion rétractée
+
+La conclusion du 9 octobre — « elles venaient du tunnel Cloudflare » — avait été
+rétractée le 10 : le tunnel n'expose que `http://n8n:5678`. **Voici l'analyse complète**,
+menée par la mesure.
+
+| Mesure | Résultat |
+|---|---|
+| Politique entrante par défaut | **Block** sur les trois profils |
+| Réseau actif | Wi-Fi, catégorie **Private** |
+| Adresse de la machine | `192.168.1.21` — **privée, derrière un NAT** |
+| Ports en écoute | `0.0.0.0:5000` (API) et `0.0.0.0:27017` (MongoDB) |
+| Règles de pare-feu **par port** pour 5000 / 27017 | **aucune** |
+| Règles de pare-feu **par programme** | **`Node.js JavaScript Runtime` → autorisé en entrée, profil PUBLIC** |
+
+**Première analyse insuffisante, et je la corrige.** N'avoir cherché que des règles par
+*port* avait conduit à conclure « aucune règle n'ouvre ces ports ». C'était exact et
+trompeur : Windows crée des règles par *programme*, et une autorisation pour `node.exe`
+ouvre **tous** ses ports sans qu'aucune règle ne mentionne le 5000.
+
+**Conclusion en deux temps.**
+
+- [x] **Aujourd'hui, aucune exposition.** Le réseau est Private, la politique entrante est
+      Block, les règles autorisant `node.exe` ne concernent que le profil Public, et la
+      machine est derrière un NAT. Ni l'API ni MongoDB ne sont joignables, même depuis le
+      réseau local.
+- [ ] **Mais un risque latent, et c'est l'explication la plus plausible des requêtes
+      observées.** Le jour où cette machine se connecte à un Wi-Fi **public** — campus,
+      hôtel, partage de connexion, segment partagé d'un fournisseur — le profil Public
+      s'applique, `node.exe` est autorisé en entrée, et **le serveur de développement
+      devient joignable par quiconque se trouve sur ce réseau**. Les robots qui cherchent
+      des interfaces d'administration de routeurs opèrent précisément sur ces segments.
+
+**Ce qui relève du porteur du projet**, aucune de ces actions n'étant à prendre sans lui :
+
+- [ ] **Restreindre ou retirer les règles entrantes `Node.js JavaScript Runtime` du profil
+      Public.** Les restreindre au profil Private vaut mieux que les supprimer : un
+      serveur Vite consulté depuis un téléphone sur le réseau domestique a besoin de
+      passer.
+- [ ] **Lier la publication du port de MongoDB à `127.0.0.1`.** Le conteneur
+      `sportsocial-mongo` publie `0.0.0.0:27017` et **n'a pas été créé par un fichier de
+      composition** — l'étiquette `config_files` est vide, il vient d'un `docker run`. Le
+      corriger demande de le recréer, ce qui n'a pas été fait sans surveillance : c'est la
+      base de données du projet.
+- [ ] **L'API, elle, DOIT écouter hors loopback**, et ce n'est pas un oubli : n8n l'appelle
+      par `host.docker.internal:5000` depuis son conteneur. La lier à `127.0.0.1` couperait
+      les quatre workflows. L'exposition est donc structurelle, et c'est au pare-feu — non
+      au code — de la borner.
