@@ -8328,13 +8328,17 @@ Quinze dossiers sur vingt et un **ne portent aucun champ `canal`**. Le champ a �
 - [x] **Rien n'a été modifié** : une commande refusée ne s'exécute pas. Les chiffres ci-dessus
       sont ceux relevés juste avant le refus.
 
-- [ ] **À faire sur accord explicite**, avec le garde-fou déjà écrit : l'opération refuse
+- [x] **FAIT, sur accord explicite du porteur du projet** (voir « Rattrapage du champ `canal` :
+      fait » plus bas). Le garde-fou écrit refusait
       d'agir si l'un des quinze portait une adresse de courriel, elle journalise les quinze
       identifiants avant d'écrire, et elle est réversible par un `$unset`.
 
 ---
 
-## « Non escaladés » : deux vrais défauts, et mon explication d'hier était incomplète  `À ARBITRER`
+## « Non escaladés » : deux vrais défauts, et mon explication d'hier était incomplète  `RÉSOLU`
+
+> **Les deux défauts sont corrigés depuis le 26 octobre au soir** — tri paramétrable et
+> pagination sur les trois familles. L'en-tête disait encore « à arbitrer » : corrigé le 27.
 
 Le porteur du projet a précisé son signalement : le widget répond bien, l'alerte Telegram
 arrive bien quand elle doit arriver, **mais sur l'onglet « Non escaladés » il ne voit pas les
@@ -8441,7 +8445,8 @@ sans erreur.
 - [x] **La garde d'écriture a refusé l'opération** (« Modify Shared Resources »), et c'est
       légitime : c'est la base du projet. Je ne l'ai ni contournée ni réessayée sous une autre
       forme.
-- [ ] **À lancer sur accord explicite du porteur du projet.**
+- [x] **LANCÉ, sur accord explicite du porteur du projet** — les cinq étapes, zéro dossier
+      sans canal, statuts inchangés. Voir « Rattrapage du champ `canal` : fait » plus bas.
 
 ---
 
@@ -10157,3 +10162,53 @@ le disent explicitement** — plutôt que de laisser croire à un découpage plu
 
 Les sept commits portent `mdieude14 <martin.dieude@gmail.com>`, et **aucune ligne de
 co-auteur** : vérifié avant la poussée, conformément à la règle du porteur du projet.
+
+---
+
+## Le piège de production : rien à exécuter maintenant  `ARBITRÉ`
+
+Le porteur du projet a demandé si les étapes pouvaient attendre l'hébergement sur Vercel, ou
+s'il fallait agir tout de suite. **Vérifié plutôt que supposé :**
+
+```
+PUBLIC_URL dans server/.env  : absente
+urlPublique calculée          : http://localhost:5173
+clientUrls                    : http://localhost:5173 | http://localhost:4173
+```
+
+- [x] **LE CODE EST DÉJÀ LIVRÉ ET POUSSÉ** — commit `345d68a`. La variable, les trois points
+      d'appel migrés, et le refus de démarrer en production sur une adresse locale.
+- [x] **Le repli donne exactement la bonne valeur en local.** Renseigner `PUBLIC_URL`
+      aujourd'hui serait au mieux sans effet, au pire nuisible : y mettre un domaine qui
+      n'existe pas encore casserait les retours de paiement du banc d'essai.
+- [x] **Ce qui reste est de la CONFIGURATION, pas du code** : trois variables Vercel, un
+      endpoint Stripe, neuf événements. Rien de tout cela n'existe avant le déploiement —
+      il n'y a ni domaine, ni compte Stripe en mode réel, ni projet Vercel.
+
+### Le seul geste utile aujourd'hui, et il a été fait
+
+`PUBLIC_URL=` ajoutée **vide et commentée** dans `server/.env`, juste sous `CLIENT_URL`.
+Elle ne change rien — vérifié, `urlPublique` vaut toujours `http://localhost:5173` — mais le
+jour du déploiement, la variable est **sous les yeux** de qui ouvrira le fichier, avec les
+trois lignes qui disent quoi y mettre et pourquoi.
+
+**Une variable qu'il faut deviner est une variable qu'on oublie.** C'est le même raisonnement
+que `.env.example`, appliqué au fichier réel.
+
+Suites rejouées après l'ajout : `support 133/133`, `mot-de-passe 52/52`, `stripe 50/50`,
+`api 73/73`.
+
+---
+
+## Trois marques périmées dans ce journal, corrigées  `MÉNAGE`
+
+En relisant les points encore ouverts pour savoir sur quoi travailler, trois ne l'étaient plus :
+
+- [x] **« Non escaladés » : deux vrais défauts** portait encore `À ARBITRER` en en-tête, alors
+      que le tri et la pagination sont livrés depuis le 26 au soir. Passé à `RÉSOLU`.
+- [x] **« À faire sur accord explicite »** et **« À lancer sur accord explicite »** — tous deux
+      sur le rattrapage du champ `canal`, qui **a été lancé** sur accord explicite, et dont la
+      section « fait » se trouve quelques lignes plus bas dans ce même fichier.
+
+**Un point coché à tort dit qu'il reste du travail là où il n'y en a plus** — et fait chercher
+ailleurs ce qui est déjà fait. Trente-et-un points restent ouverts ; ils le sont vraiment.
