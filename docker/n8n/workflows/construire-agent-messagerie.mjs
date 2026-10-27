@@ -95,7 +95,14 @@ export function libellesRequis() {
     maxMails: 10,
     brouillonsParJour: 20,
     appli: 'http://localhost:5173',
-    modeleClassement: 'claude-haiku-4-5',
+    /*
+     * HAIKU 5.5 DEPUIS LE 26 OCTOBRE : 0,10 $ / 0,50 $ le million de jetons au
+     * lieu de 1,00 $ / 5,00 $. Deux conséquences dans l'appel plus bas — la
+     * réflexion y est active par défaut et décomptée de `max_tokens`, et le
+     * paramètre `effort`, que Haiku 4.5 refusait, est désormais accepté.
+     */
+    modeleClassement: 'claude-haiku-5-5',
+    effortClassement: 'low',
     modeleRedaction: 'claude-opus-5',
     effortRedaction: 'medium',
   };
@@ -213,10 +220,20 @@ export function preparerClassement() {
         corps: borne,
         corpsClaude: {
           model: config.modeleClassement,
-          max_tokens: 400,
-          fallbacks: 'default',
-          // Pas d'`effort` : Haiku 4.5 le refuse (400, vérifié en 15.20).
-          output_config: { format: { type: 'json_schema', schema } },
+          /*
+           * 400 ÉTAIT DEVENU DANGEREUX, ET 2000 NE COÛTE RIEN. Haiku 5.5 réfléchit
+           * par défaut, et cette réflexion est décomptée de `max_tokens` : 400
+           * jetons pouvaient être consommés avant le JSON, et la réponse
+           * s'arrêtait sur `stop_reason: 'max_tokens'`. Seuls les jetons
+           * réellement produits sont facturés : relever le plafond n'augmente pas
+           * la dépense.
+           */
+          max_tokens: 2000,
+          /*
+           * PAS DE `fallbacks`. Haiku 5.5 n'a pas de repli serveur : `'default'`
+           * est inerte, et la forme tableau renvoie un 400.
+           */
+          output_config: { effort: config.effortClassement, format: { type: 'json_schema', schema } },
           system: systeme,
           messages: [{
             role: 'user',
