@@ -30,9 +30,45 @@ export const stripeConfigure = Boolean(config.stripe.secretKey);
  */
 const VERSION_API = '2026-07-29.dahlia';
 
+/**
+ * LE DÉLAI D'ATTENTE, RAMENÉ DE QUATRE-VINGTS SECONDES À VINGT.
+ *
+ * Le SDK attend 80 s par défaut — une valeur pensée pour un travail de fond,
+ * pas pour une requête web. Un appel qui pend tient la requête Express ouverte
+ * tout ce temps : le navigateur de la personne a abandonné depuis longtemps,
+ * elle a rechargé la page, et deux sessions de paiement existent désormais pour
+ * un seul achat. Vingt secondes dépassent largement le temps d'une réponse
+ * normale de Stripe, mesurée ici entre 80 et 500 ms selon l'état du cache TLS.
+ *
+ * TROIS RÉESSAIS AU LIEU DE DEUX, et ce n'est pas un pansement sur un test.
+ * Le SDK pose lui-même une clé d'idempotence sur les réessais : un `POST`
+ * rejoué ne crée pas un second abonnement, c'est la garantie que Stripe
+ * documente pour cet usage précis. Le réessai ne couvre que les pannes de
+ * TRANSPORT — un refus de carte ou une clé invalide ne sont jamais rejoués.
+ *
+ * AU PIRE : quatre tentatives de vingt secondes, plus le délai d'attente
+ * croissant du SDK entre chacune. C'est long, mais c'est le cas où Stripe est
+ * réellement inaccessible — et il valait mieux que l'unique tentative de 80 s
+ * qu'on avait avant, qui échouait aussi, en silence et sans rien réessayer.
+ *
+ * SUR CE POSTE, LE CHEMIN SORTANT EST INTERCEPTÉ. Mesuré le 26 octobre :
+ * `api.stripe.com:443` présente un certificat émis par « Avast Web/Mail Shield
+ * Root », et la poignée de main passe de 84 ms à chaud à 505 ms à froid.
+ * L'interception du 443 est SÉLECTIVE — `accounts.google.com` sort en direct —
+ * ce qui avait fait conclure à tort, en octobre, que le HTTPS n'était pas
+ * intercepté du tout. Cela ne prouve pas que l'interception cause les coupures
+ * observées une fois dans une campagne, et je n'ai pas su les reproduire ; cela
+ * rend seulement le chemin plus fragile qu'en production, où rien de tout ceci
+ * n'existe.
+ */
+const DELAI_MS = 20000;
+const REESSAIS = 3;
+
 const stripe = stripeConfigure
   ? new Stripe(config.stripe.secretKey, {
       apiVersion: VERSION_API,
+      timeout: DELAI_MS,
+      maxNetworkRetries: REESSAIS,
       // Identifie l'application dans les journaux Stripe : précieux quand
       // plusieurs services attaquent le même compte.
       appInfo: { name: 'CoachConnect', version: '1.0.0' },

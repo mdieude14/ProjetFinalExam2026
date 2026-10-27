@@ -43,6 +43,62 @@ if (process.env.NODE_ENV === 'production') {
   }
 }
 
+/**
+ * ===========================================================================
+ *  L'ADRESSE PUBLIQUE DE L'APPLICATION, ET POURQUOI ELLE EST À PART
+ * ===========================================================================
+ *
+ * `CLIENT_URL` servait DEUX choses qui n'en sont pas une :
+ *
+ *   - les ORIGINES AUTORISÉES à appeler l'API (CORS, Socket.io) — toute la liste ;
+ *   - l'ADRESSE PUBLIQUE de l'application — et là, seulement la PREMIÈRE.
+ *
+ * Trois endroits lisaient `clientUrls[0]` : les URL de retour de Stripe Checkout,
+ * le lien d'onboarding Connect, et **le lien des courriels de réinitialisation
+ * de mot de passe**.
+ *
+ * LE PIÈGE ÉTAIT ARMÉ, mesuré le 27 octobre : `CLIENT_URL` contenait déjà
+ * `http://localhost:5173,http://localhost:4173`. Ajouter le domaine de
+ * production À LA FIN de cette liste — le geste naturel, puisqu'il s'agit
+ * d'autoriser une origine de plus — aurait renvoyé les acheteurs sur
+ * `localhost` après paiement, les coachs sur `localhost` après onboarding, et
+ * surtout aurait fait partir de VRAIS courriels avec un lien mort.
+ *
+ * Rien n'aurait planté. Les trois auraient échoué chez l'utilisateur.
+ *
+ * D'OÙ UNE VARIABLE DÉDIÉE. `PUBLIC_URL` dit ce qu'elle nomme. En son absence,
+ * on retombe sur la première origine : le comportement d'avant, à l'identique,
+ * pour qu'aucune installation existante ne change.
+ */
+const origines = (process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((url) => url.trim())
+  .filter(Boolean);
+
+const urlPublique =
+  (process.env.PUBLIC_URL || '').trim() || origines[0] || 'http://localhost:5173';
+
+/*
+ * ET EN PRODUCTION, ON REFUSE DE DÉMARRER SUR UNE ADRESSE LOCALE.
+ *
+ * C'est le même raisonnement que les secrets JWT ci-dessus : un serveur qui
+ * démarre à moitié configuré est plus difficile à diagnostiquer qu'un serveur
+ * qui refuse de démarrer en disant quoi corriger. Ici, la panne serait pire que
+ * silencieuse — elle serait INVISIBLE DEPUIS LE SERVEUR, puisque tout
+ * fonctionne de son point de vue : c'est l'utilisateur qui reçoit le lien mort.
+ */
+if (process.env.NODE_ENV === 'production' && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(urlPublique)) {
+  console.error(
+    `\n[CONFIG] L'adresse publique vaut « ${urlPublique} » en production.\n\n` +
+      '  Les retours de paiement Stripe, l’onboarding Connect et les liens des\n' +
+      '  courriels de réinitialisation pointeraient vers cette adresse locale,\n' +
+      '  chez l’utilisateur, sans qu’aucune erreur ne remonte au serveur.\n\n' +
+      '  Renseignez PUBLIC_URL avec le domaine public de l’application,\n' +
+      '  ou placez ce domaine EN PREMIER dans CLIENT_URL.\n'
+  );
+  process.exit(1);
+}
+
 /*
  * EN PRODUCTION, L'ENVOI D'E-MAILS EST EXIGÉ. Sans lui, « mot de passe
  * oublié » répondrait normalement… et aucun e-mail ne partirait jamais : la
@@ -113,10 +169,17 @@ export const config = {
 
   // CORS accepte plusieurs origines separees par des virgules
   // (utile quand le front tourne en local ET sur un domaine de preproduction).
-  clientUrls: (process.env.CLIENT_URL || 'http://localhost:5173')
-    .split(',')
-    .map((url) => url.trim())
-    .filter(Boolean),
+  clientUrls: origines,
+
+  /**
+   * L'adresse publique, pour tout ce qui SORT de l'application : URL de retour
+   * de Stripe, lien d'onboarding Connect, liens des courriels.
+   *
+   * NE PAS LA CONFONDRE AVEC `clientUrls`, qui dit qui a le droit d'ENTRER.
+   * Les deux étaient la même variable jusqu'au 27 octobre — voir l'explication
+   * en tête de ce fichier.
+   */
+  urlPublique,
 
   mongoUri: process.env.MONGO_URI,
 

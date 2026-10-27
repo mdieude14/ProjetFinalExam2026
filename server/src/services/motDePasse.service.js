@@ -98,7 +98,7 @@ export async function demander(email) {
     }
   );
 
-  const lien = `${config.clientUrls[0]}/reinitialiser-mot-de-passe?jeton=${jeton}`;
+  const lien = `${config.urlPublique}/reinitialiser-mot-de-passe?jeton=${jeton}`;
   const prenom = decoder(utilisateur.prenom);
 
   return envoyerMail({

@@ -15,7 +15,7 @@ import * as stripeService from '../services/stripe.service.js';
  */
 
 /** Origine du front, pour construire les URL de retour de Stripe. */
-const urlBase = () => config.clientUrls[0] || 'http://localhost:5173';
+const urlBase = () => config.urlPublique;
 
 /* ================================================================== *
  *  POST /api/stripe/connect/onboarding

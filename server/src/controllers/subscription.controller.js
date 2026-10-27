@@ -13,7 +13,7 @@ import * as stripeService from '../services/stripe.service.js';
  * ===========================================================================
  */
 
-const urlBase = () => config.clientUrls[0] || 'http://localhost:5173';
+const urlBase = () => config.urlPublique;
 
 /** Résout un identifiant d'URL — ObjectId ou pseudo — en document User. */
 async function resoudreUtilisateur(identifiant) {
