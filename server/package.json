@@ -8,7 +8,8 @@
     "node": ">=18.18.0"
   },
   "scripts": {
-    "dev": "nodemon src/server.js",
+    "predev": "node scripts/liberer-port.mjs 5000",
+    "dev": "nodemon --watch src --ext js,mjs,json src/server.js",
     "start": "node src/server.js",
     "creer-admin": "node scripts/creerAdmin.js",
     "nettoyer-medias": "node scripts/nettoyerMedias.js",

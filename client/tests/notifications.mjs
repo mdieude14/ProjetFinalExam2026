@@ -412,13 +412,38 @@ ok('et la notification a été marquée lue au passage',
 section('Suppression');
 
 await pageAlice.goto(BASE + '/notifications', { waitUntil: 'domcontentloaded' });
-await pageAlice.waitForTimeout(2000);
 
-const avant = await pageAlice.getByTestId('liste-notifications').locator('li').count();
+/*
+ * ON ATTEND QUE LA LISTE EXISTE, ON NE COMPTE PAS À L'AVEUGLE.
+ *
+ * Il y avait ici `waitForTimeout(2000)` puis un comptage. Deux secondes
+ * suffisent quand la suite tourne seule ; elles ne suffisent pas en
+ * trente-et-unième position d'une campagne, la machine chargée. Le 27 octobre,
+ * le comptage a lu **zéro** parce que la liste n'était pas encore rendue — puis
+ * le clic, qui attend le bouton lui-même, a bien supprimé une ligne et en a
+ * laissé deux. La vérification a donc comparé 2 à -1 et échoué, sur un
+ * comportement parfaitement correct.
+ *
+ * UNE ATTENTE FIXE MESURE LA VITESSE DE LA MACHINE, pas le code. On attend
+ * donc la CONDITION : qu'au moins une ligne soit là.
+ */
+const lignes = pageAlice.getByTestId('liste-notifications').locator('li');
+await lignes.first().waitFor({ state: 'visible', timeout: 20000 });
+
+const avant = await lignes.count();
 await pageAlice.getByRole('button', { name: 'Supprimer cette notification' }).first().click();
-await pageAlice.waitForTimeout(2000);
 
-const apres = await pageAlice.getByTestId('liste-notifications').locator('li').count();
+/*
+ * ET L'ON ATTEND QUE LE COMPTE AIT BAISSÉ, plutôt qu'un délai arbitraire. Si la
+ * suppression ne marche pas, la boucle expire et la vérification échoue — ce
+ * qui est le résultat voulu, pour la bonne raison cette fois.
+ */
+let apres = avant;
+for (let essai = 0; essai < 20 && apres >= avant; essai += 1) {
+  await pageAlice.waitForTimeout(500);
+  apres = await lignes.count();
+}
+
 ok('**supprimer retire la ligne**', apres === avant - 1, `${avant} → ${apres}`);
 
 await pageAlice.reload({ waitUntil: 'domcontentloaded' });

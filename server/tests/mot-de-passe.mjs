@@ -336,10 +336,20 @@ const chargerConfig = (variables) => spawnSync(
   ['--input-type=module', '-e', "await import('./src/config/env.js'); console.log('CONFIG CHARGEE');"],
   {
     cwd: new URL('..', import.meta.url),
-    // Secrets JWT longs : sans eux, la production refuserait de démarrer pour
-    // une AUTRE raison, et la vérification passerait à tort.
+    /*
+     * SECRETS JWT LONGS ET ADRESSE PUBLIQUE NON LOCALE : sans eux, la
+     * production refuserait de démarrer pour une AUTRE raison, et la
+     * vérification passerait à tort.
+     *
+     * `PUBLIC_URL` s'est ajoutée le 27 octobre, quand l'adresse publique a été
+     * séparée des origines CORS : la production refuse désormais de démarrer
+     * sur un `localhost`, et ce garde-fou se déclenchait AVANT celui du SMTP.
+     * Trois vérifications d'envoi sont tombées sur une cause sans rapport —
+     * exactement ce que ce commentaire prévenait déjà pour les secrets JWT.
+     */
     env: { ...process.env, NODE_ENV: 'production', JWT_ACCESS_SECRET: 'a'.repeat(48),
-           JWT_REFRESH_SECRET: 'b'.repeat(48), ...variables },
+           JWT_REFRESH_SECRET: 'b'.repeat(48), PUBLIC_URL: 'https://coachconnect.example',
+           ...variables },
     encoding: 'utf8',
     timeout: 20000,
   }

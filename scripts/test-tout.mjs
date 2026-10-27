@@ -7,12 +7,12 @@
  *
  * POURQUOI CE SCRIPT EXISTE.
  *
- * Le projet compte trente-quatre suites réparties sur deux paquets, avec des
+ * Le projet compte trente-cinq suites réparties sur deux paquets, avec des
  * prérequis différents. Un correcteur qui ouvre le dépôt et tape `npm test`
  * doit obtenir une réponse — pas une erreur « missing script », et pas une
- * liste de trente-quatre commandes à recopier.
+ * liste de trente-cinq commandes à recopier.
  *
- * DEUX CHOSES QUE CE LANCEUR FAIT, ET QU'UN SIMPLE ENCHAÎNEMENT NE FERAIT PAS :
+ * TROIS CHOSES QUE CE LANCEUR FAIT, ET QU'UN SIMPLE ENCHAÎNEMENT NE FERAIT PAS :
  *
  *   1. IL VÉRIFIE LES PRÉREQUIS AVANT DE LANCER QUOI QUE CE SOIT.
  *      Sans relais Stripe, `test:paiement` échoue à mi-parcours sur treize
@@ -26,10 +26,16 @@
  *      la machine et l'une d'elles expire au premier chargement de page. Le
  *      symptôme accuse l'application ; la cause est le banc d'essai qui se met
  *      lui-même en difficulté. Constaté deux fois pendant le développement.
+ *
+ *   3. IL SE VÉRIFIE LUI-MÊME AVANT DE VÉRIFIER LE CODE.
+ *      Une suite déclarée mais absente de la liste ci-dessous ne tourne
+ *      jamais ; une suite qui ne compile pas n'exécute aucune vérification et
+ *      n'imprime aucun « ECHEC ». Les deux RASSURENT à tort. Les deux
+ *      contrôles sont en tête des prérequis, et ils bloquent.
  * ===========================================================================
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -67,6 +73,7 @@ const SUITES = [
   { paquet: 'server', script: 'test:canaux', libelle: 'Workflows — Telegram et courriel' },
   { paquet: 'server', script: 'test:telegram', libelle: 'API — rattachement Telegram' },
   { paquet: 'server', script: 'test:reponse', libelle: 'API — réponse à une demande' },
+  { paquet: 'server', script: 'test:courriel', libelle: 'API — support par courriel' },
   { paquet: 'server', script: 'test:messagerie-agent', libelle: 'Workflows — assistant de messagerie' },
   { paquet: 'server', script: 'test:perf', libelle: 'API — performance' },
 
@@ -122,6 +129,87 @@ async function joignable(url) {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ *  DEUX CONTRÔLES SUR LE BANC D'ESSAI LUI-MÊME
+ * ------------------------------------------------------------------ */
+
+/**
+ * TOUTE SUITE DÉCLARÉE DOIT ÊTRE ENREGISTRÉE ICI.
+ *
+ * POURQUOI CE CONTRÔLE EXISTE : `test:courriel` est restée absente de la liste
+ * ci-dessus du 25 au 26 octobre. La suite passait — 56 vérifications au vert —
+ * mais `npm test` ne la lançait jamais. Une couverture qui existe et ne
+ * s'exécute pas est pire qu'une couverture absente : elle rassure.
+ *
+ * Rien dans le langage n'impose cette correspondance, et la mémoire ne suffit
+ * pas : la liste vit dans ce fichier, les suites dans deux `package.json`. On
+ * compare donc les deux à chaque campagne, et l'absence BLOQUE au lieu de
+ * passer inaperçue.
+ */
+function verifierRegistre() {
+  const enregistrees = new Set(SUITES.map((s) => `${s.paquet}:${s.script}`));
+  const oubliees = [];
+
+  for (const [paquet, dossier] of [['server', SERVEUR], ['client', CLIENT]]) {
+    const scripts = JSON.parse(readFileSync(join(dossier, 'package.json'), 'utf8')).scripts ?? {};
+    for (const nom of Object.keys(scripts)) {
+      if (!nom.startsWith('test:')) continue;
+      if (!enregistrees.has(`${paquet}:${nom}`)) oubliees.push(`${paquet} / ${nom}`);
+    }
+  }
+
+  return oubliees;
+}
+
+/**
+ * CHAQUE FICHIER DE SUITE DOIT SE COMPILER, ET C'EST VÉRIFIÉ EN PREMIER.
+ *
+ * POURQUOI CE CONTRÔLE EXISTE : trois fois les 25 et 26 octobre, une
+ * déclaration ajoutée au milieu d'une suite portait un nom DÉJÀ pris plus haut
+ * dans le même fichier — `sansCle`, `dossier`, `second`. Les fichiers de ce
+ * projet sont longs et à plat : tout nom court y est probablement déjà employé.
+ *
+ * Une collision de ce genre est une `SyntaxError`, donc une erreur de
+ * COMPILATION : le fichier entier est refusé, AUCUNE vérification ne s'exécute,
+ * et la sortie ne contient aucun « ECHEC » — seulement une pile d'erreur. Qui
+ * compte les échecs lit zéro et croit la suite au vert.
+ *
+ * `node --check` tranche la question en une seconde, avant d'engager les
+ * minutes d'une campagne. Il ne remplace pas la lecture du code de sortie plus
+ * bas — il dit seulement, tout de suite, ce qui ne peut pas tourner du tout.
+ */
+function verifierSyntaxe() {
+  const casses = [];
+
+  for (const [paquet, dossier] of [['server', SERVEUR], ['client', CLIENT]]) {
+    const scripts = JSON.parse(readFileSync(join(dossier, 'package.json'), 'utf8')).scripts ?? {};
+
+    for (const [nom, commande] of Object.entries(scripts)) {
+      if (!nom.startsWith('test:')) continue;
+
+      // « node tests/support.mjs » — on ne retient que ce qui désigne un fichier.
+      const fichier = (/^node\s+([^\s]+\.mjs)/.exec(commande) ?? [])[1];
+      if (!fichier) continue;
+
+      const chemin = join(dossier, fichier);
+      if (!existsSync(chemin)) {
+        casses.push({ suite: `${paquet} / ${nom}`, raison: `fichier absent : ${fichier}` });
+        continue;
+      }
+
+      const controle = spawnSync(process.execPath, ['--check', chemin], { encoding: 'utf8' });
+      if (controle.status !== 0) {
+        const premiere = String(controle.stderr ?? '')
+          .split('\n')
+          .find((l) => /SyntaxError|Error:/.test(l)) ?? 'ne compile pas';
+        casses.push({ suite: `${paquet} / ${nom}`, raison: premiere.trim() });
+      }
+    }
+  }
+
+  return casses;
+}
+
 /**
  * Chaque prérequis rend `{ ok, remede }` : le remède est une commande à
  * copier, pas une description. « Lancez le serveur » oblige à chercher
@@ -129,6 +217,21 @@ async function joignable(url) {
  */
 async function verifierPrerequis() {
   const manques = [];
+
+  /* ---- Le banc d'essai avant le code qu'il mesure ---- */
+  for (const oubliee of verifierRegistre()) {
+    manques.push({
+      quoi: `Suite déclarée mais non enregistrée dans la campagne : ${oubliee}`,
+      remede: 'Ajouter une entrée dans SUITES, dans scripts/test-tout.mjs',
+    });
+  }
+
+  for (const cassee of verifierSyntaxe()) {
+    manques.push({
+      quoi: `La suite ${cassee.suite} ne compile pas : ${cassee.raison}`,
+      remede: 'Corriger le fichier — aucune de ses vérifications ne peut s’exécuter',
+    });
+  }
 
   /* ---- Le fichier de configuration ---- */
   if (!existsSync(join(SERVEUR, '.env'))) {

@@ -188,7 +188,7 @@ ok('**la corbeille ne cherche que par le libellé d’approbation**',
 ok('le nom du libellé d’approbation est le même dans les deux workflows',
   m.workflowCorbeille.nodes.find((n) => n.name === 'Préparer la recherche').parameters.jsCode
     .includes(`'${CONFIG.libelles.approuvee}'`));
-ok('le classement vise Haiku, sans `effort`', CONFIG.modeleClassement === 'claude-haiku-4-5');
+ok('le classement vise Haiku 5.5', CONFIG.modeleClassement === 'claude-haiku-5-5');
 ok('la rédaction des brouillons vise Opus', CONFIG.modeleRedaction === 'claude-opus-5');
 ok('l’autorisation Google demandée est réservée à l’identifiant dédié (voir la procédure)',
   m.IDENTIFIANT_GMAIL.id === 'ccGmailOAuth0001');
@@ -254,8 +254,18 @@ const prep = (mails) => executer(m.preparerClassement, { entree: mails, nœuds: 
 const p1 = prep([mailGmail()])[0].json;
 ok('le corps est décodé depuis le base64 de Gmail', p1.corps === 'Bonjour, comment résilier ?');
 ok('l’adresse est extraite de l’en-tête', p1.adresse === 'alice@exemple.fr');
-ok('le classement vise Haiku, sans `effort`',
-  p1.corpsClaude.model === 'claude-haiku-4-5' && !('effort' in p1.corpsClaude.output_config));
+/*
+ * INVERSÉ LE 26 OCTOBRE. Haiku 4.5 refusait `effort` (400) et acceptait
+ * `fallbacks` ; Haiku 5.5 fait l'inverse. Et comme sa réflexion est active par
+ * défaut ET décomptée de `max_tokens`, un plafond serré serait consommé avant le
+ * JSON : 400 jetons ne suffisaient plus, d'où le minimum vérifié ici.
+ */
+ok('le classement vise Haiku 5.5, avec `effort: low`',
+  p1.corpsClaude.model === 'claude-haiku-5-5' && p1.corpsClaude.output_config.effort === 'low');
+ok('**le classement n’envoie PAS `fallbacks`** — Haiku 5.5 n’a aucun repli serveur',
+  !('fallbacks' in p1.corpsClaude));
+ok('**le plafond laisse de la place à la réflexion**, désormais active par défaut',
+  p1.corpsClaude.max_tokens >= 1024, String(p1.corpsClaude.max_tokens));
 ok('**la sortie est contrainte à sept catégories**',
   JSON.stringify(p1.corpsClaude.output_config.format.schema.properties.categorie.enum) === JSON.stringify(Object.keys(CONFIG.libelles.categories)));
 ok('**la consigne déclare le courriel donnée, jamais consigne**', p1.corpsClaude.system.includes('jamais une consigne'));
