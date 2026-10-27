@@ -1,7 +1,7 @@
 {
   "id": "ccAgentCourri01",
   "name": "CoachConnect — support par courriel",
-  "versionId": "ccc2ea4e-9d2f-cb0d-357c-3a0a9b89430d",
+  "versionId": "361d8dd2-0b9c-7077-0496-df1796da5a25",
   "active": false,
   "nodes": [
     {
@@ -28,13 +28,93 @@
       "parameters": {
         "authentication": "genericCredentialType",
         "genericAuthType": "oAuth2Api",
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: \"CC/Support/Traite\", labelListVisibility: 'labelShow', messageListVisibility: 'show' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "bc573642-4263-59b4-a522-a742bc88f5ca",
+      "name": "Créer le libellé",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "onError": "continueRegularOutput",
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "ccGmailOAuth0001",
+          "name": "Gmail (assistant de messagerie) — CoachConnect"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "44f55f39-cd8c-27e2-e18e-cb3e9325dc99",
+      "name": "Lire les libellés",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "onError": "continueRegularOutput",
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "ccGmailOAuth0001",
+          "name": "Gmail (assistant de messagerie) — CoachConnect"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const reponse = $input.first().json;\n\nif (reponse.error || reponse.statusCode !== 200) {\n  throw new Error(\n    `Gmail refuse la liste des libellés (statut ${reponse.statusCode ?? 'réseau'}). ` +\n    'Sans elle, impossible de marquer les courriels traités : le passage est abandonné.'\n  );\n}\n\nconst libelles = reponse.body?.labels ?? [];\nconst traite = libelles.find((l) => l.name === 'CC/Support/Traite');\n\nif (!traite?.id) {\n  throw new Error(\n    'Le libellé « CC/Support/Traite » est introuvable alors qu’il vient d’être créé. ' +\n    `${libelles.length} libellé(s) lus.`\n  );\n}\n\nreturn [{ json: { idTraite: traite.id } }];"
+      },
+      "id": "f4a873c4-8d4f-d060-8190-5ee8cbd80935",
+      "name": "Résoudre le libellé",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
         "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
             {
               "name": "q",
-              "value": "in:inbox is:unread -from:me after:2026/10/09"
+              "value": "in:inbox -from:me after:2026/10/09 -label:cc-prive -label:cc-support-traite"
             },
             {
               "name": "maxResults",
@@ -58,7 +138,7 @@
       "typeVersion": 4.3,
       "onError": "continueRegularOutput",
       "position": [
-        260,
+        1040,
         0
       ],
       "credentials": {
@@ -70,14 +150,14 @@
     },
     {
       "parameters": {
-        "jsCode": "const reponse = $input.first().json;\nif (reponse.error || reponse.statusCode !== 200) return [];\n\n// Gmail omet la clé `messages` quand la recherche ne trouve rien.\nconst messages = Array.isArray(reponse.body?.messages) ? reponse.body.messages : [];\n\nreturn messages\n  .filter((m) => typeof m.id === 'string' && /^[a-zA-Z0-9]+$/.test(m.id))\n  .map((m) => ({ json: { id: m.id, threadId: m.threadId } }));"
+        "jsCode": "const reponse = $input.first().json;\n\nif (reponse.error || reponse.statusCode !== 200) {\n  throw new Error(\n    `Gmail refuse la recherche (statut ${reponse.statusCode ?? 'réseau'}). ` +\n    'Une boîte illisible n’est pas une boîte vide : le passage est abandonné, ' +\n    'et le suivant réessaiera.'\n  );\n}\n\n// Gmail omet la clé `messages` quand la recherche ne trouve rien.\nconst messages = Array.isArray(reponse.body?.messages) ? reponse.body.messages : [];\n\nreturn messages\n  .filter((m) => typeof m.id === 'string' && /^[a-zA-Z0-9]+$/.test(m.id))\n  .map((m) => ({ json: { id: m.id, threadId: m.threadId } }));"
       },
       "id": "dd6091f8-fe7a-1d7d-bbde-c65268f358d6",
       "name": "Un élément par courriel",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        520,
+        1300,
         0
       ]
     },
@@ -111,7 +191,7 @@
       "typeVersion": 4.3,
       "onError": "continueRegularOutput",
       "position": [
-        780,
+        1560,
         0
       ],
       "credentials": {
@@ -130,7 +210,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1040,
+        1820,
         0
       ]
     },
@@ -142,7 +222,7 @@
         "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id + '/modify' }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ removeLabelIds: [\"UNREAD\"] }) }}",
+        "jsonBody": "={{ JSON.stringify({ addLabelIds: [$('Résoudre le libellé').first().json.idTraite] }) }}",
         "options": {
           "response": {
             "response": {
@@ -153,13 +233,13 @@
           "timeout": 20000
         }
       },
-      "id": "948dc3ac-9abf-6b05-2a43-c3a9fc3893f4",
-      "name": "Marquer comme lu",
+      "id": "c4c806c7-bcb7-f901-cb56-4245e2141f97",
+      "name": "Poser le libellé",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "onError": "continueRegularOutput",
       "position": [
-        1300,
+        2080,
         200
       ],
       "credentials": {
@@ -171,14 +251,14 @@
     },
     {
       "parameters": {
-        "jsCode": "/*\n * CONFIGURATION — le seul endroit à adapter.\n *\n * `boite` DOIT ÊTRE L'ADRESSE RÉELLEMENT RELEVÉE : c'est elle qu'on refuse de\n * se répondre à soi-même. Elle valait `support@coachconnect.local` — une\n * adresse d'exemple — jusqu'au 10 octobre, et le garde-fou ne protégeait donc\n * rien : aucun message réel ne pouvait correspondre.\n *\n * CE N'EST PLUS LE SEUL REMPART, ET C'EST VOLONTAIRE. La recherche Gmail porte\n * `-from:me`, qui écarte ses propres envois À LA SOURCE et ne dépend d'aucune\n * constante — Gmail sait qui est « me », nous le supposions. Ce test reste en\n * second rideau, pour le jour où la recherche changerait.\n */\nconst CONFIG = {\n  api: 'http://host.docker.internal:5000/api',\n  appli: 'http://localhost:5173',\n  boite: 'support.coachconnect.app@gmail.com',\n  modele: 'claude-opus-5',\n  effortRedaction: 'medium',\n  questionsParHeure: 5,\n};\n\n/*\n * UNE BOUCLE, ET NON `$input.first()`.\n *\n * Le déclencheur IMAP délivrait UN message par exécution. La relève par\n * l'API Gmail en rend plusieurs : ne lire que le premier perdrait les\n * suivants EN SILENCE — ils auraient été marqués comme lus sans que personne\n * ne les voie passer. Chaque message est donc traité indépendamment, et un\n * message écarté par un garde-fou n'empêche pas les autres d'aboutir.\n */\n\n/* ---- Quota par expéditeur et par heure, partagé par tous les messages ---- */\n\nconst etat = $getWorkflowStaticData('global');\nif (!etat.compteurs) etat.compteurs = {};\n\nconst maintenant = Date.now();\nconst FENETRE = 3600000;\n\nfor (const [cle, valeur] of Object.entries(etat.compteurs)) {\n  if (maintenant - valeur.depuis > FENETRE) delete etat.compteurs[cle];\n}\n\nconst sorties = [];\n\nfor (const element of $input.all()) {\n  const courriel = element.json ?? {};\n\n  /*\n   * LES NOMS DE CHAMPS NE SONT PAS GARANTIS. Le nœud de normalisation rend\n   * `from`, `subject`, `textPlain` et `headers` ; l'ancien nœud IMAP les\n   * nommait parfois autrement selon son format. On lit les deux plutôt que\n   * d'imposer un réglage qu'un exploitant changerait un jour sans savoir\n   * qu'il casse le workflow.\n   */\n  const entetes = courriel.headers ?? courriel.metadata ?? {};\n  const entete = (nom) => String(entetes[nom] ?? entetes[nom.toLowerCase()] ?? '');\n\n  const brutExpediteur = String(courriel.from?.value?.[0]?.address ?? courriel.from ?? entete('from') ?? '');\n  const expediteur = (brutExpediteur.match(/[^\\s<>,;]+@[^\\s<>,;]+/) ?? [''])[0].toLowerCase();\n\n  const sujet = String(courriel.subject ?? entete('subject') ?? '').trim();\n  const corps = String(courriel.textPlain ?? courriel.text ?? courriel.textHtml ?? '');\n\n  const base = {\n    api: CONFIG.api,\n    appli: CONFIG.appli,\n    boite: CONFIG.boite,\n    modele: CONFIG.modele,\n    effortRedaction: CONFIG.effortRedaction,\n    expediteur,\n    sujet: sujet || 'Votre question',\n  };\n\n  /* ---- Garde-fous anti-boucle : on IGNORE, on ne répond pas ---- */\n\n  // Sans adresse exploitable, il n'y a nulle part où répondre.\n  if (!expediteur) continue;\n\n  // Se répondre à soi-même est la boucle la plus courte qui soit.\n  if (expediteur === CONFIG.boite.toLowerCase()) continue;\n\n  if (/^(no-?reply|mailer-daemon|postmaster|bounce|bounces|do-?not-?reply)@/i.test(expediteur)) continue;\n\n  const automatique =\n    entete('Auto-Submitted').toLowerCase().startsWith('auto') ||\n    entete('X-Autoreply') !== '' ||\n    entete('X-Autorespond') !== '' ||\n    entete('List-Id') !== '' ||\n    entete('List-Unsubscribe') !== '' ||\n    /^(bulk|list|junk|auto_reply)$/i.test(entete('Precedence').trim());\n\n  if (automatique) continue;\n\n  /* ---- Extraction de la question ---- */\n\n  /*\n   * ON NE GARDE QUE CE QUE LA PERSONNE A ÉCRIT. Un courriel de réponse\n   * transporte l'historique entier : sans découpe, la question envoyée au\n   * modèle contiendrait ses propres réponses précédentes, et coûterait de\n   * plus en plus cher à chaque échange.\n   */\n  const lignes = corps.replace(/\\r\\n/g, '\\n').split('\\n');\n  const separateur = lignes.findIndex((l) =>\n    /^(-{2,}\\s*(message d'origine|original message)|le .+ a écrit\\s*:|on .+ wrote:|_{5,})/i.test(l.trim())\n  );\n\n  const question = (separateur === -1 ? lignes : lignes.slice(0, separateur))\n    .filter((l) => !l.trimStart().startsWith('>'))\n    .join('\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n\n  if (question.length < 3) {\n    sorties.push({\n      json: {\n        ...base,\n        valide: false,\n        texte:\n          'Votre message ne contient pas de question lisible. Réécrivez-nous en formulant ' +\n          'votre question en une ou deux phrases.',\n      },\n    });\n    continue;\n  }\n\n  /* ---- Le quota, compté par expéditeur ---- */\n\n  if (!etat.compteurs[expediteur]) etat.compteurs[expediteur] = { depuis: maintenant, nombre: 0 };\n  etat.compteurs[expediteur].nombre += 1;\n\n  /*\n   * AU-DELÀ DU QUOTA, ON SE TAIT PLUTÔT QUE DE RÉPONDRE « trop de messages ».\n   * Une réponse de refus reste un courriel envoyé : face à un expéditeur\n   * automatique emballé, elle entretiendrait la boucle qu'elle prétend\n   * éteindre.\n   */\n  if (etat.compteurs[expediteur].nombre > CONFIG.questionsParHeure) continue;\n\n  // Borne du validateur de la recherche côté API : 2000 caractères suffisent\n  // largement, et évitent d'envoyer un fil entier au modèle.\n  const bornee = question.length > 2000 ? `${question.slice(0, 2000)}…` : question;\n\n  sorties.push({ json: { ...base, valide: true, question: bornee } });\n}\n\nreturn sorties;"
+        "jsCode": "/*\n * CONFIGURATION — le seul endroit à adapter.\n *\n * `boite` DOIT ÊTRE L'ADRESSE RÉELLEMENT RELEVÉE : c'est elle qu'on refuse de\n * se répondre à soi-même. Elle valait `support@coachconnect.local` — une\n * adresse d'exemple — jusqu'au 10 octobre, et le garde-fou ne protégeait donc\n * rien : aucun message réel ne pouvait correspondre.\n *\n * CE N'EST PLUS LE SEUL REMPART, ET C'EST VOLONTAIRE. La recherche Gmail porte\n * `-from:me`, qui écarte ses propres envois À LA SOURCE et ne dépend d'aucune\n * constante — Gmail sait qui est « me », nous le supposions. Ce test reste en\n * second rideau, pour le jour où la recherche changerait.\n */\nconst CONFIG = {\n  api: 'http://host.docker.internal:5000/api',\n  appli: 'http://localhost:5173',\n  boite: 'support.coachconnect.app@gmail.com',\n  modele: 'claude-opus-5',\n  effortRedaction: 'medium',\n  questionsParHeure: 5,\n};\n\n/*\n * UNE BOUCLE, ET NON `$input.first()`.\n *\n * Le déclencheur IMAP délivrait UN message par exécution. La relève par\n * l'API Gmail en rend plusieurs : ne lire que le premier perdrait les\n * suivants EN SILENCE — ils auraient été marqués comme lus sans que personne\n * ne les voie passer. Chaque message est donc traité indépendamment, et un\n * message écarté par un garde-fou n'empêche pas les autres d'aboutir.\n */\n\n/* ---- Quota par expéditeur et par heure, partagé par tous les messages ---- */\n\nconst etat = $getWorkflowStaticData('global');\nif (!etat.compteurs) etat.compteurs = {};\n\nconst maintenant = Date.now();\nconst FENETRE = 3600000;\n\nfor (const [cle, valeur] of Object.entries(etat.compteurs)) {\n  if (maintenant - valeur.depuis > FENETRE) delete etat.compteurs[cle];\n}\n\nconst sorties = [];\n\nfor (const element of $input.all()) {\n  const courriel = element.json ?? {};\n\n  /*\n   * LES NOMS DE CHAMPS NE SONT PAS GARANTIS. Le nœud de normalisation rend\n   * `from`, `subject`, `textPlain` et `headers` ; l'ancien nœud IMAP les\n   * nommait parfois autrement selon son format. On lit les deux plutôt que\n   * d'imposer un réglage qu'un exploitant changerait un jour sans savoir\n   * qu'il casse le workflow.\n   */\n  const entetes = courriel.headers ?? courriel.metadata ?? {};\n  const entete = (nom) => String(entetes[nom] ?? entetes[nom.toLowerCase()] ?? '');\n\n  const brutExpediteur = String(courriel.from?.value?.[0]?.address ?? courriel.from ?? entete('from') ?? '');\n  const expediteur = (brutExpediteur.match(/[^\\s<>,;]+@[^\\s<>,;]+/) ?? [''])[0].toLowerCase();\n\n  const sujet = String(courriel.subject ?? entete('subject') ?? '').trim();\n  const corps = String(courriel.textPlain ?? courriel.text ?? courriel.textHtml ?? '');\n\n  const base = {\n    api: CONFIG.api,\n    appli: CONFIG.appli,\n    boite: CONFIG.boite,\n    modele: CONFIG.modele,\n    effortRedaction: CONFIG.effortRedaction,\n    expediteur,\n    sujet: sujet || 'Votre question',\n    /*\n     * L'IDENTIFIANT GMAIL VOYAGE JUSQU'AU DÉPÔT, et il n'y était pas avant le\n     * 26 octobre. C'est lui qui sert de clé d'idempotence côté API : deux\n     * dépôts du même message ne créent qu'un dossier. Sans lui, une relance\n     * après panne produirait un doublon dans la file de l'exploitant.\n     */\n    messageId: typeof courriel.id === 'string' ? courriel.id : '',\n  };\n\n  /* ---- Garde-fous anti-boucle : on IGNORE, on ne répond pas ---- */\n\n  // Sans adresse exploitable, il n'y a nulle part où répondre.\n  if (!expediteur) continue;\n\n  // Se répondre à soi-même est la boucle la plus courte qui soit.\n  if (expediteur === CONFIG.boite.toLowerCase()) continue;\n\n  if (/^(no-?reply|mailer-daemon|postmaster|bounce|bounces|do-?not-?reply)@/i.test(expediteur)) continue;\n\n  const automatique =\n    entete('Auto-Submitted').toLowerCase().startsWith('auto') ||\n    entete('X-Autoreply') !== '' ||\n    entete('X-Autorespond') !== '' ||\n    entete('List-Id') !== '' ||\n    entete('List-Unsubscribe') !== '' ||\n    /^(bulk|list|junk|auto_reply)$/i.test(entete('Precedence').trim());\n\n  if (automatique) continue;\n\n  /* ---- Extraction de la question ---- */\n\n  /*\n   * ON NE GARDE QUE CE QUE LA PERSONNE A ÉCRIT. Un courriel de réponse\n   * transporte l'historique entier : sans découpe, la question envoyée au\n   * modèle contiendrait ses propres réponses précédentes, et coûterait de\n   * plus en plus cher à chaque échange.\n   */\n  const lignes = corps.replace(/\\r\\n/g, '\\n').split('\\n');\n  const separateur = lignes.findIndex((l) =>\n    /^(-{2,}\\s*(message d'origine|original message)|le .+ a écrit\\s*:|on .+ wrote:|_{5,})/i.test(l.trim())\n  );\n\n  const question = (separateur === -1 ? lignes : lignes.slice(0, separateur))\n    .filter((l) => !l.trimStart().startsWith('>'))\n    .join('\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n\n  if (question.length < 3) {\n    sorties.push({\n      json: {\n        ...base,\n        valide: false,\n        texte:\n          'Votre message ne contient pas de question lisible. Réécrivez-nous en formulant ' +\n          'votre question en une ou deux phrases.',\n      },\n    });\n    continue;\n  }\n\n  /* ---- Le quota, compté par expéditeur ---- */\n\n  if (!etat.compteurs[expediteur]) etat.compteurs[expediteur] = { depuis: maintenant, nombre: 0 };\n  etat.compteurs[expediteur].nombre += 1;\n\n  /*\n   * AU-DELÀ DU QUOTA, ON SE TAIT PLUTÔT QUE DE RÉPONDRE « trop de messages ».\n   * Une réponse de refus reste un courriel envoyé : face à un expéditeur\n   * automatique emballé, elle entretiendrait la boucle qu'elle prétend\n   * éteindre.\n   */\n  if (etat.compteurs[expediteur].nombre > CONFIG.questionsParHeure) continue;\n\n  // Borne du validateur de la recherche côté API : 2000 caractères suffisent\n  // largement, et évitent d'envoyer un fil entier au modèle.\n  const bornee = question.length > 2000 ? `${question.slice(0, 2000)}…` : question;\n\n  sorties.push({ json: { ...base, valide: true, question: bornee } });\n}\n\nreturn sorties;"
       },
       "id": "619d5ebd-1450-edd1-ee2e-1ea699259010",
       "name": "Préparer la question",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1300,
+        2080,
         0
       ]
     },
@@ -212,7 +292,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1560,
+        2340,
         0
       ]
     },
@@ -250,7 +330,7 @@
       "typeVersion": 4.3,
       "onError": "continueRegularOutput",
       "position": [
-        1820,
+        2600,
         0
       ],
       "credentials": {
@@ -269,7 +349,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
+        2860,
         0
       ]
     },
@@ -303,7 +383,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2340,
+        3120,
         0
       ]
     },
@@ -345,7 +425,7 @@
       "typeVersion": 4.3,
       "onError": "continueRegularOutput",
       "position": [
-        2600,
+        3380,
         0
       ],
       "credentials": {
@@ -364,20 +444,20 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2860,
+        3640,
         0
       ]
     },
     {
       "parameters": {
-        "jsCode": "const d = $input.first().json;\n\n// « Re: » une seule fois, quelle que soit la casse du sujet d'origine.\nconst sujet = /^\\s*re\\s*:/i.test(d.sujet) ? d.sujet : `Re: ${d.sujet}`;\n\n/*\n * LA QUESTION N'EXISTE PAS SUR TOUTES LES BRANCHES. Quand la demande est\n * écartée — message trop court, aucune fiche trouvée — `Préparer la question`\n * ne fournit qu'un `texte` fixe, sans `question`. L'envoyer tel quel ferait\n * refuser le dépôt par l'API (la question est bornée à 3 signes au minimum),\n * et LE COURRIEL SERAIT PERDU EN SILENCE : le nœud suivant ne lève pas\n * d'erreur, le message est déjà marqué comme lu, et personne n'en saurait\n * rien. D'où ce repli sur le sujet.\n */\nconst question = String(\n  d.question || d.sujet || 'Message reçu sans texte exploitable'\n).slice(0, 2000);\n\n/*\n * CE QUI PART VERS L'API, ET CE QUI N'EN PART PLUS.\n *\n * Ce nœud composait autrefois un courriel qu'un nœud SMTP expédiait aussitôt.\n * Il compose désormais un DÉPÔT : l'API crée le dossier, garde le texte en\n * brouillon, et n'envoie rien. Un humain validera depuis le back-office.\n *\n * `expediteur` RESTE L'ADRESSE DU `From`, jamais `Reply-To` : c'est elle que\n * l'API enregistrera comme destinataire, donc l'invariant décrit en tête de\n * fichier tient toujours — une usurpation fait arriver la réponse chez la\n * personne usurpée, pas chez l'usurpateur.\n */\nconst depot = {\n  expediteur: d.expediteur,\n  sujet: String(d.sujet ?? '').slice(0, 120),\n  question,\n  brouillon: String(d.texte ?? '').slice(0, 4000),\n};\n\nreturn [{ json: { ...d, sujetReponse: sujet.slice(0, 200), depot } }];"
+        "jsCode": "const d = $input.first().json;\n\n// « Re: » une seule fois, quelle que soit la casse du sujet d'origine.\nconst sujet = /^\\s*re\\s*:/i.test(d.sujet) ? d.sujet : `Re: ${d.sujet}`;\n\n/*\n * LA QUESTION N'EXISTE PAS SUR TOUTES LES BRANCHES. Quand la demande est\n * écartée — message trop court, aucune fiche trouvée — `Préparer la question`\n * ne fournit qu'un `texte` fixe, sans `question`. L'envoyer tel quel ferait\n * refuser le dépôt par l'API (la question est bornée à 3 signes au minimum),\n * et LE COURRIEL SERAIT PERDU EN SILENCE : le nœud suivant ne lève pas\n * d'erreur, le message est déjà marqué comme lu, et personne n'en saurait\n * rien. D'où ce repli sur le sujet.\n */\nconst question = String(\n  d.question || d.sujet || 'Message reçu sans texte exploitable'\n).slice(0, 2000);\n\n/*\n * CE QUI PART VERS L'API, ET CE QUI N'EN PART PLUS.\n *\n * Ce nœud composait autrefois un courriel qu'un nœud SMTP expédiait aussitôt.\n * Il compose désormais un DÉPÔT : l'API crée le dossier, garde le texte en\n * brouillon, et n'envoie rien. Un humain validera depuis le back-office.\n *\n * `expediteur` RESTE L'ADRESSE DU `From`, jamais `Reply-To` : c'est elle que\n * l'API enregistrera comme destinataire, donc l'invariant décrit en tête de\n * fichier tient toujours — une usurpation fait arriver la réponse chez la\n * personne usurpée, pas chez l'usurpateur.\n */\nconst depot = {\n  expediteur: d.expediteur,\n  sujet: String(d.sujet ?? '').slice(0, 120),\n  question,\n  brouillon: String(d.texte ?? '').slice(0, 4000),\n};\n\n/*\n * L'IDENTIFIANT N'EST ENVOYÉ QUE S'IL EXISTE, et cette précaution n'est pas\n * cosmétique. Une chaîne vide serait acceptée par le validateur — le champ est\n * optionnel — mais écrite en base, et l'index unique refuserait alors le\n * DEUXIÈME courriel dépourvu d'identifiant, en les traitant tous comme un seul\n * et même message. Mieux vaut ne pas écrire la clé que d'en écrire une fausse.\n */\nif (d.messageId) depot.messageId = String(d.messageId).slice(0, 200);\n\nreturn [{ json: { ...d, sujetReponse: sujet.slice(0, 200), depot } }];"
       },
       "id": "7d475835-7192-35b1-2451-98c968a27f3f",
       "name": "Composer la réponse",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3120,
+        3900,
         0
       ]
     },
@@ -406,7 +486,7 @@
       "typeVersion": 4.3,
       "onError": "continueRegularOutput",
       "position": [
-        3380,
+        4160,
         0
       ],
       "credentials": {
@@ -419,6 +499,39 @@
   ],
   "connections": {
     "Relève périodique": {
+      "main": [
+        [
+          {
+            "node": "Créer le libellé",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Créer le libellé": {
+      "main": [
+        [
+          {
+            "node": "Lire les libellés",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire les libellés": {
+      "main": [
+        [
+          {
+            "node": "Résoudre le libellé",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Résoudre le libellé": {
       "main": [
         [
           {
@@ -471,7 +584,7 @@
             "index": 0
           },
           {
-            "node": "Marquer comme lu",
+            "node": "Poser le libellé",
             "type": "main",
             "index": 0
           }

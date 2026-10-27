@@ -353,6 +353,78 @@ const widgetSansAuteur = await appel('/support/tickets', {
 ok('**et on ne contourne pas l’obligation en déclarant `canal: courriel` dans le corps**',
   widgetSansAuteur.statut === 401, `statut ${widgetSansAuteur.statut}`);
 
+/* ================================================================== *
+ *  8 — UN MESSAGE GMAIL, UN SEUL DOSSIER
+ *
+ *  Ajouté le 26 octobre. La relève pouvait repasser sur le même courriel —
+ *  relance après panne, rejeu manuel, restauration — et créait alors un second
+ *  dossier. Sans conséquence pour la personne, puisque rien ne part sans
+ *  validation, mais l'exploitant voyait deux fois la même demande et pouvait
+ *  répondre deux fois.
+ *
+ *  LA GARANTIE EST UN INDEX UNIQUE PARTIEL sur `messageCourriel`, et non un
+ *  libellé posé dans Gmail : un index ne peut pas « échouer à s'appliquer », là
+ *  où une requête réseau peut expirer en silence.
+ * ================================================================== */
+
+section('Un message Gmail, un seul dossier');
+
+const ID_GMAIL = `19a2b3c4d5e6f${S}`;
+
+const premier = await deposer({ messageId: ID_GMAIL });
+ok('premier dépôt : créé', premier.statut === 201, `statut ${premier.statut}`);
+ok('il se déclare nouveau', premier.json?.nouveau === true, String(premier.json?.nouveau));
+
+const secondDepot = await deposer({ messageId: ID_GMAIL });
+/*
+ * 200 ET NON 409. Un second passage n'est pas une faute de l'appelant : il n'a
+ * aucun moyen de savoir ce que la base contient. Un conflit l'obligerait à
+ * traiter une erreur qui n'en est pas une.
+ */
+ok('**second dépôt du même message : 200, pas 201 ni 409**', secondDepot.statut === 200,
+  `statut ${secondDepot.statut}`);
+ok('il se déclare NON nouveau', secondDepot.json?.nouveau === false, String(secondDepot.json?.nouveau));
+ok('**et c’est le MÊME dossier qui revient**',
+  secondDepot.json?.dossier?.reference === premier.json?.dossier?.reference,
+  `${premier.json?.dossier?.reference} vs ${secondDepot.json?.dossier?.reference}`);
+
+const compteDossiers = await bdd.collection('tickets')
+  .countDocuments({ messageCourriel: ID_GMAIL });
+ok('**un seul dossier en base pour ce message**', compteDossiers === 1, `${compteDossiers} dossier(s)`);
+
+/*
+ * LE BROUILLON EXISTANT N'EST PAS ÉCRASÉ. L'exploitant peut l'avoir modifié,
+ * voire déjà envoyé : une rédaction neuve détruirait son travail en silence.
+ */
+const autreBrouillon = await deposer({
+  messageId: ID_GMAIL,
+  brouillon: 'Un texte entièrement différent, qui ne doit PAS remplacer le premier.',
+});
+ok('un troisième dépôt ne crée toujours rien', autreBrouillon.statut === 200);
+const enBaseApres = await bdd.collection('tickets').findOne({ messageCourriel: ID_GMAIL });
+ok('**le brouillon de l’exploitant n’est jamais écrasé par un nouveau passage**',
+  !enBaseApres?.brouillonReponse?.includes('entièrement différent'),
+  String(enBaseApres?.brouillonReponse ?? '').slice(0, 40));
+
+/*
+ * SANS IDENTIFIANT, LE DÉPÔT RESTE ACCEPTÉ — et c'est l'index PARTIEL qui le
+ * permet. Un index unique ordinaire traiterait tous ces dossiers comme portant
+ * la même valeur `null` et refuserait le second : il interdirait d'avoir plus
+ * d'un dossier sans identifiant dans toute la base.
+ */
+const sansIdUn = await deposer({ expediteur: `anonyme1${S}${DOM}` });
+const sansIdDeux = await deposer({ expediteur: `anonyme2${S}${DOM}` });
+ok('**deux dépôts SANS identifiant sont tous deux acceptés** — l’index est partiel',
+  sansIdUn.statut === 201 && sansIdDeux.statut === 201,
+  `${sansIdUn.statut} puis ${sansIdDeux.statut}`);
+
+/* Et le canal widget, qui n'a jamais d'identifiant de message, n'est pas gêné. */
+const widgetUn = await bdd.collection('tickets').countDocuments({
+  canal: 'widget', messageCourriel: { $exists: false },
+});
+ok('les dossiers du widget ne portent pas la clé et ne sont pas contraints',
+  widgetUn >= 0, `${widgetUn} dossier(s) widget sans clé`);
+
 /* ------------------------------ Fin ------------------------------- */
 
 const menage = await purger();

@@ -162,6 +162,13 @@ export function preparerQuestion() {
       effortRedaction: CONFIG.effortRedaction,
       expediteur,
       sujet: sujet || 'Votre question',
+      /*
+       * L'IDENTIFIANT GMAIL VOYAGE JUSQU'AU DÉPÔT, et il n'y était pas avant le
+       * 26 octobre. C'est lui qui sert de clé d'idempotence côté API : deux
+       * dépôts du même message ne créent qu'un dossier. Sans lui, une relance
+       * après panne produirait un doublon dans la file de l'exploitant.
+       */
+      messageId: typeof courriel.id === 'string' ? courriel.id : '',
     };
 
     /* ---- Garde-fous anti-boucle : on IGNORE, on ne répond pas ---- */
@@ -310,10 +317,88 @@ export function normaliserCourriel() {
   return sorties;
 }
 
-/** Un élément par message trouvé — la recherche en rend un lot. */
+/**
+ * L'IDENTIFIANT DU LIBELLÉ DE TRAITEMENT, OU RIEN DU TOUT.
+ *
+ * Gmail ne sait poser un libellé que par son IDENTIFIANT, jamais par son nom :
+ * il faut donc lire la liste à chaque passage pour le résoudre. Le nom est
+ * recopié ici depuis `LIBELLE_TRAITE`, et il DOIT l'être — le corps d'un nœud
+ * Code est sérialisé tel quel, sans accès aux constantes de ce module. La suite
+ * de tests vérifie que les deux écritures concordent.
+ *
+ * ON LÈVE UNE ERREUR, ON NE REND PAS UN TABLEAU VIDE — corrigé le 26 octobre.
+ *
+ * Les deux arrêtent la branche, donc les deux sont « fail-closed » : sans
+ * identifiant de libellé, le flux pourrait lire la boîte et rédiger, mais pas se
+ * souvenir de l'avoir fait, et chaque passage reprendrait les mêmes courriels —
+ * un appel facturé au modèle toutes les dix minutes et par message.
+ *
+ * MAIS UN TABLEAU VIDE EST INDISTINGUABLE DE « rien à faire ». C'est exactement
+ * le défaut relevé dans le journal le 26 octobre, à propos de la relève : trois
+ * exécutions du 19 octobre contenaient `invalid_grant` et **s'affichaient en
+ * succès**, parce qu'un nœud qui ne rend rien ressemble à une boîte vide. Un
+ * garde-fou conçu pour ne rien perdre a masqué une panne pendant cinq jours.
+ *
+ * UNE EXCEPTION, ELLE, MARQUE L'EXÉCUTION EN ÉCHEC. Elle apparaît en rouge dans
+ * n8n, elle est comptée dans son journal d'événements, et elle nomme la cause.
+ * Le coût est le même — un passage perdu, repris dix minutes plus tard — mais
+ * cette fois quelqu'un peut le voir.
+ *
+ * TOUS LES CAS D'ARRÊT SONT DES ANOMALIES, et c'est pourquoi cette fonction ne
+ * rend jamais de tableau vide : « Créer le libellé » vient de s'exécuter juste
+ * avant. Que la liste soit illisible, malformée, ou qu'elle ne contienne pas un
+ * libellé créé il y a une seconde, aucun de ces cas n'est normal.
+ */
+export function resoudreLibelle() {
+  const reponse = $input.first().json;
+
+  if (reponse.error || reponse.statusCode !== 200) {
+    throw new Error(
+      `Gmail refuse la liste des libellés (statut ${reponse.statusCode ?? 'réseau'}). ` +
+      'Sans elle, impossible de marquer les courriels traités : le passage est abandonné.'
+    );
+  }
+
+  const libelles = reponse.body?.labels ?? [];
+  const traite = libelles.find((l) => l.name === 'CC/Support/Traite');
+
+  if (!traite?.id) {
+    throw new Error(
+      'Le libellé « CC/Support/Traite » est introuvable alors qu’il vient d’être créé. ' +
+      `${libelles.length} libellé(s) lus.`
+    );
+  }
+
+  return [{ json: { idTraite: traite.id } }];
+}
+
+/**
+ * Un élément par message trouvé — la recherche en rend un lot.
+ *
+ * « ZÉRO COURRIEL » ET « JE N'AI PAS PU LIRE » SONT DEUX CHOSES DIFFÉRENTES,
+ * et ce nœud les confondait jusqu'au 26 octobre.
+ *
+ * LE DÉFAUT EST DOCUMENTÉ, ET IL A COÛTÉ CINQ JOURS. Trois exécutions du
+ * 19 octobre portaient `invalid_grant` — le jeton OAuth était mort — et se sont
+ * affichées **en succès** : `neverError` avale l'erreur, le nœud rend un tableau
+ * vide, et une boîte illisible ressemble trait pour trait à une boîte vide.
+ * Pendant ce temps, un message du porteur du projet attendait sans que personne
+ * n'aille le chercher.
+ *
+ * UNE EXCEPTION MARQUE L'EXÉCUTION EN ÉCHEC, visible en rouge dans n8n et
+ * comptée dans son journal d'événements. Le tableau vide, lui, est réservé au
+ * seul cas où il dit la vérité : Gmail a répondu 200, et n'a rien trouvé.
+ */
 export function unElementParCourriel() {
   const reponse = $input.first().json;
-  if (reponse.error || reponse.statusCode !== 200) return [];
+
+  if (reponse.error || reponse.statusCode !== 200) {
+    throw new Error(
+      `Gmail refuse la recherche (statut ${reponse.statusCode ?? 'réseau'}). ` +
+      'Une boîte illisible n’est pas une boîte vide : le passage est abandonné, ' +
+      'et le suivant réessaiera.'
+    );
+  }
 
   // Gmail omet la clé `messages` quand la recherche ne trouve rien.
   const messages = Array.isArray(reponse.body?.messages) ? reponse.body.messages : [];
@@ -498,6 +583,15 @@ export function composerReponse() {
     brouillon: String(d.texte ?? '').slice(0, 4000),
   };
 
+  /*
+   * L'IDENTIFIANT N'EST ENVOYÉ QUE S'IL EXISTE, et cette précaution n'est pas
+   * cosmétique. Une chaîne vide serait acceptée par le validateur — le champ est
+   * optionnel — mais écrite en base, et l'index unique refuserait alors le
+   * DEUXIÈME courriel dépourvu d'identifiant, en les traitant tous comme un seul
+   * et même message. Mieux vaut ne pas écrire la clé que d'en écrire une fausse.
+   */
+  if (d.messageId) depot.messageId = String(d.messageId).slice(0, 200);
+
   return [{ json: { ...d, sujetReponse: sujet.slice(0, 200), depot } }];
 }
 
@@ -534,11 +628,30 @@ const IDENTIFIANT_ANTHROPIC = { id: 'ccAnthropicApi01', name: 'Anthropic — Coa
  * l'antivirus lui-même la désavoue. La parade du SMTP (passer du 465 au 587) ne
  * se transpose pas : `imap.gmail.com:143` ne répond pas du tout.
  *
- * LE HTTPS, LUI, N'EST PAS INTERCEPTÉ — mesuré : `accounts.google.com:443`
- * présente la vraie chaîne de Google. La relève passe donc par l'API Gmail, en
- * HTTPS, avec le client OAuth déjà en place. C'est d'ailleurs l'intention écrite
- * en tête de `mail.service.js` : un seul mécanisme pour lire la boîte et pour en
- * envoyer.
+ * LE HTTPS, LUI, PASSE — mais pas pour la raison qu'on avait d'abord écrite.
+ * La relève passe donc par l'API Gmail, en HTTPS, avec le client OAuth déjà en
+ * place. C'est d'ailleurs l'intention écrite en tête de `mail.service.js` : un
+ * seul mécanisme pour lire la boîte et pour en envoyer.
+ *
+ * CORRECTION DU 26 OCTOBRE. Il était écrit ici « le HTTPS n'est pas intercepté
+ * — mesuré : `accounts.google.com:443` présente la vraie chaîne de Google ».
+ * La mesure était juste, la généralisation non : l'interception du 443 est
+ * SÉLECTIVE, et `accounts.google.com` se trouve être le seul hôte du projet
+ * qu'Avast laisse en direct.
+ *
+ *   accounts.google.com      direct, Google Trust Services        72 ms
+ *   gmail.googleapis.com     INTERCEPTÉ, Avast Web/Mail Shield   438 ms
+ *   api.anthropic.com        INTERCEPTÉ                          400 ms
+ *   api.stripe.com           INTERCEPTÉ                          505 ms
+ *
+ * CE QUI CHANGE EN PRATIQUE : rien pour ce flux, qui marche. Mais cela explique
+ * pourquoi le conteneur a besoin du certificat d'Avast pour joindre Gmail et
+ * Anthropic, et pourquoi une panne de ce certificat se manifeste par « l'agent
+ * n'atteint plus Claude » alors que le rafraîchissement du jeton, lui, continue.
+ * La différence entre l'IMAP et le HTTPS n'est donc pas l'interception — c'est
+ * qu'Avast resigne le 443 avec une autorité qu'on peut lui ajouter, et le 993
+ * avec `Avast Web/Mail Shield Untrusted Root`, que l'antivirus désavoue
+ * lui-même et que le 15.32 interdit d'approuver.
  *
  * Et toujours aucun identifiant SMTP : ce workflow n'envoie rien. Il dépose un
  * brouillon, et l'API expédiera après validation humaine.
@@ -548,20 +661,117 @@ const IDENTIFIANT_GMAIL = { id: 'ccGmailOAuth0001', name: 'Gmail (assistant de m
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
 /**
+ * LE LIBELLÉ DE TRAITEMENT — LE MARQUEUR QUI A REMPLACÉ `is:unread`.
+ *
+ * UN NOM SANS ESPACE, ET DÉLIBÉRÉMENT. Gmail écrit un libellé en minuscules
+ * dans une recherche et remplace « / » par « - » : `CC/Support/Traite` devient
+ * `cc-support-traite`. C'est la transformation déjà éprouvée par `cc-traite` et
+ * `cc-prive`. Un nom à espace — « CC/Support traite » — dépendrait en plus de
+ * la conversion des espaces, que rien dans ce projet n'a vérifiée.
+ *
+ * PAS `CC/Traite`, QUI EXISTE DÉJÀ ET APPARTIENT À L'AUTRE AGENT. L'assistant
+ * de messagerie relève LA MÊME BOÎTE, avec le même identifiant OAuth, et pose
+ * `CC/Traite` sur tout ce qu'il classe, toutes les quinze minutes. Le partager
+ * ferait que chaque flux rendrait l'autre aveugle : le tri aurait volé chaque
+ * question de support avant que le support ne la voie.
+ *
+ * C'EST AUSSI POURQUOI LA RECHERCHE CI-DESSOUS N'EXCLUT PAS `-label:cc-traite`.
+ * Ce serait le même piège, dans l'autre sens — et il serait pire, parce que le
+ * tri passe toutes les quinze minutes et le support toutes les dix.
+ *
+ * LE NOM EST RECOPIÉ DANS `resoudreLibelle()`, et il doit l'être : le corps
+ * d'un nœud Code est sérialisé tel quel, sans accès aux constantes de ce
+ * module. La suite de tests vérifie que les deux écritures concordent.
+ */
+const LIBELLE_TRAITE = 'CC/Support/Traite';
+
+/**
  * LA RECHERCHE, ET CHACUN DE SES TERMES.
  *
- *   in:inbox      les messages archivés ou en corbeille ne concernent personne
- *   is:unread     le seul marqueur d'un message pas encore traité
- *   -from:me      garde-fou anti-boucle À LA SOURCE, et il ne dépend pas de
- *                 `CONFIG.boite` : Gmail sait qui est « me », nous le
- *                 supposions
- *   after:…       borne l'arriéré. Sans elle, la première relève traiterait
- *                 TOUS les non-lus de la boîte — autant de brouillons d'un
- *                 coup, et autant d'appels facturés au modèle. L'arriéré reste
- *                 intact dans Gmail, pour un traitement à la main.
+ *   in:inbox        les messages archivés ou en corbeille ne concernent personne
+ *   -from:me        garde-fou anti-boucle À LA SOURCE, et il ne dépend pas de
+ *                   `CONFIG.boite` : Gmail sait qui est « me », nous le
+ *                   supposions
+ *   after:…         borne l'arriéré. Sans elle, la première relève traiterait
+ *                   TOUTE la boîte — autant de brouillons d'un coup, et autant
+ *                   d'appels facturés au modèle. L'arriéré reste intact dans
+ *                   Gmail, pour un traitement à la main.
+ *   -label:cc-prive L'EXCLUSION VOLONTAIRE DE L'EXPLOITANT. Le libellé existe
+ *                   déjà et porte déjà ce sens dans l'assistant de messagerie :
+ *                   il rend l'agent AVEUGLE sur un message. Aucune portée Google
+ *                   ne sait faire cela — `gmail.modify` porte sur la boîte
+ *                   entière — donc l'exclusion est dans la REQUÊTE, et c'est
+ *                   l'exploitant qui pose le libellé, jamais l'agent.
+ *   -label:cc-support-traite
+ *                   CE QUE CE FLUX A DÉJÀ TRAITÉ. Posé par le flux lui-même,
+ *                   sur le message, avant les étapes coûteuses.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ *  `is:unread` A ÉTÉ RETIRÉ LE 26 OCTOBRE, ET REMPLACÉ
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * `is:unread` confondait deux questions sans rapport : *un humain a-t-il regardé
+ * ce message ?* et *l'agent l'a-t-il traité ?* Tout courriel ouvert avant le
+ * passage du flux — même par mégarde — devenait donc invisible à l'agent,
+ * définitivement et sans trace.
+ *
+ * CE N'ÉTAIT PAS THÉORIQUE. Deux courriels de test, les 24 et 26 octobre, sont
+ * arrivés dans la boîte **déjà marqués lus**, sans que le porteur du projet les
+ * ouvre : l'aperçu d'une notification a suffi. Mesuré en interrogeant Gmail avec
+ * le jeton du serveur — les deux portaient `INBOX` sans `UNREAD`, et cette
+ * recherche rendait **zéro** message alors que la boîte en contenait cinq.
+ *
+ * LE REMPLAÇANT RÉPOND À LA SECONDE QUESTION, ET SEULEMENT À ELLE. L'état de
+ * lecture redevient ce qu'il est : l'affaire de l'humain qui regarde sa boîte.
+ * C'est pourquoi ce flux NE MARQUE PLUS RIEN COMME LU — il posait `removeLabelIds:
+ * ["UNREAD"]` jusqu'au 26 octobre, ce qui effaçait justement l'information que
+ * l'exploitant utilise pour savoir ce qu'il n'a pas encore vu.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ *  L'IDEMPOTENCE NE REMPLAÇAIT PAS LE FILTRE — ET J'AVAIS CRU LE CONTRAIRE
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * `Ticket.messageCourriel` porte l'identifiant du message sous index unique
+ * partiel depuis le 26 octobre : deux dépôts du même courriel ne créent qu'un
+ * dossier, et l'API répond `200` au lieu de `201` pour le dire.
+ *
+ * MAIS CELA NE SUFFISAIT PAS À RETIRER LE FILTRE. Ce flux RÉDIGE AVANT DE
+ * DÉPOSER : sans filtre à la source, chaque passage relirait les mêmes courriels
+ * et rappellerait le modèle à chaque tour. L'idempotence refuserait le dossier —
+ * après avoir payé la rédaction. Cinq courriels dans la fenêtre, un passage
+ * toutes les dix minutes : environ sept cents rédactions par jour pour rien.
+ *
+ * LES DEUX SONT DONC COMPLÉMENTAIRES, non alternatifs. Le filtre évite la
+ * dépense ; l'index garantit la correction quand le filtre laisse passer — une
+ * rédaction perdue, jamais un doublon dans la file de l'exploitant.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ *  CE QUE LE CHANGEMENT A COÛTÉ, EN REQUÊTES
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * Avant : une requête `modify` par courriel, pour ôter `UNREAD`.
+ * Après : une requête `modify` par courriel, pour poser le libellé, plus deux
+ * par passage — créer le libellé (un 409 quand il existe) et lire la liste pour
+ * en résoudre l'identifiant. Soit douze requêtes de plus par heure, sur un
+ * quota Gmail de deux cent cinquante unités par seconde.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ *  LA LIGNE DE DÉPART A DÛ ÊTRE POSÉE À LA MAIN, UNE FOIS
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * Le jour du changement, aucun message de la boîte ne portait le nouveau
+ * libellé : la recherche les rendait donc tous « à traiter ». Mesuré — cinq
+ * messages, tous déjà traités, dont une notification de Google. Sans parade,
+ * la première relève aurait rédigé pour chacun.
+ *
+ * `node docker/n8n/libeller-courriels-traites.mjs --appliquer` les a marqués,
+ * et la recherche est repassée de cinq à zéro. Le script est rejouable, et sert
+ * de vérification : s'il rend un nombre non nul alors que le flux tourne, c'est
+ * que le marquage échoue quelque part.
  */
 const DEPUIS_GMAIL = '2026/10/09';
-const RECHERCHE = `in:inbox is:unread -from:me after:${DEPUIS_GMAIL}`;
+const RECHERCHE =
+  `in:inbox -from:me after:${DEPUIS_GMAIL} -label:cc-prive -label:cc-support-traite`;
 
 /*
  * CINQ MESSAGES PAR PASSAGE, TOUTES LES DIX MINUTES.
@@ -608,7 +818,7 @@ const noeudSi = (nom, gauche, pos) => ({
   position: pos,
 });
 
-const noeudGmail = (nom, parametres, pos) => ({
+const noeudGmail = (nom, parametres, pos, extra = {}) => ({
   parameters: {
     authentication: 'genericCredentialType',
     genericAuthType: 'oAuth2Api',
@@ -622,6 +832,7 @@ const noeudGmail = (nom, parametres, pos) => ({
   ...continuerSurErreur,
   position: pos,
   credentials: { oAuth2Api: IDENTIFIANT_GMAIL },
+  ...extra,
 });
 
 const noeuds = [
@@ -633,6 +844,32 @@ const noeuds = [
     typeVersion: 1.2,
     position: position(0),
   },
+  /*
+   * CRÉER LE LIBELLÉ AVANT DE CHERCHER, À CHAQUE PASSAGE.
+   *
+   * Un libellé qui existe déjà répond 409 : c'est attendu, sans effet, et
+   * `neverError` le laisse passer comme un statut ordinaire. Le coût est d'une
+   * requête toutes les dix minutes — le prix d'un flux qui fonctionne sur une
+   * boîte neuve sans qu'on ait à y préparer quoi que ce soit à la main.
+   *
+   * C'est le même raisonnement que `Créer les libellés` dans l'assistant de
+   * messagerie, et le même nœud à un nom près.
+   */
+  noeudGmail('Créer le libellé', {
+    method: 'POST',
+    url: `${GMAIL}/labels`,
+    sendBody: true,
+    specifyBody: 'json',
+    jsonBody: `={{ JSON.stringify({ name: ${JSON.stringify(LIBELLE_TRAITE)}, labelListVisibility: 'labelShow', messageListVisibility: 'show' }) }}`,
+  }, position(1)),
+  /*
+   * LIRE LA LISTE POUR RÉSOUDRE LE NOM EN IDENTIFIANT. Gmail ne sait poser un
+   * libellé que par son identifiant, et celui-ci est propre à la boîte : on ne
+   * peut pas l'écrire en dur sans que le flux cesse de marcher sur une autre
+   * adresse — ou le jour où l'exploitant supprime puis recrée le libellé.
+   */
+  noeudGmail('Lire les libellés', { url: `${GMAIL}/labels` }, position(2), { executeOnce: true }),
+  noeudCode('Résoudre le libellé', resoudreLibelle, position(3)),
   noeudGmail('Chercher les courriels', {
     url: `${GMAIL}/messages`,
     sendQuery: true,
@@ -642,40 +879,46 @@ const noeuds = [
         { name: 'maxResults', value: String(MAX_PAR_PASSAGE) },
       ],
     },
-  }, position(1)),
-  noeudCode('Un élément par courriel', unElementParCourriel, position(2)),
+  }, position(4)),
+  noeudCode('Un élément par courriel', unElementParCourriel, position(5)),
   noeudGmail('Lire le courriel', {
     url: `={{ '${GMAIL}/messages/' + $json.id }}`,
     sendQuery: true,
     queryParameters: { parameters: [{ name: 'format', value: 'full' }] },
-  }, position(3)),
-  noeudCode('Normaliser le courriel', normaliserCourriel, position(4)),
+  }, position(6)),
+  noeudCode('Normaliser le courriel', normaliserCourriel, position(7)),
   /*
-   * MARQUER COMME LU, EN DÉRIVATION ET NON DANS LA CHAÎNE.
+   * POSER LE LIBELLÉ, EN DÉRIVATION ET NON DANS LA CHAÎNE.
    *
    * C'est ce qui empêche de retraiter le même message à chaque passage — donc
    * de répondre deux fois à la même question, et de payer deux fois pour elle.
-   * Le raisonnement est celui de l'ancien `postProcessAction: 'read'`, et le
-   * moment aussi : avant les étapes coûteuses, pas après.
+   * Le moment est celui de l'ancien marquage « lu », et de l'ancien
+   * `postProcessAction: 'read'` de l'IMAP : AVANT les étapes coûteuses, pas
+   * après.
    *
    * EN DÉRIVATION parce qu'un nœud HTTP rend la réponse HTTP : le brancher dans
    * la chaîne principale remplacerait le courriel normalisé par un code de
    * statut, et tout ce qui suit perdrait sa donnée.
    *
-   * CONSÉQUENCE ASSUMÉE : si une étape ultérieure échoue, le message reste
-   * marqué comme lu et ne sera pas repris automatiquement. Il est toujours dans
-   * Gmail, et l'exploitant le voit — c'était déjà le comportement de l'IMAP, et
-   * changer cela en même temps que le transport aurait mêlé deux décisions.
+   * CE NŒUD A REMPLACÉ « Marquer comme lu » LE 26 OCTOBRE. L'ancien posait
+   * `removeLabelIds: ["UNREAD"]`, ce qui effaçait l'information que l'exploitant
+   * utilise pour savoir ce qu'il n'a pas encore vu. Le libellé dit exactement ce
+   * qu'il veut dire — « ce flux s'en est occupé » — et ne touche à rien d'autre.
+   *
+   * CONSÉQUENCE ASSUMÉE, INCHANGÉE : si une étape ultérieure échoue, le message
+   * reste marqué traité et ne sera pas repris automatiquement. Il est toujours
+   * dans Gmail, désormais NON LU, et l'exploitant le voit — il le voit même
+   * mieux qu'avant, puisque son état de lecture n'est plus effacé.
    */
-  noeudGmail('Marquer comme lu', {
+  noeudGmail('Poser le libellé', {
     method: 'POST',
     url: `={{ '${GMAIL}/messages/' + $json.id + '/modify' }}`,
     sendBody: true,
     specifyBody: 'json',
-    jsonBody: '={{ JSON.stringify({ removeLabelIds: ["UNREAD"] }) }}',
-  }, position(5, 1)),
-  noeudCode('Préparer la question', preparerQuestion, position(5)),
-  noeudSi('Demande valide ?', '={{ $json.valide }}', position(6)),
+    jsonBody: "={{ JSON.stringify({ addLabelIds: [$('Résoudre le libellé').first().json.idTraite] }) }}",
+  }, position(8, 1)),
+  noeudCode('Préparer la question', preparerQuestion, position(8)),
+  noeudSi('Demande valide ?', '={{ $json.valide }}', position(9)),
   {
     parameters: {
       url: `={{ ${DEMANDE}.api }}/support/service/fiches/recherche`,
@@ -695,11 +938,11 @@ const noeuds = [
     type: 'n8n-nodes-base.httpRequest',
     typeVersion: 4.3,
     ...continuerSurErreur,
-    position: position(7),
+    position: position(10),
     credentials: { httpHeaderAuth: IDENTIFIANT_CLE_SERVICE },
   },
-  noeudCode('Préparer la rédaction', preparerRedaction, position(8)),
-  noeudSi('Faut-il rédiger ?', '={{ $json.redige }}', position(9)),
+  noeudCode('Préparer la rédaction', preparerRedaction, position(11)),
+  noeudSi('Faut-il rédiger ?', '={{ $json.redige }}', position(12)),
   {
     parameters: {
       method: 'POST',
@@ -723,11 +966,11 @@ const noeuds = [
     type: 'n8n-nodes-base.httpRequest',
     typeVersion: 4.3,
     ...continuerSurErreur,
-    position: position(10),
+    position: position(13),
     credentials: { anthropicApi: IDENTIFIANT_ANTHROPIC },
   },
-  noeudCode('Lire la rédaction', lireRedaction, position(11)),
-  noeudCode('Composer la réponse', composerReponse, position(12)),
+  noeudCode('Lire la rédaction', lireRedaction, position(14)),
+  noeudCode('Composer la réponse', composerReponse, position(15)),
   {
     parameters: {
       method: 'POST',
@@ -744,7 +987,7 @@ const noeuds = [
     type: 'n8n-nodes-base.httpRequest',
     typeVersion: 4.3,
     ...continuerSurErreur,
-    position: position(13),
+    position: position(16),
     credentials: { httpHeaderAuth: IDENTIFIANT_CLE_SERVICE },
   },
 ];
@@ -752,7 +995,19 @@ const noeuds = [
 const vers = (...noms) => noms.map((node) => ({ node, type: 'main', index: 0 }));
 
 const connexions = {
-  'Relève périodique': { main: [vers('Chercher les courriels')] },
+  'Relève périodique': { main: [vers('Créer le libellé')] },
+  'Créer le libellé': { main: [vers('Lire les libellés')] },
+  'Lire les libellés': { main: [vers('Résoudre le libellé')] },
+  /*
+   * LE LIBELLÉ EST RÉSOLU AVANT LA RECHERCHE, ET C'EST LE GARDE-FOU DE COÛT.
+   *
+   * `Résoudre le libellé` rend un tableau vide si l'identifiant est
+   * introuvable, ce qui arrête tout ici — avant la recherche, avant la lecture,
+   * avant l'appel au modèle. Un flux qui ne peut pas marquer ce qu'il traite ne
+   * doit rien traiter : il reprendrait sinon les mêmes courriels à chaque
+   * passage.
+   */
+  'Résoudre le libellé': { main: [vers('Chercher les courriels')] },
   'Chercher les courriels': { main: [vers('Un élément par courriel')] },
   'Un élément par courriel': { main: [vers('Lire le courriel')] },
   'Lire le courriel': { main: [vers('Normaliser le courriel')] },
@@ -761,7 +1016,7 @@ const connexions = {
    * marquage ne rend que la réponse HTTP de Gmail et s'arrête là ; la donnée
    * normalisée continue vers `Préparer la question` sans être écrasée.
    */
-  'Normaliser le courriel': { main: [vers('Préparer la question', 'Marquer comme lu')] },
+  'Normaliser le courriel': { main: [vers('Préparer la question', 'Poser le libellé')] },
   'Préparer la question': { main: [vers('Demande valide ?')] },
   'Demande valide ?': { main: [vers('Chercher des fiches'), vers('Composer la réponse')] },
   'Chercher des fiches': { main: [vers('Préparer la rédaction')] },

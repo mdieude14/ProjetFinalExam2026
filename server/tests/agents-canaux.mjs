@@ -128,8 +128,12 @@ for (const [nom, w, attendus] of [
   ['Courriel', ml.workflowCourriel, [
     // La relève passe par l'API Gmail depuis le 9 octobre : Avast intercepte
     // le port IMAP et le resigne avec une autorité qu'il désavoue lui-même.
-    'Relève périodique', 'Chercher les courriels', 'Un élément par courriel',
-    'Lire le courriel', 'Normaliser le courriel', 'Marquer comme lu',
+    'Relève périodique',
+    // Le libellé de traitement a remplacé `is:unread` le 26 octobre : il faut
+    // le créer, lire la liste pour en résoudre l'identifiant, puis le poser.
+    'Créer le libellé', 'Lire les libellés', 'Résoudre le libellé',
+    'Chercher les courriels', 'Un élément par courriel',
+    'Lire le courriel', 'Normaliser le courriel', 'Poser le libellé',
     'Préparer la question', 'Demande valide ?', 'Chercher des fiches',
     'Préparer la rédaction', 'Faut-il rédiger ?', 'Rédiger la réponse', 'Lire la rédaction',
     // Le canal n'expédie plus : il dépose un brouillon que l'exploitant valide.
@@ -244,9 +248,18 @@ ok('**Courriel : le brouillon est déposé dans l’API, derrière la clé de se
  * Avast intercepte `imap.gmail.com:993` et le resigne avec
  * `Avast Web/Mail Shield Untrusted Root` — l'autorité que le 15.32 interdit
  * d'ajouter à la confiance, puisque l'antivirus lui-même la désavoue. Et la
- * parade du SMTP ne se transpose pas : le 143 ne répond pas. Le HTTPS, lui,
- * n'est pas intercepté — mesuré. Un retour à l'IMAP rouvrirait ce mur sans
- * bruit, et l'activation échouerait en silence.
+ * parade du SMTP ne se transpose pas : le 143 ne répond pas.
+ *
+ * LE HTTPS, LUI, PASSE — et la correction du 26 octobre précise pourquoi. Il
+ * était écrit ici « n'est pas intercepté — mesuré » ; c'est faux en général.
+ * `gmail.googleapis.com:443` EST intercepté, comme `api.anthropic.com` et
+ * `api.stripe.com` ; seul `accounts.google.com` sort en direct. La différence
+ * avec l'IMAP n'est donc pas l'interception, mais l'autorité employée pour
+ * resigner : une autorité ordinaire sur le 443, qu'on peut ajouter au
+ * conteneur, et `Avast Web/Mail Shield Untrusted Root` sur le 993.
+ *
+ * Un retour à l'IMAP rouvrirait ce mur sans bruit, et l'activation échouerait
+ * en silence.
  */
 ok('**Courriel : la relève passe par l’API Gmail en HTTPS, jamais par l’IMAP**',
   ml.workflowCourriel.nodes.every((n) => !/emailReadImap/.test(n.type)) &&
@@ -257,8 +270,8 @@ const rechercheCourriel = String(
     .find((p) => p.name === 'q') ?? {}).value ?? ''
 );
 
-ok('Courriel : seuls les non-lus de la boîte de réception sont relevés',
-  /in:inbox/.test(rechercheCourriel) && /is:unread/.test(rechercheCourriel), rechercheCourriel);
+ok('Courriel : seule la boîte de réception est relevée',
+  /in:inbox/.test(rechercheCourriel), rechercheCourriel);
 
 ok('**Courriel : l’arriéré est écarté** — `after:` borne la première relève',
   /after:\d{4}\/\d{2}\/\d{2}/.test(rechercheCourriel));
@@ -266,9 +279,56 @@ ok('**Courriel : l’arriéré est écarté** — `after:` borne la première re
 ok('**Courriel : on ne se relève pas soi-même** — garde-fou posé à la source, qui ne dépend d’aucune constante',
   /-from:me/.test(rechercheCourriel));
 
-ok('**Courriel : le message est marqué comme lu**, pour ne pas être retraité ni repayé',
-  mlNoeuds['Marquer comme lu'].parameters.url.includes('/modify') &&
-  mlNoeuds['Marquer comme lu'].parameters.jsonBody.includes('UNREAD'));
+/* ------------------------------------------------------------------ *
+ *  LE LIBELLÉ DE TRAITEMENT, QUI A REMPLACÉ `is:unread` LE 26 OCTOBRE
+ * ------------------------------------------------------------------ */
+
+/*
+ * POURQUOI CES VÉRIFICATIONS EXISTENT.
+ *
+ * `is:unread` confondait deux questions : *un humain a-t-il regardé ce
+ * message ?* et *l'agent l'a-t-il traité ?* Deux courriels de test, les 24 et
+ * 26 octobre, sont arrivés déjà marqués lus — l'aperçu d'une notification a
+ * suffi — et sont devenus invisibles à l'agent, définitivement.
+ *
+ * Le remplaçant est un libellé posé par le flux. Chacune des vérifications
+ * ci-dessous défend une pièce de ce mécanisme, et chacune correspond à une
+ * façon précise de le casser sans s'en apercevoir.
+ */
+
+ok('**Courriel : `is:unread` n’est plus dans la recherche** — un message lu par mégarde reste traitable',
+  !/is:unread/.test(rechercheCourriel), rechercheCourriel);
+
+ok('**Courriel : ce que le flux a traité est écarté par libellé**, pas par état de lecture',
+  /-label:cc-support-traite/.test(rechercheCourriel), rechercheCourriel);
+
+ok('Courriel : l’exclusion volontaire de l’exploitant est toujours là',
+  /-label:cc-prive/.test(rechercheCourriel), rechercheCourriel);
+
+/*
+ * LE PIÈGE À NE PAS TENDRE : partager `CC/Traite` avec l'assistant de
+ * messagerie. Les deux flux relèvent LA MÊME BOÎTE avec le même identifiant
+ * OAuth, et le tri pose `CC/Traite` sur tout ce qu'il classe, toutes les
+ * quinze minutes. Si le support excluait ce libellé, le tri lui aurait volé
+ * chaque question avant qu'il ne la voie — et le support passe toutes les dix
+ * minutes, donc il perdrait la course une fois sur deux. Silencieusement.
+ */
+ok('**Courriel : la recherche n’exclut PAS `cc-traite`** — l’autre agent ne doit pas rendre celui-ci aveugle',
+  !/-label:cc-traite\b/.test(rechercheCourriel), rechercheCourriel);
+
+ok('**Courriel : le libellé est posé sur le message**, pour ne pas être retraité ni repayé',
+  mlNoeuds['Poser le libellé'].parameters.url.includes('/modify') &&
+  mlNoeuds['Poser le libellé'].parameters.jsonBody.includes('addLabelIds') &&
+  mlNoeuds['Poser le libellé'].parameters.jsonBody.includes('idTraite'));
+
+/*
+ * L'ÉTAT DE LECTURE N'EST PLUS TOUCHÉ, NULLE PART. Le flux ôtait `UNREAD`
+ * jusqu'au 26 octobre, ce qui effaçait justement l'information dont
+ * l'exploitant se sert pour savoir ce qu'il n'a pas encore vu. Le libellé dit
+ * « ce flux s'en est occupé » ; le gras n'appartient qu'à l'humain.
+ */
+ok('**Courriel : plus aucun nœud ne touche à `UNREAD`** — le non-lu redevient l’affaire de l’humain',
+  ml.workflowCourriel.nodes.every((n) => !JSON.stringify(n.parameters).includes('UNREAD')));
 
 /*
  * LE MARQUAGE EST EN DÉRIVATION, et ce n'est pas une question d'esthétique : un
@@ -278,7 +338,113 @@ ok('**Courriel : le message est marqué comme lu**, pour ne pas être retraité 
  */
 ok('**Courriel : le marquage est en dérivation** — la donnée normalisée n’est pas écrasée',
   ml.workflowCourriel.connections['Normaliser le courriel'].main[0]
-    .map((l) => l.node).includes('Marquer comme lu'));
+    .map((l) => l.node).includes('Poser le libellé'));
+
+/*
+ * LE LIBELLÉ EST RÉSOLU AVANT LA RECHERCHE, et c'est le garde-fou de coût.
+ * L'inverse — chercher d'abord, résoudre ensuite — laisserait le flux lire la
+ * boîte et appeler le modèle alors qu'il ne peut pas marquer ce qu'il traite.
+ */
+ok('**Courriel : le libellé est résolu AVANT la recherche** — rien ne se traite si rien ne peut se marquer',
+  ml.workflowCourriel.connections['Relève périodique'].main[0][0].node === 'Créer le libellé' &&
+  ml.workflowCourriel.connections['Créer le libellé'].main[0][0].node === 'Lire les libellés' &&
+  ml.workflowCourriel.connections['Lire les libellés'].main[0][0].node === 'Résoudre le libellé' &&
+  ml.workflowCourriel.connections['Résoudre le libellé'].main[0][0].node === 'Chercher les courriels');
+
+ok('Courriel : la liste des libellés n’est lue qu’une fois par passage',
+  mlNoeuds['Lire les libellés'].executeOnce === true);
+
+/*
+ * LES TROIS ÉCRITURES DU NOM DOIVENT CONCORDER, et rien dans le langage ne
+ * l'impose : le corps d'un nœud Code est sérialisé tel quel, sans accès aux
+ * constantes du module, donc le nom y est RECOPIÉ. Une faute de frappe dans
+ * l'une des trois donnerait un flux qui tourne, crée un libellé, en cherche un
+ * autre, et reprend indéfiniment les mêmes courriels — en payant.
+ */
+const libelleTraite = JSON.parse(
+  (mlNoeuds['Créer le libellé'].parameters.jsonBody.match(/name:\s*("(?:[^"\\]|\\.)*")/) ?? [])[1] ?? '""'
+);
+const slugLibelle = libelleTraite.toLowerCase().replace(/\//g, '-');
+
+ok('**Courriel : le nom du libellé créé, celui résolu et celui exclu sont le même**',
+  libelleTraite.length > 0 &&
+  mlNoeuds['Résoudre le libellé'].parameters.jsCode.includes(`'${libelleTraite}'`) &&
+  rechercheCourriel.includes(`-label:${slugLibelle}`),
+  `${libelleTraite} → -label:${slugLibelle}`);
+
+/*
+ * UN NOM SANS ESPACE, ET LA VÉRIFICATION LE DÉFEND. Gmail remplace « / » par
+ * « - » dans une recherche — transformation éprouvée par `cc-traite` et
+ * `cc-prive`. Un nom à espace dépendrait en plus de la conversion des espaces,
+ * que rien dans ce projet n'a mesurée : le slug calculé ci-dessus serait alors
+ * faux, et la recherche exclurait un libellé qui n'existe pas.
+ */
+ok('Courriel : le nom du libellé ne contient aucun espace',
+  !/\s/.test(libelleTraite), libelleTraite);
+
+/*
+ * LE SCRIPT DE LIGNE DE DÉPART PORTE LA MÊME RECHERCHE, et il doit la porter :
+ * c'est lui qui a marqué l'arriéré avant le retrait d'`is:unread`. Si les deux
+ * divergeaient, il marquerait un ensemble de messages différent de celui que le
+ * flux reprendrait — et l'arriéré repasserait par le modèle.
+ */
+const rechercheScript = readFileSync(
+  new URL('../../docker/n8n/libeller-courriels-traites.mjs', import.meta.url), 'utf8'
+);
+
+ok('**Courriel : le script de ligne de départ cherche exactement comme le flux**',
+  rechercheScript.includes('in:inbox -from:me after:${DEPUIS} -label:cc-prive -label:cc-support-traite') &&
+  rechercheScript.includes(`const LIBELLE = '${libelleTraite}'`),
+  rechercheCourriel);
+
+/* ------------------------------------------------------------------ *
+ *  `resoudreLibelle` — LE GARDE-FOU DE COÛT, EXERCÉ
+ * ------------------------------------------------------------------ */
+
+const resolu = executer(ml.resoudreLibelle, {
+  entree: [{ json: { statusCode: 200, body: { labels: [
+    { id: 'Label_9', name: 'CC/Traite' },
+    { id: 'Label_1', name: libelleTraite },
+  ] } } }],
+});
+
+ok('Courriel : l’identifiant du libellé est résolu par son nom exact',
+  resolu.length === 1 && resolu[0].json.idTraite === 'Label_1',
+  JSON.stringify(resolu));
+
+/*
+ * UNE EXCEPTION, ET NON UN TABLEAU VIDE — corrigé le 26 octobre.
+ *
+ * Les deux arrêtent la branche, donc les deux protègent de la dépense : un flux
+ * qui ne peut pas se souvenir d'avoir traité un courriel reprendrait les mêmes à
+ * chaque passage, soit environ sept cents rédactions facturées par jour.
+ *
+ * MAIS UN TABLEAU VIDE EST INDISTINGUABLE DE « rien à faire ». C'est le défaut
+ * qui a coûté cinq jours en octobre : trois exécutions portant `invalid_grant`
+ * se sont affichées EN SUCCÈS, parce qu'un nœud qui ne rend rien ressemble à une
+ * boîte vide. Une exception, elle, marque l'exécution en échec — visible en
+ * rouge dans n8n, comptée dans son journal, et elle nomme la cause.
+ *
+ * LES QUATRE CAS SONT DES ANOMALIES : « Créer le libellé » vient de s'exécuter.
+ * Que la liste soit illisible, malformée, ou qu'elle ne contienne pas un libellé
+ * créé il y a une seconde, aucun n'est un fonctionnement normal.
+ */
+const leve = (fonction, entree) => {
+  try { executer(fonction, { entree }); return null; } catch (e) { return e.message; }
+};
+
+for (const [cas, sansLibelle] of [
+  ['la liste des libellés est en erreur', [{ json: { error: true } }]],
+  ['la liste répond autre chose que 200', [{ json: { statusCode: 403, body: {} } }]],
+  ['le libellé est absent de la liste', [{ json: { statusCode: 200, body: { labels: [
+    { id: 'Label_9', name: 'CC/Traite' },
+  ] } } }]],
+  ['la réponse n’a aucun libellé', [{ json: { statusCode: 200, body: {} } }]],
+]) {
+  const message = leve(ml.resoudreLibelle, sansLibelle);
+  ok(`**Courriel : l’exécution ÉCHOUE quand ${cas}** — pas de dépense, et la panne se voit`,
+    message !== null && message.length > 20, message ?? 'aucune exception');
+}
 
 /*
  * LA NORMALISATION REND EXACTEMENT LA STRUCTURE QUE `preparerQuestion` LIT.
@@ -325,6 +491,29 @@ ok('Courriel : chaque message trouvé devient un élément',
   executer(ml.unElementParCourriel, {
     entree: [{ json: { statusCode: 200, body: { messages: [{ id: 'a1', threadId: 't1' }, { id: 'b2', threadId: 't2' }] } } }],
   }).length === 2);
+
+/*
+ * « ZÉRO COURRIEL » ET « JE N'AI PAS PU LIRE » NE DOIVENT PLUS SE RESSEMBLER.
+ *
+ * LE DÉFAUT EST DOCUMENTÉ, ET IL A COÛTÉ CINQ JOURS. Le 19 octobre, le jeton
+ * OAuth était mort : trois exécutions ont porté `invalid_grant` et se sont
+ * affichées en SUCCÈS, parce que `neverError` avale l'erreur et que le nœud
+ * rendait un tableau vide. Pendant ce temps, un message attendait dans la boîte
+ * sans que personne n'aille le chercher.
+ *
+ * LA VÉRIFICATION DU DESSUS RESTE, ET C'EST LE POINT : le tableau vide est
+ * désormais réservé au seul cas où il dit la vérité — Gmail a répondu 200 et
+ * n'a rien trouvé.
+ */
+for (const [cas, illisible] of [
+  ['la recherche est en erreur réseau', [{ json: { error: 'ETIMEDOUT' } }]],
+  ['Gmail répond 401 — jeton expiré', [{ json: { statusCode: 401, body: { error: { message: 'invalid_grant' } } } }]],
+  ['Gmail répond 429 — quota dépassé', [{ json: { statusCode: 429, body: {} } }]],
+]) {
+  const message = leve(ml.unElementParCourriel, illisible);
+  ok(`**Courriel : une boîte illisible n’est PAS une boîte vide — ${cas}**`,
+    message !== null && /illisible/.test(message), message ?? 'aucune exception');
+}
 
 /*
  * LA SIGNATURE PUBLICITAIRE DE n8n EST ACTIVE PAR DÉFAUT sur ses nœuds d'envoi.
@@ -1189,11 +1378,16 @@ ok('**Courriel : le dépôt respecte les bornes de l’API** — 120 / 2000 / 40
 /* ================================================================== *
  *  4 — AGENT DU WIDGET : DEUX MODÈLES, CHACUN À SA PLACE
  *
- *  Le classement tourne sur Haiku 4.5, la rédaction sur Opus 5. Haiku
- *  REFUSE le paramètre `effort` (400, vérifié) : le réintroduire par
- *  mégarde enverrait chaque question du widget en « agent indisponible »,
- *  sans qu'aucune erreur ne remonte ailleurs que dans n8n. Ces vérifications
- *  exercent le code RÉEL du JSON importé, pas le générateur.
+ *  Le classement tourne sur Haiku 5.5, la rédaction sur Opus 5.
+ *
+ *  CES ASSERTIONS ONT ÉTÉ INVERSÉES LE 26 OCTOBRE, et c'est le point à retenir :
+ *  elles épinglaient les contraintes de Haiku 4.5, qui refusait `effort` (400) et
+ *  acceptait `fallbacks`. Haiku 5.5 fait l'exact inverse — il accepte `effort` et
+ *  n'a AUCUN repli serveur, où `fallbacks: 'default'` est inerte et la forme
+ *  tableau renvoie un 400. Les quatre vérifications ont donc changé de sens, pas
+ *  de rôle : elles gardent toujours le classement d'une régression silencieuse.
+ *
+ *  Ces vérifications exercent le code RÉEL du JSON importé, pas le générateur.
  * ================================================================== */
 
 section('Agent du widget — le classement sur Haiku');
@@ -1208,7 +1402,10 @@ const configWidget = new Function('$input', codeDe('Préparer la demande'))(flux
 } }]))[0].json;
 
 ok('la rédaction reste sur Opus 5', configWidget.modele === 'claude-opus-5');
-ok('le classement passe sur Haiku 4.5', configWidget.modeleClassement === 'claude-haiku-4-5');
+ok('le classement passe sur Haiku 5.5', configWidget.modeleClassement === 'claude-haiku-5-5');
+ok('un modèle retiré ne revient pas par mégarde',
+  !/claude-3-|claude-2|instant/.test(configWidget.modeleClassement) &&
+  !/claude-3-|claude-2|instant/.test(configWidget.modele));
 
 const classementWidget = new Function('$', '$input', codeDe('Préparer le classement'))(
   (nom) => flux([{ json: nom === 'Préparer la demande'
@@ -1217,14 +1414,17 @@ const classementWidget = new Function('$', '$input', codeDe('Préparer le classe
   null
 )[0].json.corpsClaude;
 
-ok('le corps du classement vise bien Haiku', classementWidget.model === 'claude-haiku-4-5');
-ok('**le classement n’envoie PAS `effort`** — Haiku répondrait 400 à chaque question',
-  !('effort' in (classementWidget.output_config ?? {})));
+ok('le corps du classement vise bien Haiku 5.5', classementWidget.model === 'claude-haiku-5-5');
+ok('**le classement envoie `effort: low`** — Haiku 5.5 l’accepte, et classer n’exige pas de réflexion poussée',
+  classementWidget.output_config?.effort === 'low');
+ok('**le plafond laisse de la place à la réflexion** — elle est active par défaut et décomptée de `max_tokens`',
+  classementWidget.max_tokens >= 1024, String(classementWidget.max_tokens));
 ok('**la sortie reste contrainte par schéma** — c’est elle qui borne l’injection',
   classementWidget.output_config?.format?.type === 'json_schema' &&
   JSON.stringify(classementWidget.output_config.format.schema.properties.intention.enum) ===
     '["usage","contextuel","decision","hors_sujet"]');
-ok('le repli en cas de refus du modèle est conservé', classementWidget.fallbacks === 'default');
+ok('**le classement n’envoie PAS `fallbacks`** — Haiku 5.5 n’a aucun repli serveur, le paramètre serait inerte',
+  !('fallbacks' in classementWidget));
 
 /* ------------------------------------------------------------------ *
  *  PAS DE TIRET CADRATIN DANS LA RÉPONSE DU WIDGET
@@ -1244,6 +1444,100 @@ const redactionWidget = new Function('$', '$input', codeDe('Préparer la rédact
 
 ok('**la consigne système interdit le tiret cadratin**',
   redactionWidget.system.includes('tiret cadratin'));
+
+/*
+ * LA RÉDACTION, ELLE, GARDE SON REPLI. Opus 5 dispose d'un repli serveur là où
+ * Haiku 5.5 n'en a aucun : retirer `fallbacks` des deux appels par symétrie
+ * laisserait une rédaction déclinée sans recours, et la personne sans réponse.
+ * C'est l'invariant complémentaire de celui du classement, et il doit être
+ * gardé séparément.
+ */
+ok('la rédaction reste sur Opus 5', redactionWidget.model === 'claude-opus-5');
+ok('**la rédaction garde `fallbacks`** — Opus 5 en dispose, contrairement à Haiku 5.5',
+  redactionWidget.fallbacks === 'default');
+ok('la rédaction garde son `effort`', redactionWidget.output_config?.effort === 'medium');
+
+/* ------------------------------------------------------------------ *
+ *  LE WIDGET ANNONCE LE COURRIEL QUAND IL ESCALADE
+ *
+ *  Demandé par le porteur du projet le 26 octobre. Sans cette mention, la
+ *  personne attend dans le widget une réponse qui n'y arrivera jamais : elle
+ *  part par courriel, après validation d'un brouillon par l'exploitant.
+ *
+ *  L'ESCALADE A TROIS ORIGINES, et chacune passe par un endroit différent du
+ *  flux — d'où trois vérifications et non une. Un texte fixe pour `decision`,
+ *  un autre pour l'agent indisponible, et une CONSIGNE au modèle quand c'est
+ *  lui qui décide d'escalader.
+ * ------------------------------------------------------------------ */
+
+const reponseFixeDe = (contexte) =>
+  new Function('$input', codeDe('Réponse fixe'))(flux([{ json: contexte }]))[0].json;
+
+const fixeDecision = reponseFixeDe({ intention: 'decision', outils: [], echec: null });
+ok('**le texte fixe d’une décision annonce le courriel**',
+  fixeDecision.escalade === true && /par courriel/i.test(fixeDecision.reponse),
+  fixeDecision.reponse.slice(-60));
+
+const fixePanne = reponseFixeDe({ intention: null, outils: [], echec: 'API Claude injoignable' });
+ok('**le texte de l’agent indisponible annonce aussi le courriel**',
+  fixePanne.escalade === true && /par courriel/i.test(fixePanne.reponse),
+  fixePanne.reponse.slice(-60));
+
+/*
+ * ET SURTOUT PAS QUAND LE DOSSIER EST RÉSOLU. Promettre un courriel à qui vient
+ * de recevoir sa réponse dans le widget le ferait attendre pour rien, et
+ * encombrerait le support de relances légitimes.
+ */
+const fixeHorsSujet = reponseFixeDe({ intention: 'hors_sujet', outils: [], echec: null });
+ok('**un dossier non escaladé ne promet AUCUN courriel**',
+  fixeHorsSujet.escalade === false && !/par courriel/i.test(fixeHorsSujet.reponse));
+
+ok('**la consigne ordonne au modèle d’annoncer le courriel quand il escalade**',
+  /PAR COURRIEL/i.test(redactionWidget.system) && /escalade à true/i.test(redactionWidget.system));
+ok('et elle lui interdit d’annoncer un délai',
+  /N’annonce aucun délai|n’annonce aucun délai/i.test(redactionWidget.system));
+
+/* ------------------------------------------------------------------ *
+ *  LE BROUILLON DESTINÉ À L'EXPLOITANT
+ * ------------------------------------------------------------------ */
+
+const brouillonWidget = new Function('$', '$input', codeDe('Préparer le brouillon'))(
+  (nom) => flux([{ json:
+      nom === 'Préparer la demande' ? { ...configWidget, question: 'Je veux un remboursement.', origine: '/' }
+    : nom === 'Assembler le contexte' ? { fiches: [], donnees: {} }
+    : { estCoach: false } }]),
+  flux([{ json: { motifEscalade: 'remboursement', ticket: {} } }])
+)[0].json.corpsClaude;
+
+ok('le brouillon est rédigé par Opus 5', brouillonWidget.model === 'claude-opus-5');
+/*
+ * LA CONSIGNE INTERDIT D'ANNONCER UN RELAIS, et c'est le coeur du sujet :
+ * l'exploitant qui enverra ce texte EST le conseiller. Le lui faire annoncer
+ * ferait attendre la personne une seconde fois.
+ */
+ok('**le brouillon interdit d’annoncer qu’un conseiller va prendre le relais**',
+  /JAMAIS qu’un conseiller va prendre le relais|n’annonce JAMAIS/i.test(brouillonWidget.system));
+ok('le brouillon interdit le tiret cadratin, comme la réponse du widget',
+  /tiret cadratin/.test(brouillonWidget.system));
+ok('le brouillon est contraint par schéma', brouillonWidget.output_config?.format?.type === 'json_schema');
+
+/** Exécute « Lire le brouillon » sur une réponse fabriquée du modèle. */
+const lireBrouillonDe = (brouillon) =>
+  new Function('$', '$input', codeDe('Lire le brouillon'))(
+    () => flux([{ json: { ticket: { question: 'Q' } } }]),
+    flux([{ json: { statusCode: 200, body: {
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: JSON.stringify({ brouillon }) }],
+    } } }])
+  )[0].json.ticket;
+
+ok('**le tiret cadratin est retiré du brouillon**',
+  !/[—–]/.test(lireBrouillonDe('Bonjour — votre demande est transmise.').brouillonReponse ?? ''),
+  lireBrouillonDe('Bonjour — votre demande est transmise.').brouillonReponse);
+ok('**un brouillon trop court n’est pas transmis** — même seuil de dix signes que l’API',
+  lireBrouillonDe('Bonjour.').brouillonReponse === undefined);
+ok('un brouillon valide est transmis',
+  lireBrouillonDe('Bonjour, votre demande est bien transmise.').brouillonReponse?.length > 10);
 
 /** Exécute « Lire la rédaction » sur une réponse fabriquée du modèle. */
 const lire = (texteModele, escalade = false) =>
