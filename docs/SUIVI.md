@@ -3970,9 +3970,9 @@ par-dessus quelque chose**
       **Prouvé par mutation** : ancienne position remise, trois échecs
       nommant « Notifications » ; position corrigée, 48/48
 
-- [ ] **Parcours avec une vraie réponse de Claude** — attend la clé API et la
+- [x] **FAIT.** Clé Anthropic en place, blocage TLS levé par le certificat Avast, et des brouillons réels ont été produits. — **Parcours avec une vraie réponse de Claude** — attend la clé API et la
       levée du blocage TLS
-- [ ] Mesurer le coût réel d'une question sur quelques demandes
+- [x] **FAIT le 20 octobre** : ~5 060 jetons d'entrée et ~703 de sortie par appel, sur douze appels réels. Détail dans l'entrée du 20 octobre. — Mesurer le coût réel d'une question sur quelques demandes
 
 ### 15.13 Campagne de vérification avant la pause — 26 suites
 
@@ -4007,9 +4007,9 @@ workflow n8n actif, modèle injoignable.
       — 24 fiches, voir 15.10
 - [~] Workflow de l'agent du widget — voir 15.12 ; **en pause**, attend
       l'abonnement n8n, la clé API et la levée du blocage TLS
-- [ ] Workflow de relève des escalades vers Telegram
-- [ ] Canal e-mail — le projet n'en a aucun, vérifié
-- [ ] Bot Telegram pour l'assistant personnel
+- [x] **FAIT.** `ccReleveTelegr01` est actif et s’exécute chaque minute. — Workflow de relève des escalades vers Telegram
+- [x] **FAIT le 18 octobre.** `ccAgentCourri01` existe et tourne. — Canal e-mail — le projet n'en a aucun, vérifié
+- [x] **FAIT.** `ccAgentTelegr01` existe. — Bot Telegram pour l'assistant personnel
 
 ---
 
@@ -4505,7 +4505,7 @@ Mesures reportées de 15.15 : réponse complète ≈ 7 ¢, escalade ≈ 1,8 ¢.
       `destinationPour()` renvoie `boite`, pour qu'un test n'envoie jamais de
       courriel à une personne réelle. Le dossier est ignoré par git, ces
       fichiers contenant des liens valides
-- [ ] **Envoi réel — en attente de l'exploitant** : activer la validation en
+- [x] **SANS OBJET** : remplacé par OAuth2 (`XOAUTH2`), sans mot de passe d’application. — **Envoi réel — en attente de l'exploitant** : activer la validation en
       deux étapes du compte Google, créer un **mot de passe d'application**
       (16 caractères), renseigner `SMTP_USER`, `SMTP_PASS` et `MAIL_FROM`,
       puis redémarrer l'API. `verifierSmtp()` teste la connexion sans rien
@@ -4850,10 +4850,10 @@ des nœuds**, importées des générateurs.
 
 ### H. Ce qui reste à faire par l'exploitant
 
-- [ ] **Bot Telegram** : ouvrir le tunnel (`node docker/n8n/ouvrir-tunnel.mjs`),
+- [x] **FAIT.** Et l’activation est désormais automatique (correctif du 19 octobre). — **Bot Telegram** : ouvrir le tunnel (`node docker/n8n/ouvrir-tunnel.mjs`),
       puis activer « CoachConnect — assistant sur Telegram ». L'identifiant du
       bot est déjà renseigné : rien d'autre à saisir
-- [ ] **Canal courriel** : renseigner les identifiants « Boîte support (IMAP) »
+- [x] **SANS OBJET** : migré vers l’API Gmail le 18 octobre, l’identifiant IMAP a été supprimé. — **Canal courriel** : renseigner les identifiants « Boîte support (IMAP) »
       et « Envoi support (SMTP) » dans n8n — créés vides — puis adapter
       `CONFIG.boite` du nœud « Préparer la question » à l'adresse surveillée,
       et activer le workflow
@@ -5207,11 +5207,11 @@ personne — sans lui ouvrir la porte des autres comptes.
 
 ### D. Ce qui reste, et qui demande l'exploitant
 
-- [ ] **Activer le bot Telegram** : `node docker/n8n/ouvrir-tunnel.mjs`, activer
+- [x] **FAIT.** Le porteur du projet a écrit au bot depuis son téléphone. — **Activer le bot Telegram** : `node docker/n8n/ouvrir-tunnel.mjs`, activer
       « CoachConnect — assistant sur Telegram », puis écrire au bot depuis un
       téléphone — seule étape qu'aucun test ne peut jouer à sa place. Le
       rattachement se teste dans la foulée, depuis les Paramètres
-- [ ] **Mot de passe d'application Gmail** : il débloque « mot de passe
+- [x] **SANS OBJET** : la voie OAuth2 l’a remplacé. — **Mot de passe d'application Gmail** : il débloque « mot de passe
       oublié », le canal courriel (IMAP et SMTP), et figure dans les rappels de
       mise en production
 
@@ -5337,9 +5337,9 @@ et inscrite au lanceur général (trente-trois suites).
 
 ### G. Ce qui reste à faire par l'exploitant
 
-- [ ] Créer la boîte dédiée, puis le projet Google Cloud et son client OAuth
+- [x] **FAIT.** — Créer la boîte dédiée, puis le projet Google Cloud et son client OAuth
       (procédure détaillée remise au porteur du projet)
-- [ ] Saisir l'identifiant et le secret du client dans « Gmail (assistant de
+- [x] **FAIT le 14 octobre.** — Saisir l'identifiant et le secret du client dans « Gmail (assistant de
       messagerie) — CoachConnect », puis « Connect my account »
 - [ ] Renseigner la conversation Telegram des deux nœuds de résumé, puis activer
       les deux workflows
@@ -5891,7 +5891,7 @@ SMTP renseignés. `verifierSmtp()` échoue sur
 
 ### C. Ce qui reste, et qui appartient à l'exploitant
 
-- [ ] **Gmail refuse le mot de passe : `535-5.7.8`.** La valeur fait 19 signes, un
+- [x] **SANS OBJET** : le mot de passe d’application a été abandonné au profit d’OAuth2. — **Gmail refuse le mot de passe : `535-5.7.8`.** La valeur fait 19 signes, un
       mot de passe d'application en fait 16 — Google l'affiche en quatre groupes
       de quatre, soit 19 signes espaces comprises. À recoller sans les espaces, ou
       à créer si c'est le mot de passe du compte qui a été saisi (Gmail les refuse
@@ -5954,7 +5954,7 @@ SMTP renseignés. `verifierSmtp()` échoue sur
       mot de passe d'application (16 signes exactement), ni un affichage espacé :
       c'est très probablement le mot de passe du COMPTE, que Gmail refuse pour
       l'envoi SMTP depuis 2022
-- [ ] Ce qui change pour l'exploitant : il ne s'agit pas de retirer des espaces,
+- [x] **SANS OBJET** : OAuth2 a remplacé le mot de passe d’application. — Ce qui change pour l'exploitant : il ne s'agit pas de retirer des espaces,
       mais de **créer un mot de passe d'application** — validation en deux étapes,
       puis `myaccount.google.com/apppasswords`
 
@@ -6033,15 +6033,15 @@ un jeton de rafraîchissement tenant lieu d'autorisation du compte.
       dépôt public. Rien n'avait été commité, vérifié avant correction
 - [~] **En attente** : coller `CLIENT_ID` et `CLIENT_SECRET` dans `server/.env`
       (console Google Cloud → API et services → Identifiants)
-- [ ] Puis `node server/scripts/autoriser-gmail.mjs` pour obtenir le jeton
+- [x] **FAIT**, et deux fois : le 11 puis le 19 octobre. — Puis `node server/scripts/autoriser-gmail.mjs` pour obtenir le jeton
 - [ ] Le projet étant en mode Test, **le jeton expire tous les 7 jours** ; le passage
       en production lèvera cette limite
-- [ ] Renouveler le code secret dans Google Cloud : il a transité par un fichier
+- [x] **FAIT** par le porteur du projet. — Renouveler le code secret dans Google Cloud : il a transité par un fichier
       destiné au dépôt public. Pour un client « application de bureau » Google ne le
       tient pas pour véritablement confidentiel, le risque est faible — mais le
       renouvellement prend deux minutes
 
-## Incident disque du 8 octobre  `PARTIELLEMENT RÉSOLU`
+## Incident disque du 8 octobre  `RÉSOLU`
 
 - [x] **C: saturé à 100 %, 0 octet libre** sur 222 Go. Découvert parce que l'écriture
       dans `server/.env` a échoué. **C'est l'explication des pannes des jours
@@ -6102,7 +6102,7 @@ un jeton de rafraîchissement tenant lieu d'autorisation du compte.
 - [x] **Le script ouvre le navigateur PAR DÉFAUT**, ici Avast Secure Browser, où le
       compte n'était pas connecté. L'URL a été réouverte dans Chrome : le script
       écoute un port, peu lui importe quel navigateur répond
-- [ ] **Bogue à corriger : le script sort en code 127 APRÈS avoir réussi.**
+- [x] **FAIT le 10 octobre.** — **Bogue à corriger : le script sort en code 127 APRÈS avoir réussi.**
       `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c:94` —
       `process.exit(0)` est appelé juste après `serveur.close()` alors que le minuteur
       de quinze minutes se referme encore. Le jeton est déjà écrit, donc c'est
@@ -6118,7 +6118,7 @@ un jeton de rafraîchissement tenant lieu d'autorisation du compte.
 
 ---
 
-## Soumettre à validation les réponses du support par courriel  `EN COURS`
+## Soumettre à validation les réponses du support par courriel  `TERMINÉ`
 
 Le flux `ccAgentCourri01` **répondait tout seul** : rédaction par Anthropic puis
 expédition SMTP d'affilée, sans relecture humaine. Le canal du widget, lui, exigeait
@@ -6190,18 +6190,18 @@ Telegram**, et **arriéré de non-lus ignoré** à la première activation.
       donc pas des dossiers qui n'en ont pas
 - [x] `test:moderation` **48/48** (même page), `oxlint` en code 0, build Vite en 628 ms,
       aucun avertissement nouveau
-- [ ] **Réimporter le flux dans le conteneur** :
+- [x] **FAIT.** — **Réimporter le flux dans le conteneur** :
       `docker exec coachconnect-n8n n8n import:workflow --input=/workflows/agent-courriel.json`
-- [ ] **Activer le flux** — délibérément non fait, cela demande un feu vert explicite
-- [ ] **Essai de bout en bout** : un courriel envoyé depuis une adresse personnelle,
+- [x] **FAIT**, sur feu vert explicite. — **Activer le flux** — délibérément non fait, cela demande un feu vert explicite
+- [x] **FAIT le 18 octobre**, par le porteur du projet, et concluant. — **Essai de bout en bout** : un courriel envoyé depuis une adresse personnelle,
       le brouillon constaté dans le back-office, l'alerte Telegram, puis validation
-- [ ] Deux assertions écartées faute de connaître la signature de l'outil `executer` de
+- [x] **FAIT le 10 octobre, et cinq plutôt que deux** (`test:canaux` 231/231). — Deux assertions écartées faute de connaître la signature de l'outil `executer` de
       `agents-canaux.mjs` : que le dépôt porte bien l'adresse du `From`, et que le repli
       sur le sujet fonctionne. À ajouter en exerçant `composerReponse`
 
 ### Signalé, hors périmètre
 
-- [ ] **`CONFIG.boite` vaut `support@coachconnect.local`**, pas la vraie boîte
+- [x] **FAIT le 10 octobre** : elle vaut `support.coachconnect.app@gmail.com`. — **`CONFIG.boite` vaut `support@coachconnect.local`**, pas la vraie boîte
       `support.coachconnect.app@gmail.com`. C'est l'adresse du garde-fou anti-boucle, et
       `test:canaux:905` est écrite dessus. Le risque a beaucoup baissé — une boucle
       produirait des brouillons, plus des courriels — mais le décalage reste
@@ -6212,7 +6212,7 @@ Telegram**, et **arriéré de non-lus ignoré** à la première activation.
       logiciels déjà présents — avec des doublons jusqu'à trois copies — et ~5 Go de
       caches régénérables (`.next`, `node_modules`, `dist`). Les archives ont été
       laissées de côté, leur contenu étant inconnu
-- [ ] **Dégât collatéral à réparer si besoin** : le balayage des installateurs était
+- [x] **SANS OBJET** : le dossier a été supprimé le 18 octobre, après vérification qu’il ne contenait aucun fichier écrit à la main. — **Dégât collatéral à réparer si besoin** : le balayage des installateurs était
       récursif et a emporté les binaires de `Downloads/php-8.2.1-Win32-vs16-x64`
       (`php.exe`, `php-cgi.exe`, `php-win.exe`, `phpdbg.exe`, `deplister.exe`). Le
       dossier ne fonctionne plus ; PHP se retélécharge sur `windows.php.net`. La leçon :
@@ -6524,7 +6524,11 @@ contourner. Deux voies restent ouvertes, et le choix appartient au porteur du pr
   la vérification réussit légitimement. Rapide et réversible, mais dépend d'un réglage
   d'antivirus qu'une mise à jour pourrait rétablir.
 - **Lire la boîte par l'API Gmail au lieu de l'IMAP.** Le HTTPS n'est pas intercepté,
-  c'est mesuré. L'identifiant OAuth2 `Gmail (assistant de messagerie)` existe déjà et
+  c'est mesuré. *(**Corrigé le 26 octobre** : la mesure portait sur `accounts.google.com`,
+  le seul hôte du projet qu'Avast laisse en direct. `gmail.googleapis.com` EST intercepté,
+  comme Anthropic et Stripe. La différence avec l'IMAP n'est pas l'interception mais
+  l'autorité de resignature — voir l'entrée du 26 octobre.)*
+  L'identifiant OAuth2 `Gmail (assistant de messagerie)` existe déjà et
   `ccMessagerieTri1` interroge déjà `gmail.googleapis.com`. **C'est d'ailleurs l'intention
   écrite en tête de `mail.service.js`** : « le même client OAuth sert l'assistant de
   messagerie — un seul mécanisme pour lire la boîte et pour en envoyer ». L'identifiant
@@ -7115,7 +7119,7 @@ stripe listen --forward-to localhost:5000/api/webhooks/stripe
 - [ ] **Attention au secret** : le README exige que `STRIPE_WEBHOOK_SECRET` corresponde à
       celui qu'affiche `stripe listen`. Comparer, et mettre à jour `server/.env` s'ils
       diffèrent — sinon les signatures seront refusées et la suite échouera autrement.
-- [ ] **Ce prérequis mériterait un contrôle au démarrage de la suite**, qui dirait
+- [x] **Ce prérequis a désormais son contrôle au démarrage de la suite**, qui dirait
       « `stripe listen` absent » au lieu de laisser treize vérifications échouer dans le
       vide. Le piège est désormais consigné **trois fois** dans ce journal.
 
@@ -7208,7 +7212,8 @@ ouvre **tous** ses ports sans qu'aucune règle ne mentionne le 5000.
       Block, les règles autorisant `node.exe` ne concernent que le profil Public, et la
       machine est derrière un NAT. Ni l'API ni MongoDB ne sont joignables, même depuis le
       réseau local.
-- [ ] **Mais un risque latent, et c'est l'explication la plus plausible des requêtes
+- [x] **ÉCARTÉ le 19 octobre** — les deux règles entrantes de `node.exe` sont passées en
+      `Private`, et plus aucune n'est active sur le profil Public.
       observées.** Le jour où cette machine se connecte à un Wi-Fi **public** — campus,
       hôtel, partage de connexion, segment partagé d'un fournisseur — le profil Public
       s'applique, `node.exe` est autorisé en entrée, et **le serveur de développement
@@ -7217,11 +7222,11 @@ ouvre **tous** ses ports sans qu'aucune règle ne mentionne le 5000.
 
 **Ce qui relève du porteur du projet**, aucune de ces actions n'étant à prendre sans lui :
 
-- [ ] **Restreindre ou retirer les règles entrantes `Node.js JavaScript Runtime` du profil
+- [x] **FAIT le 19 octobre.** **Restreindre ou retirer les règles entrantes `Node.js JavaScript Runtime` du profil
       Public.** Les restreindre au profil Private vaut mieux que les supprimer : un
       serveur Vite consulté depuis un téléphone sur le réseau domestique a besoin de
       passer.
-- [ ] **Lier la publication du port de MongoDB à `127.0.0.1`.** Le conteneur
+- [x] **FAIT le 19 octobre** (sur les deux boucles locales, voir plus bas). **Lier la publication du port de MongoDB à `127.0.0.1`.** Le conteneur
       `sportsocial-mongo` publie `0.0.0.0:27017` et **n'a pas été créé par un fichier de
       composition** — l'étiquette `config_files` est vide, il vient d'un `docker run`. Le
       corriger demande de le recréer, ce qui n'a pas été fait sans surveillance : c'est la
@@ -7230,3 +7235,2884 @@ ouvre **tous** ses ports sans qu'aucune règle ne mentionne le 5000.
       par `host.docker.internal:5000` depuis son conteneur. La lier à `127.0.0.1` couperait
       les quatre workflows. L'exposition est donc structurelle, et c'est au pare-feu — non
       au code — de la borner.
+
+---
+
+## Redémarrage du 19 octobre, et deux défauts du tunnel  `RÉSOLU`
+
+Reprise après quatre jours d'arrêt. Tout est remonté sans intervention — Docker, les trois
+conteneurs, les deux volumes, les quatre workflows actifs — mais **un jeton OAuth était
+périmé et le tunnel s'était désaccordé**. Le relevé qui suit vaut procédure de reprise :
+c'est dans cet ordre qu'il faut vérifier.
+
+### Fait, et vérifié
+
+- [x] **Le certificat Avast d'abord**, avant tout diagnostic : présent dans le conteneur,
+      1 526 octets. C'est la vérification qui doit ouvrir toute séance — sans lui, tout ce
+      qui sort de n8n échoue **en silence**, et on cherche la panne ailleurs pendant une
+      heure.
+- [x] **Les trois conteneurs sont repartis seuls** (`unless-stopped`) : `coachconnect-n8n`,
+      `coachconnect-tunnel`, `sportsocial-mongo`. Images (`mongo:8`, `n8nio/n8n:1.121.0`,
+      `cloudflare/cloudflared:2025.8.1`) et volumes intacts.
+- [x] **Back-end 5000, front 5173, n8n 5678 : `200` tous les trois.**
+- [x] **`N8N_EDITOR_BASE_URL` toujours à `http://localhost:5678/`** — le découplage tient,
+      l'adresse publique du tunnel ne contamine pas le rappel OAuth.
+- [x] **Le disque est tiré d'affaire** : 44 Go libres sur 222 (81 % utilisé). Rappel du point
+      de départ : 0 octet. `Downloads` est retombé à 1,9 Go. `AppData\Local\Ankama` pèse
+      toujours 13 Go — piste restée ouverte, sans urgence désormais.
+
+### Le jeton du serveur est mort, celui de n8n ne l'est pas
+
+- [x] **Jeton d'envoi du serveur : REFUSÉ.** `verifierSmtp()` renvoie
+      `invalid_grant: Bad Request`. `server/.env` a été écrit le 9 octobre à 01 h 09 ; la
+      validité en mode Test étant de sept jours, l'échéance tombait le 16. Diagnostic
+      confirmé et non supposé : `invalid_grant` est la signature propre d'un jeton de
+      rafraîchissement périmé ou révoqué.
+- [x] **Identifiant Gmail de n8n : VIVANT** — et j'attendais l'inverse. Le flux `support par
+      courriel` a tourné à 10 h 20 min 20 s *avec succès*. Sa dernière mise à jour datant du
+      14 octobre, son échéance tombe le 21. **Leçon : les deux jetons ne sont pas
+      solidaires.** Émis à cinq jours d'écart, ils expirent à cinq jours d'écart, et il faut
+      les vérifier séparément — j'allais annoncer les deux morts sur la foi d'un seul test.
+- [x] **Les « 2 erreurs » des statistiques n8n sont historiques**, pas actuelles : 180 pour
+      le relais d'escalade, dernière le **24 septembre**, soit avant sa correction ; 1 pour
+      l'agent du widget, le 17 septembre. Aucune exécution en échec conservée depuis.
+
+### Les deux défauts du tunnel, et pourquoi ils se renforçaient
+
+- [x] **`ouvrir-tunnel.mjs` réinscrivait l'adresse de la veille.** La sélection reposait sur
+      `.find()`, qui renvoie la **première** correspondance du journal. Tant que le conteneur
+      était créé de neuf il n'y avait qu'un encadré, et le défaut restait invisible ; un
+      conteneur **redémarré**, lui, conserve les anciens. Mesuré sans ambiguïté :
+      `aircraft-…` répondait `000`, `without-housing-…` servait n8n en `200`, et le script
+      réécrivait la première. Corrigé en `.filter(…).at(-1)` : le dernier encadré est
+      toujours celui du tunnel en cours.
+- [x] **Cause amont : `restart: unless-stopped` sur cloudflared.** Le tunnel se rouvrait seul
+      à chaque démarrage de la machine, avec une adresse **neuve**, sans que personne l'ait
+      demandé. D'où le pire des deux mondes : n8n exposé sur Internet **et** le bot muet,
+      puisque Telegram pousse toujours vers l'adresse précédente. L'en-tête du fichier
+      annonçait déjà qu'« on ferme le tunnel après la démonstration » — la politique de
+      redémarrage le contredisait. Passée à `restart: "no"` : le tunnel ne s'ouvre plus que
+      sur ordre explicite.
+- [x] **Réaligné, puis vérifié** : une seule adresse au journal
+      (`news-scout-visibility-dispatch`), `200` sur `/healthz` *à travers* le tunnel, et
+      concordance stricte `docker/n8n/.env` = variable d'environnement de n8n = tunnel
+      ouvert. Les quatre workflows actifs ont survécu à la recréation du conteneur.
+
+### Ce que cette reprise laisse à faire
+
+- [x] **Réémettre le jeton d'envoi du serveur.** FAIT le 19 octobre, `verifierSmtp()` répond `ACCEPTEE`. Prochaine échéance : le 26 octobre.
+      Il revivra sept jours. Tant qu'il est mort, le back-office accepte de valider un
+      brouillon mais **l'expédition échoue**, et le dossier est rouvert en `escalade` par
+      `envoyerReponse` — pas de perte, mais pas d'envoi.
+- [x] **SANS OBJET depuis le 19 octobre.** `ouvrir-tunnel.mjs` active désormais
+      `ccAgentTelegr01` **avant** de recréer n8n, et c'est le démarrage qui déclare
+      l'adresse à Telegram. La bascule manuelle n'a plus lieu d'être.
+- [ ] **Refermer le tunnel après usage** : `node docker/n8n/ouvrir-tunnel.mjs --fermer`.
+      Désormais il ne se rouvrira plus tout seul au prochain démarrage.
+
+---
+
+## Durcissement du tunnel et audit complet — 19 octobre  `RÉSOLU`
+
+Suite directe des deux défauts du matin. En les corrigeant, **deux autres sont apparus**, de
+la même famille : faire confiance à un état périmé.
+
+### Ce que l'ouverture et la fermeture faisaient vraiment
+
+- [x] **Un `up -d` ordinaire laissait en place un tunnel MORT.** cloudflared tournait depuis
+      trois heures, affichait `Up`, et bouclait en réalité sur
+      `control stream encountered a failure` : Cloudflare avait révoqué son nom d'hôte, qui
+      ne résolvait plus du tout (`Non-existent domain`). Docker ne voyant aucun changement de
+      configuration, le conteneur restait en place, et le script aurait redéclaré cette
+      adresse morte à Telegram. Corrigé par `--force-recreate` sur `cloudflared` : **ouvrir
+      le tunnel, c'est en établir un neuf**, pas réutiliser celui qui traîne. Effet de bord
+      utile — le journal ne contient plus qu'une adresse, ce qui rend le `.at(-1)` du matin
+      redondant plutôt que critique.
+- [x] **`--fermer` ne fermait pas grand-chose.** Il retirait le conteneur, et affirmait que
+      l'adresse morte était « sans conséquence tant qu'aucun workflow à webhook n'est
+      actif ». Or `ccAgentTelegr01` **était** actif : la condition n'était pas remplie, et le
+      message rassurait à tort. Désormais `--fermer` désactive ce workflow, retire la ligne
+      `WEBHOOK_URL` du fichier — n8n retombe alors sur `http://localhost:5678/` grâce à la
+      valeur par défaut de la composition — puis recrée le conteneur.
+- [x] **Le troisième geste, enfin fait.** L'en-tête du script annonçait trois étapes depuis
+      le début, dont « 3 réactiver les workflows à webhook » — et le script n'en faisait que
+      deux, déléguant la troisième à une bascule manuelle dans l'interface. Cette bascule
+      était bien nécessaire, mais pour une raison qui rendait le geste **manuel** inutile :
+      n8n ne déclare l'adresse qu'au moment où il **active** le workflow, et il active au
+      démarrage. Il suffit donc de poser l'état en base avant de recréer le conteneur. La
+      bascule manuelle a disparu.
+- [x] **Un seul workflow visé, et vérifié avant d'agir.** `ccAgentTelegr01` est le seul à
+      porter un `telegramTrigger`. `ccSupportAgent01` porte bien un nœud `webhook`, mais le
+      navigateur l'appelle par `localhost:5678` : le désactiver aurait coupé le widget sans
+      rien gagner. Les quatre autres sont des déclencheurs horaires. Établi en relisant les
+      **types de nœuds** des six workflows, et non leurs noms.
+
+### Le cycle complet, mesuré
+
+**Ouverture** — une seule adresse au journal, DNS résolu, `/healthz` **200** à travers le
+tunnel, concordance stricte `.env` = variable d'environnement de n8n, `ccAgentTelegr01`
+actif en base, et la preuve dans les journaux :
+`Activated workflow "CoachConnect — assistant sur Telegram"` **sans erreur** — pour un
+déclencheur Telegram, l'activation *est* l'appel `setWebhook`.
+
+**Fermeture** — conteneur disparu, **zéro** ligne `WEBHOOK_URL`, n8n retombé sur
+`http://localhost:5678/`, `ccAgentTelegr01` inactif, et **les trois autres workflows actifs
+intacts** : courriel, relève et widget continuent de tourner. C'est la propriété qui
+compte — fermer le tunnel ne coupe plus que le bot.
+
+### Ce que l'exposition permettait réellement, mesuré et non supposé
+
+- [x] **`/rest/credentials` répond `401` À TRAVERS le tunnel**, comme `/rest/workflows`.
+      Les identifiants — jeton du bot, clé Anthropic, clé de service, OAuth Gmail — ne sont
+      **pas** lisibles depuis Internet : l'authentification de n8n est active.
+- [x] **Le webhook du widget est ouvert, mais pauvre en conséquences.** Le chemin
+      `/webhook/coachconnect-support` est devinable et n'exige aucun en-tête ; mais le
+      workflow valide la question, puis **appelle `GET /users/me` avec la session de
+      l'appelant** avant toute dépense. Sans session valide : `400` ou `401`, et l'appel à
+      Anthropic n'a jamais lieu.
+- [x] **Le déclencheur Telegram est sur un chemin en UUID**, et son jeton secret est dérivé
+      d'identifiants versionnés — la source le dit elle-même, honnêtement. Ce n'est donc pas
+      lui qui protège : la garde réelle est côté API, où les routes `/service/tickets/*`
+      exigent une conversation **rattachée à un compte administrateur**, et où la réponse
+      part vers le même identifiant de conversation que celui qui a autorisé l'action.
+
+**Gravité, sans enjoliver ni dramatiser : sérieux, pas critique.** Aucun chemin vers un vol
+d'identifiant ni une exfiltration de données. Ce que l'exposition non surveillée coûtait
+vraiment : une page d'authentification n8n offerte à Internet des jours durant — donc la
+force du mot de passe du compte propriétaire devient un vrai sujet — et un gisement de
+requêtes gratuit sur le webhook du widget, soit une nuisance de disponibilité et de coût.
+Le défaut du `.find()`, lui, était d'abord fonctionnel, avec une arête de confidentialité
+ténue mais réelle : une adresse révoquée puis **réattribuée** par Cloudflare ferait pousser
+les conversations de support chez un inconnu.
+
+### Audit complet, après les corrections
+
+| | Suites | Vérifications |
+|---|---|---|
+| Suites unitaires serveur | 17 | **1 217 / 1 217** |
+| Performance | 1 | **18 / 18** |
+| **Total** | **18** | **1 235 / 1 235** |
+
+Performance : **tous** les plans d'exécution passent par un index (`IXSCAN`, aucun
+`COLLSCAN`), autocomplétion à 30 ms de médiane pour un budget de 250, recherche globale à
+74 ms pour 1 200, aucun N+1 décelé, et **30 requêtes simultanées servies en 219 ms**.
+
+Les sept suites touchant n8n ont été rejouées **après** le cycle ouverture/fermeture :
+`canaux 231/231`, `releve 78/78`, `telegram 57/57`, `courriel 46/46`, `support 93/93`,
+`messagerie-agent 102/102`, `reponse 49/49`. Aucune régression.
+
+### Une échéance plus large que celle des jetons Google
+
+- [ ] **La clé API Anthropic « CoachConnect n8n » expire dans sept jours**, signalée par
+      courriel de l'éditeur. Elle est rangée dans l'identifiant `anthropicApi`
+      « Anthropic — CoachConnect », dont la dernière mise à jour date du 21 septembre.
+      **Quand elle tombera, les quatre agents cesseront de rédiger** : widget, courriel,
+      assistant Telegram et tri de messagerie. Et aucun ne s'arrêtera bruyamment — les
+      workflows échoueront nœud par nœud, comme le canal courriel l'a fait en octobre. À
+      renouveler dans la console Anthropic, puis à coller dans l'identifiant n8n. **Rien à
+      changer dans le dépôt** : la clé n'y figure pas, elle ne vit que dans l'identifiant
+      chiffré.
+
+---
+
+## Jeton Gmail réémis, et le disque n'est pas ce que je croyais — 19 octobre  `RÉSOLU`
+
+### Le jeton d'envoi du serveur est de nouveau vivant
+
+- [x] **Réémis et vérifié.** `node server/scripts/autoriser-gmail.mjs` lancé depuis la racine,
+      consentement donné dans **Chrome** — le navigateur par défaut est Avast Secure Browser,
+      où le compte de la boîte n'est pas connecté, donc la page a été ouverte explicitement
+      dans Chrome. Résultat : `[AUTORISATION] REUSSIE`, jeton de 103 signes, portée
+      `https://mail.google.com/`, **sortie en code 0 sans assertion libuv** — le correctif du
+      10 octobre tient. Puis `verifierSmtp()` : `authentification : ACCEPTEE`.
+- [x] **Prochaine échéance : le 26 octobre**, sept jours après. L'opération est
+      reproductible telle quelle grâce à `prompt=consent`.
+
+### Un piège au redémarrage de l'API, à connaître pour les prochaines fois
+
+- [x] **Arrêter la tâche `npm run dev` ne tue pas le serveur.** `npm` lance `nodemon`, qui
+      lance `node src/server.js` : arrêter la tâche laisse ce petit-fils **orphelin**, et il
+      garde le port 5000. Le relancement a donc échoué sur `EADDRINUSE`, et surtout
+      `/api/health` répondait `200` — **l'ancien processus**, avec son transporteur mort en
+      mémoire. J'ai failli conclure au succès sur cette réponse.
+      **La vérification qui ne trompe pas : l'heure de démarrage du processus qui tient le
+      port.** Il affichait `12:15:56`, soit celui du matin. Après arrêt explicite du PID et
+      relance : `15:51:31`, et le journal montrait enfin
+      `[API] Serveur demarre sur http://localhost:5000`.
+- [x] **Pourquoi le redémarrage n'est pas négociable** : `mail.service.js:88` mémorise le
+      transporteur (`transporteur ??= …`). Il est construit une fois, avec les variables
+      lues au démarrage. Réécrire `.env` sans relancer ne change donc rien à ce que l'API
+      utilise réellement.
+
+### Les trois corrections du journal, mises à l'épreuve
+
+- [x] **Le contrôle de prérequis Stripe fonctionne exactement comme voulu.** Suite lancée
+      sans `stripe listen` : `0/0 vérifications` puis
+      `INTERROMPU : le relais « stripe listen » ne tourne pas`, avec la commande à lancer
+      **et** le rappel sur `STRIPE_WEBHOOK_SECRET`. Au lieu de treize échecs muets, un
+      message qui nomme la cause.
+- [x] **Le canal courriel est bien terminé** : `courriel 46/46`, `reponse 49/49`,
+      `support 93/93`, `canaux 231/231`, et le flux `ccAgentCourri01` continue de s'exécuter
+      avec succès après le redémarrage de l'API.
+- [x] **Mais le `RÉSOLU` du disque méritait une nuance**, et la voici.
+
+### Le disque : 44 Go le matin, 19,7 Go l'après-midi — et ce n'est pas une rechute
+
+- [x] **La cause est le fichier d'échange, pas des déchets.** Mesuré : **14,79 Go alloués à
+      `pagefile.sys`, dont 3,86 Go seulement réellement utilisés.** Les onze Go d'écart sont
+      réservés pour rien. Windows gonfle l'échange sous la pression mémoire et **ne le rend
+      pas** avant un redémarrage.
+- [x] **Docker est innocent, vérifié avant d'accuser** : 3,1 Go d'images, 78 Mo de
+      conteneurs, 399 Mo de volumes, cache de construction **vide**. Les disques WSL font
+      10,6 Go, inchangés. Aucun fichier de plus de 300 Mo créé aujourd'hui hors
+      `docker_data.vhdx` (6,44 Go). Pas de `Windows.old`, pas de mise à jour en attente
+      (`SoftwareDistribution` : 0,05 Go).
+- [x] **C'est la contrainte mémoire qui se paie en disque.** 7,74 Go de mémoire vive, dont
+      **0,83 Go libre** et 89,3 % d'occupation, avec `Memory Compression` à 729 Mo. Faire
+      tourner dix-huit suites, trois conteneurs, Vite, l'API, VS Code et Chrome sur cette
+      machine force Windows à étendre l'échange. **Le journal le disait déjà le 8 octobre** —
+      « redémarrage : 0 → 7,71 Go, fichiers verrouillés et fichier d'échange relâchés » — je
+      n'avais pas fait le lien en écrivant `RÉSOLU` le matin.
+- [x] **L'incident du 8 octobre reste résolu** : les déchets, eux, ont bien été supprimés et
+      ne sont pas revenus. Ce qui revient, c'est la conséquence d'une machine trop juste en
+      mémoire.
+
+- [ ] **Récupérer les onze Go : redémarrer la machine.** C'est sans risque et immédiat.
+      **Ne pas plafonner le fichier d'échange** sur un poste à 7,74 Go : il absorbe
+      précisément les pointes des campagnes, et le brider exposerait à des arrêts brutaux en
+      pleine suite. Accessoirement récupérables : la corbeille (0,71 Go).
+- [ ] **À retenir comme règle d'exploitation** : une campagne complète coûte une dizaine de
+      Go d'échange sur ce poste. Les enchaîner sans redémarrer entre-temps, c'est reprendre
+      le chemin de la saturation du 8 octobre — par un mécanisme différent, mais avec le
+      même résultat.
+
+---
+
+## Un garde-fou sur le port de l'API — 19 octobre  `RÉSOLU`
+
+Correction du piège rencontré en redémarrant l'API après la réémission du jeton Gmail.
+
+### Le problème n'était pas celui qu'on voit
+
+`npm run dev` lance `nodemon`, qui lance `node src/server.js` : trois processus en cascade.
+Interrompre celui du dessus autrement que par Ctrl+C — terminal fermé, tâche de fond
+arrêtée, éditeur planté — laisse le **petit-fils** vivant, et il garde le port 5000.
+
+- [x] **Le vrai danger n'est pas `EADDRINUSE`**, qui au moins se voit. C'est que
+      `GET /api/health` répond alors **`200`** : le serveur paraît en pleine forme, alors
+      qu'il s'agit de l'**ancien**, démarré avec les **anciennes** variables
+      d'environnement. Le 19 octobre, après la réémission du jeton : `.env` portait le jeton
+      neuf, l'API répondait `200`, et elle utilisait toujours le jeton mort — parce que
+      `mail.service.js:88` mémorise son transporteur (`transporteur ??= …`) à la première
+      utilisation. J'ai failli conclure au succès sur ce `200`.
+- [x] **La vérification qui ne trompe pas**, et qui a tranché : l'**heure de démarrage** du
+      processus qui tient le port. Il affichait `12:15:56` — celui du matin.
+
+### Le choix retenu, et pourquoi celui-là
+
+Ajout de `server/scripts/liberer-port.mjs`, câblé en `predev` dans `server/package.json` :
+`npm run dev` libère donc le port **avant** de démarrer, sans qu'on ait à y penser.
+
+Les autres pistes écartées : lancer `nodemon` sans passer par `npm` ne retire qu'un étage
+sur trois ; régler le signal de `nodemon` ne sert à rien quand c'est le **parent** qui est
+tué sans rien transmettre. Le seul point qui règle le cas réellement observé est au
+démarrage, pas à l'arrêt — on ne peut pas compter sur une extinction propre qui, par
+définition, n'a pas eu lieu.
+
+- [x] **Il ne tue que `node` et `nodemon`, délibérément.** Si le port est tenu par autre
+      chose, il le **nomme** et sort en erreur, ce qui interrompt `npm run dev`. Tuer un
+      programme inconnu parce qu'il occupe un port serait destructeur et surprenant.
+- [x] **Il attend que le port soit réellement rendu** (cinq secondes au plus) : Windows
+      conserve le socket un instant après l'arrêt du processus, et démarrer tout de suite
+      rejouerait l'`EADDRINUSE` qu'on cherche à éviter.
+- [x] **Pas de `netstat`** : sa sortie est localisée, donc son analyse dépendrait de la
+      langue du système. `Get-NetTCPConnection` sous Windows, `lsof` ailleurs.
+
+### Éprouvé sur les quatre cas
+
+| Cas | Attendu | Obtenu |
+|---|---|---|
+| Port tenu par un étranger (`5678`, `com.docker.backend` + `wslrelay`) | nomme, ne tue rien, sort `1` | ✅ les deux PID nommés, **n8n intact (`200`)**, code `1` |
+| Port libre (`49999`) | message, code `0` | ✅ `[PORT] 49999 libre.` |
+| Argument invalide (`abc`) | refus, code `1` | ✅ code `1` |
+| **Port tenu par notre serveur vivant** | arrête et libère | ✅ `ancien serveur arrêté (PID 41396, node)` |
+
+Et le chemin complet : `npm run dev` enchaîne `predev` → `[PORT] 5000 libre.` → `nodemon`
+→ `[API] Serveur demarre`, API à `200` en deux secondes.
+
+- [x] **Le front n'en a pas besoin**, et c'est un choix : Vite annonce bruyamment un port
+      occupé et bascule sur le suivant. Il ne sert donc jamais un état périmé en silence,
+      qui est tout le problème ici.
+
+---
+
+## Trois tâches d'exposition réseau, réglées — 19 octobre  `RÉSOLU`
+
+Les trois dernières tâches qui demandaient soit une élévation, soit une présence. Elles sont
+faites, et chacune vérifiée par une mesure indépendante plutôt que par la seule absence
+d'erreur.
+
+### Les règles de pare-feu de Node.js, restreintes au réseau privé
+
+- [x] **Fait, par une session élevée ponctuelle.** L'agent n'est pas administrateur : la
+      modification a été confiée à un script lancé en élévation, l'invite UAC étant le seul
+      geste humain. Le script refuse d'agir s'il constate qu'il n'est pas élevé, plutôt que
+      d'échouer à moitié.
+- [x] **Deux règles entrantes, pas une** : une TCP et une UDP, toutes deux sur
+      `C:\program files\nodejs\node.exe`, `Public` / `Allow` / `Enabled`. Passées à
+      `Private`.
+- [x] **Seules les entrantes ont été touchées**, délibérément : une règle *sortante* en
+      Public n'est pas un problème, et la restreindre pourrait couper des appels légitimes.
+- [x] **Contrôle de fermeture** : « plus aucune règle entrante Node.js active sur le profil
+      Public », vérifié ensuite depuis une session **non élevée** — les deux règles affichent
+      `Private`.
+- [x] **Le risque que cela écarte** : c'était l'explication la plus plausible des requêtes de
+      balayage reçues par l'API (`/boaform/admin/formTracert`, `/cgi/get.cgi?cmd=home_login`).
+      En `Public`, un réseau d'hôtel ou de café pouvait atteindre le serveur de développement.
+- [x] **Et ce que j'ai vérifié avant de crier victoire** : n8n appelle l'API par
+      `host.docker.internal:5000`. Si l'adaptateur Docker avait été classé « public », je
+      venais de couper les quatre workflows. Preuve directe depuis le conteneur :
+      `wget http://host.docker.internal:5000/api/health` → **`HTTP/1.1 200 OK`**, et le
+      relais d'escalade a continué de s'exécuter chaque minute. Windows classe le Wi-Fi en
+      `Private`, d'où le passage.
+
+### MongoDB ne publie plus que sur la boucle locale
+
+- [x] **Le conteneur a été recréé**, puisqu'il venait d'un `docker run` et non d'un fichier
+      de composition. L'ancien a été **renommé** `sportsocial-mongo-ancien` au lieu d'être
+      supprimé : chemin de retour immédiat, et il est conservé jusqu'à validation.
+- [x] **Un piège évité, et il aurait été discret.** Un pilote MongoDB connecté à un jeu de
+      replicas fait de la **découverte de topologie** : il lit `rs.conf()`, qui déclare
+      `localhost:27017`. Or sur Windows, `localhost` résout **`::1` en premier**. Ne publier
+      que sur `127.0.0.1` aurait pu casser la connexion — le même piège que celui rencontré
+      avec Vite sur ce projet. D'où une publication sur **les deux familles** de boucle
+      locale : `-p 127.0.0.1:27017:27017 -p [::1]:27017:27017`.
+- [x] **Le volume anonyme de `/data/configdb` a été repris à l'identique**, et pas oublié :
+      le conteneur en avait deux, pas un.
+
+**Mesures avant / après, et c'est le seul argument qui compte :**
+
+| Contrôle | Avant | Après |
+|---|---|---|
+| Collections / documents | 16 / 1 755 | **16 / 1 755** |
+| Taille de `/data/db` | 337 Mo | **337 Mo** |
+| Jeu de replicas | `rs0`, PRIMARY | **`rs0`, PRIMARY** |
+| Publication Docker | `0.0.0.0:27017` | **`127.0.0.1` + `::1`** |
+| Écoute vue de Windows | `::` (toutes interfaces) | **`127.0.0.1` et `::1`** |
+| Depuis une autre adresse de la machine | joignable | **`Connection refused`** |
+| `127.0.0.1:27017` | ouvert | **ouvert** |
+
+- [x] **Huit suites rejouées après la bascule** : `api 73/73`, `support 93/93`,
+      `courriel 46/46`, `reponse 49/49`, `moderation 90/90`, `messagerie 62/62`,
+      `evenements 76/76`, `recherche 64/64`. **553 vérifications, aucun échec.**
+- [ ] **Supprimer `sportsocial-mongo-ancien`** quand quelques jours auront confirmé que tout
+      va bien : `docker rm sportsocial-mongo-ancien`. Sans urgence — un conteneur arrêté ne
+      coûte que son image, déjà partagée.
+
+### Chez Google : on ne publie pas, et c'est un choix arbitré
+
+- [x] **Option retenue : réémettre le jeton tous les sept jours.** Décision prise avec le
+      porteur du projet le 19 octobre. Rien à modifier chez Google.
+- [x] **Pourquoi ne pas publier l'application.** Cela supprimerait l'échéance, mais la
+      portée `https://mail.google.com/` est **restreinte** : Google peut exiger une
+      vérification — dossier à monter, démonstration vidéo de l'usage, semaines d'attente —
+      et l'envoi de courriels pourrait être gelé pendant l'instruction. Pour un projet
+      d'examen, le risque est disproportionné par rapport aux trente secondes que coûte la
+      réémission.
+- [x] **`gmail.modify` reste non déclarée sur l'écran de consentement.** Elle fonctionne
+      aujourd'hui, et l'écart ne devient bloquant qu'à la publication — donc jamais, tant
+      que l'option A tient. **À rouvrir si le projet est hébergé pour de vrai.**
+- [ ] **Prochaine réémission : le 26 octobre.** `node server/scripts/autoriser-gmail.mjs`,
+      consentement dans **Chrome**, puis redémarrage de l'API — désormais sans risque
+      d'ancien processus fantôme, grâce au garde-fou de port.
+
+### Le garde-fou de port s'est prouvé tout seul
+
+- [x] Pendant cette séance, `npm run dev` a affiché de lui-même
+      `[PORT] 5000 : ancien serveur arrêté (PID 37720, node)`. L'arrêt de la tâche avait de
+      nouveau laissé un orphelin, et il a été nettoyé **sans intervention**. Le défaut qui a
+      coûté une fausse conclusion le matin ne peut plus se reproduire en silence.
+
+---
+
+# JOURNÉE DU 20 OCTOBRE
+
+## Audit des cases à cocher du journal  `RÉSOLU`
+
+### Pourquoi c'était la tâche à faire
+
+En cherchant par quoi continuer, j'ai recensé **toutes** les cases non cochées du journal :
+**quarante-deux**. Or la majorité décrivait du travail **achevé depuis des jours**, ou devenu
+**sans objet** par un changement d'approche. Le journal racontait donc un projet plus en
+retard qu'il ne l'était — exactement l'inverse de son but, qui est de permettre au porteur du
+projet de suivre l'avancement et de corriger la trajectoire.
+
+### La méthode, et ce qu'elle évite
+
+- [x] **Chaque verdict a été vérifié contre l'état réel du système**, jamais déduit du fil des
+      entrées : états des six workflows lus dans la base de n8n, identifiants n8n énumérés,
+      `modeEnvoi()` du service d'envoi, présence du dossier PHP, valeur de `CONFIG.boite`,
+      taille d'`Ankama`. Se fier au récit aurait reconduit ses erreurs.
+- [x] **Le texte d'origine est préservé**, le verdict est seulement **préfixé**. Une relecture
+      doit pouvoir constater ce qui était demandé **et** ce qu'il en est advenu ; réécrire
+      aurait effacé la trace.
+- [x] **Contrôle d'intégrité** : comparaison du fichier avant et après, toutes lignes de cases
+      neutralisées. Résultat — **structure identique hors lignes de cases**. Rien d'autre n'a
+      bougé. Une sauvegarde avait été prise avant l'opération.
+
+### Le résultat : 42 → 20
+
+**Seize cases cochées comme faites**, dont : le relais d'escalade vers Telegram, le canal
+courriel (qui n'existait pas et qui tourne), le bot Telegram, le parcours avec une vraie
+réponse de Claude (clé en place et blocage TLS levé), la boîte dédiée et le client OAuth
+Google, la saisie des identifiants du 14 octobre, le jeton obtenu par
+`autoriser-gmail.mjs` — deux fois, le 11 puis le 19 —, le bogue du code 127, le réimport et
+l'activation du flux courriel, l'essai de bout en bout du 18 octobre, les cinq assertions de
+`test:canaux`, et `CONFIG.boite` qui porte la vraie adresse.
+
+**Six cases marquées sans objet**, et c'est une information à part entière :
+
+| Case | Pourquoi elle est morte |
+|---|---|
+| Envoi réel par mot de passe d'application | remplacé par OAuth2 (`XOAUTH2`) |
+| Mot de passe d'application Gmail | idem |
+| `535-5.7.8` : Gmail refuse le mot de passe | la cause a disparu avec l'approche |
+| « créer un mot de passe d'application » | idem |
+| Identifiants « Boîte support (IMAP) » | migré vers l'API Gmail le 18 octobre, identifiant supprimé |
+| Binaires PHP à réparer | dossier supprimé le 18 octobre, après vérification |
+
+**Vingt cases restent ouvertes, et elles se répartissent en trois natures** qu'il vaut mieux
+ne pas confondre :
+
+- **Trois travaux réellement en attente** : le repli de l'onglet « Autour de moi » quand le
+  navigateur refuse la géolocalisation (décision de conception, pas un correctif) ; la mesure
+  du coût d'une question — **faite ci-dessous** ; l'activation des deux flux de messagerie,
+  qui attend une conversation Telegram.
+- **Six points qui relèvent du porteur du projet ou d'une date** : la clé Anthropic, le
+  redémarrage, la suppression de `sportsocial-mongo-ancien`, la réémission du 26 octobre, et
+  les 13 Go d'`Ankama` (deux mentions).
+- **Onze notes permanentes** qui ne sont pas des tâches, mais des rappels d'exploitation :
+  l'interception SMTP d'Avast, le secret Stripe, l'hygiène des campagnes, le fait que l'API
+  doive écouter hors boucle locale, la fermeture du tunnel après usage.
+
+---
+
+## Le coût réel d'une question, mesuré  `RÉSOLU`
+
+Case ouverte depuis le 10 octobre : « mesurer le coût réel d'une question ». Elle attendait
+des appels réels — il y en a désormais assez pour répondre.
+
+### Où la donnée se trouvait
+
+Les réponses d'Anthropic sont conservées dans les données d'exécution de n8n
+(`execution_data`), compteurs de jetons compris. **Douze appels** y figurent, du 9 au 19
+octobre, sur trois flux.
+
+*Première extraction fausse, et corrigée : mon motif avait attrapé un champ `model` qui
+portait un index (258, 215, 136), pas un nom de modèle. Vérifié en cherchant directement les
+chaînes `claude*` dans les données.*
+
+### Les modèles réellement appelés
+
+| Modèle | Appels |
+|---|---|
+| `claude-opus-5` | 12 — la rédaction |
+| `claude-haiku-4-5` | 9 — l'étape de tri, plus légère |
+
+### Les chiffres
+
+| | Entrée | Sortie |
+|---|---|---|
+| **Total sur 12 appels** | 60 722 jetons | 8 434 jetons |
+| **Moyenne par appel** | **5 060** | **703** |
+
+Par flux, et les écarts sont instructifs :
+
+| Flux | Appels | Entrée moyenne | Sortie moyenne |
+|---|---|---|---|
+| Agent du widget | 9 | ~5 534 | ~532 |
+| Support par courriel | 2 | ~3 594 | ~1 199 |
+| Assistant sur Telegram | 1 | ~3 730 | ~1 248 |
+
+### Ce que ces chiffres disent
+
+- [x] **L'entrée domine largement la sortie** — environ sept fois plus de jetons. C'est la
+      consigne et le contexte qui coûtent, pas la réponse. Un prompt système plus court est
+      donc le levier d'économie, bien avant la limitation de la longueur des réponses.
+- [x] **Le widget consomme le plus en entrée et le moins en sortie** (~5 534 / ~532) : son
+      contexte est le plus riche, et ses réponses sont brèves par conception.
+- [x] **Le courriel et Telegram répondent deux fois plus longuement** (~1 200 jetons) pour un
+      contexte plus léger : ce sont des réponses rédigées, pas des répliques de widget.
+- [x] **L'entrée du widget est remarquablement stable** : 5 346 jetons sur cinq appels
+      identiques. Le contexte est donc fixe, ce qui rend la dépense prévisible — et le
+      rendrait éligible à la mise en cache du prompt si le volume augmentait.
+
+- [ ] **Le montant en euros n'est pas calculé ici, délibérément.** Les compteurs de jetons
+      sont une mesure ; les tarifs par million de jetons dépendent du plan, et je ne vais pas
+      les affirmer de mémoire pour les inscrire dans un journal de projet. La multiplication
+      est immédiate une fois les tarifs lus dans la console Anthropic :
+      `(5 060 / 1 000 000) x tarif_entrée + (703 / 1 000 000) x tarif_sortie` par question.
+- [ ] **Ce que cette mesure ne couvre pas** : douze appels, dont neuf sur un seul flux, et
+      aucun sur les deux agents de messagerie, qui sont inactifs. L'ordre de grandeur est
+      établi ; une moyenne solide par canal demandera plus de trafic.
+
+---
+
+## Batterie de tests du pare-feu, et une correction de mon propre raisonnement  `RÉSOLU`
+
+Le changement de profil des règles de Node.js touche tous les chemins réseau du projet.
+Plutôt que de conclure sur l'absence d'erreur, chaque chemin a été éprouvé séparément.
+
+### Les chemins, un par un
+
+| Chemin | Épreuve | Résultat |
+|---|---|---|
+| Règles toujours en place | relecture des deux règles | **`Private` / `Allow` / `Enabled`** |
+| Hôte → conteneur | `GET /api/health` | `{"succes":true,"base":"connecte"}` |
+| **Conteneur → hôte** | `wget host.docker.internal:5000/api/health` depuis n8n | **`HTTP/1.1 200 OK`** |
+| Conteneur → route de service | même, sur `/support/service/a-notifier` | **`401`** — correct, la clé est fournie par n8n |
+| Sortie vers Stripe | `api.stripe.com/v1` | `404` — la connexion TLS aboutit, le service répond |
+| Sortie vers Cloudinary | `api.cloudinary.com` | `403` — idem |
+| Sortie vers Google | `oauth2.googleapis.com` | `404` — idem |
+| Sortie vers Anthropic | `api.anthropic.com` | `404` — idem |
+| Temps réel | `/socket.io/?EIO=4&transport=polling` | **`200`** |
+| Campagne complète | **18 suites** | **1 235 / 1 235, aucun échec** |
+
+### Ce que cette batterie prouve, et ce qu'elle ne prouve pas
+
+- [x] **Elle prouve que rien n'est cassé** sur le réseau actuel, y compris le chemin le plus
+      exposé au risque : n8n qui appelle l'API de l'hôte. Si l'adaptateur Docker avait été
+      classé « public », les quatre workflows tombaient.
+- [x] **Elle ne prouve pas la protection elle-même.** Une règle limitée au profil `Private`
+      ne se vérifie qu'en se connectant à un réseau **public**, ce dont je ne dispose pas.
+      Windows classe le Wi-Fi de la maison en `Private` : on constate donc que l'accès
+      autorisé fonctionne, pas que l'accès interdit échoue. C'est une limite de la mesure,
+      pas un résultat.
+
+### Une justification que je dois corriger
+
+- [x] **J'avais écrit que restreindre valait mieux que supprimer parce qu'« un serveur Vite
+      consulté depuis un téléphone a besoin de passer ». C'est faux en l'état.** Mesuré :
+      le port **5000 écoute sur `::`** (toutes interfaces) tandis que le port **5173 n'écoute
+      que sur `::1`**. Vite ne s'expose pas au réseau local, par son propre défaut, et le
+      script `dev` est un simple `vite` sans `--host`.
+- [x] **La conclusion ne change pas, mais sa raison change** : les règles servent à l'**API**,
+      pas au front. Et l'API, elle, doit rester hors boucle locale — n8n l'appelle par
+      `host.docker.internal`, qui passe par l'adaptateur Docker et non par la boucle locale.
+      Confirmé par la mesure : `192.168.1.21:5000` répond `404` (donc répond), et
+      `192.168.1.21:5173` est injoignable.
+- [ ] **Si un essai depuis un téléphone devient nécessaire**, il faudra lancer le front avec
+      `vite --host`. Les règles `Private` le laisseront alors passer — c'est à ce moment-là,
+      et pas avant, que ma justification d'origine deviendra vraie.
+
+---
+
+## « Autour de moi » sans géolocalisation : l'enquête, et la décision qui reste  `À ARBITRER`
+
+Case ouverte depuis le module 9.8.6. Elle disait : « un repli sur `utilisateur.ville`
+demanderait de géocoder aussi les profils — à décider séparément. » J'ai voulu vérifier si le
+terrain avait changé. Il n'a pas changé, mais l'enquête donne enfin des chiffres.
+
+### Ce que j'ai trouvé
+
+- [x] **Le modèle `User` porte DÉJÀ le champ qu'il faut** : `localisation`, un point GeoJSON
+      avec un index `2dsphere` (`User.js:208` et `:334`). Techniquement, rien à ajouter.
+- [x] **Mais les données manquent** : sur 25 utilisateurs, **24 portent une ville et un seul a
+      des coordonnées**. Vingt-trois profils ont donc une ville sans point — et un document
+      sans point n'entre même pas dans l'index `2dsphere`.
+- [x] **Le coût technique du rattrapage est faible** : Nominatim impose une requête par
+      seconde (`CADENCE_MS = 1100`), donc ~25 secondes pour 23 profils. Un script de reprise
+      existe déjà pour les événements (`geocoderEvenements.js`) et pourrait servir de modèle.
+      La politique de Nominatim interdit le « géocodage en masse », mais vingt-trois adresses
+      espacées d'une seconde n'en relèvent pas.
+- [x] **La carte des coachs, elle, n'est pas touchée** — vérifié avant de s'en inquiéter : un
+      seul coach, `carteVisible` à vrai, et il a bien ses coordonnées.
+
+### Le vrai obstacle n'est pas technique
+
+- [x] **`geo.controller.js:93` REFUSE d'activer `carteVisible` sans coordonnées.** Le code
+      fait donc respecter un invariant : **le point d'un utilisateur vient de son navigateur,
+      avec son consentement explicite**, jamais d'une déduction. `Events.jsx` le dit dans son
+      propre texte — « Votre position sert uniquement à calculer les distances » — et son
+      en-tête l'assume : « l'onglet propose le bouton, l'utilisateur décide ».
+- [x] **Géocoder silencieusement la ville du profil casserait cet invariant** : l'application
+      calculerait une position sans que personne ait cliqué. Ce n'est pas un détail
+      d'implémentation, c'est un changement de posture sur les données personnelles — et il
+      n'appartient pas à l'agent de le décider.
+
+### Les trois voies, et celle que je recommande
+
+| | Ce que ça fait | Ce que ça coûte |
+|---|---|---|
+| **1. Ne rien changer** | le bouton reste la seule voie ; la liste reste vide si le navigateur refuse | rien, mais le défaut demeure |
+| **2. Repli silencieux sur la ville** | la liste se remplit toujours | **casse l'invariant de consentement** ; géocodage à la sauvegarde du profil + rattrapage des 23 |
+| **3. Proposition explicite** *(recommandée)* | quand la géolocalisation est refusée, l'écran propose : « Utiliser la ville de votre profil à la place ? » | même plomberie que la 2, mais **le consentement reste explicite** |
+
+- [ ] **Décision attendue du porteur du projet.** La voie 3 corrige le défaut sans toucher à
+      la posture : un second consentement remplace un repli automatique. Elle demande le
+      géocodage à la sauvegarde du profil, le rattrapage des vingt-trois profils existants, et
+      un bouton de plus dans `Events.jsx`. **Rien n'a été implémenté** : c'est un arbitrage,
+      pas un correctif.
+
+---
+
+# JOURNÉE DU 21 OCTOBRE
+
+## Reprise après redémarrage, et une fausse alerte de ma part  `RÉSOLU`
+
+### Le redémarrage a rendu plus que prévu
+
+| | Avant | Après |
+|---|---|---|
+| Disque libre | 9,3 Go (96 %) | **25,4 Go** |
+| Échange alloué | 16,81 Go | **8,21 Go** |
+
+J'avais annoncé onze Go ; il en revient **seize**. La prévision était prudente, et c'est le
+bon sens dans ce sens-là.
+
+### L'état au réveil, vérifié point par point
+
+- [x] **Les trois conteneurs sont repartis seuls**, sauf le tunnel — **et c'est voulu** : le
+      `restart: "no"` du 19 octobre fait exactement son travail. C'est la première fois qu'un
+      démarrage de la machine ne rouvre pas une adresse publique dont personne n'a besoin.
+- [x] **`WEBHOOK_URL` est retombée sur `http://localhost:5678/`**, comme la fermeture l'avait
+      laissée. Aucun pointeur pendant vers une adresse révoquée.
+- [x] **Back-end, front et n8n à `200`**, et le jeton Gmail du serveur répond toujours
+      `ACCEPTEE` — émis le 19, échéance le 26.
+
+### Ma fausse alerte sur le certificat Avast, et ce qu'elle apprend
+
+- [x] **J'ai annoncé « AUCUN CERTIFICAT » à tort.** J'avais cherché dans
+      `/usr/local/share/ca-certificates/`, qui est l'emplacement habituel d'un certificat
+      d'autorité sous Debian. Or la surcharge de composition le monte sur
+      `/opt/certificats/avast-root.crt`, avec `NODE_EXTRA_CA_CERTS` qui pointe dessus — ce
+      qui est plus propre, puisque rien n'est ajouté au magasin système.
+- [x] **Vérifié correctement ensuite, et par la seule preuve qui vaille** : un appel TLS
+      sortant depuis le conteneur. `api.anthropic.com` → **401**, `api.telegram.org` → **200**,
+      `gmail.googleapis.com` → 404. La poignée de main aboutit partout : le certificat est en
+      place et il fonctionne. Le fichier fait bien 1 526 octets.
+- [x] **La leçon, et elle vaut pour la règle elle-même** : « vérifier le certificat » ne doit
+      pas signifier « lister un dossier », mais **« faire un appel sortant »**. Un fichier
+      présent au mauvais endroit ne protège rien, et un fichier absent de l'endroit attendu ne
+      prouve rien. Seul l'appel tranche.
+
+### La clé Anthropic : encore valide, mesuré sans l'exposer
+
+- [x] **Elle expire aujourd'hui**, le porteur du projet n'ayant pas pu la changer la veille au
+      soir. La question qui comptait était donc : est-elle **déjà** morte ?
+- [x] **Réponse : non.** `GET https://api.anthropic.com/v1/models` avec la clé en place
+      renvoie **`200`**.
+- [x] **Comment c'est mesuré, parce que la méthode importe** : la clé ne vit que dans
+      l'identifiant chiffré de n8n. Elle a été lue par
+      `n8n export:credentials --id=ccAnthropicApi01 --decrypted`, envoyée **par un tube** dans
+      un script qui l'emploie et n'affiche que le code HTTP. **Elle n'a jamais touché le
+      disque ni été affichée** — seuls sa longueur (108 signes) et son préfixe le sont.
+
+---
+
+## « Autour de moi » : le plan détaillé, et une correction de mon enquête d'hier  `À ARBITRER`
+
+Le porteur du projet a demandé, avant de décider : les étapes exactes, le coût, et si cela
+casse le comportement de l'application. En l'instruisant, **j'ai trouvé que mon évaluation
+d'hier était trop pessimiste**.
+
+### La correction : la voie 3 ne demande aucun rattrapage
+
+- [x] **Hier j'ai écrit que la voie 3 demandait « la même plomberie que la 2 », donc le
+      géocodage à la sauvegarde du profil et le rattrapage des vingt-trois profils. C'est
+      faux.** La voie 2 a besoin d'un point **déjà présent** pour pouvoir s'y replier
+      silencieusement ; la voie 3 géocode **au moment du clic**, une seule fois, pour le seul
+      utilisateur qui le demande.
+- [x] **Donc : pas de script de rattrapage, pas de modification du chemin d'enregistrement du
+      profil, et pas de géocodage en lot.** La voie la plus respectueuse du consentement est
+      aussi **la moins coûteuse**. C'est rare, et ça mérite d'être dit.
+
+### Ce que l'existant fournit déjà
+
+- [x] `geocoder({ ville })` — `geocodage.service.js:121` — rend un point GeoJSON ou `null`,
+      **ne lève jamais d'exception**, et respecte la cadence de Nominatim tout seul.
+      Réutilisable tel quel.
+- [x] `usePosition` expose déjà `erreurPosition.refusee`, et `Events.jsx` distingue déjà le
+      refus de l'utilisateur d'une panne technique — le bouton « réessayer » n'apparaît que
+      dans le second cas. L'endroit exact où greffer la proposition existe donc.
+- [x] `PATCH /api/users/me/localisation` existe, mais **exige des coordonnées fournies par le
+      client** : c'est le chemin du navigateur, et il doit rester tel quel.
+
+### Les étapes, dans l'ordre
+
+1. **Une route nouvelle**, et non une extension de l'existante :
+   `PATCH /api/users/me/localisation-depuis-ville`. Elle ne prend **aucune** coordonnée, lit
+   `req.user.ville`, appelle `geocoder()`, et écrit le point. *Pourquoi une route à part :
+   rendre `coordinates` facultatif sur la route actuelle mélangerait deux modèles de
+   consentement dans un seul point d'entrée, et obligerait à affaiblir son validateur.*
+2. **Les cas d'échec, explicites** : profil sans ville → `400` ; ville introuvable chez
+   Nominatim → `422` avec un message qui le dit. *Un `null` silencieux laisserait l'écran
+   vide sans raison affichée, soit exactement le défaut qu'on corrige.*
+3. **Un bouton dans `Events.jsx`**, dans la branche du refus : « Utiliser la ville de mon
+   profil (<ville>) ». Au clic : appel de la route, puis relance de la recherche avec le point
+   rendu.
+4. **Une suite de tests** : route sans session → `401` ; profil sans ville → `400` ; ville
+   fantaisiste → `422` ; ville réelle → `200` et point écrit ; et **le point est bien utilisé
+   par `$geoNear`** — sans quoi on aurait écrit une coordonnée que personne ne lit.
+
+### Le coût
+
+| | |
+|---|---|
+| Route, contrôleur, validateur | ~40 lignes |
+| Bouton et appel côté front | ~25 lignes |
+| Suite de tests | ~60 lignes |
+| Géocodage en lot | **aucun** |
+| Appels à Nominatim | **un par utilisateur qui clique**, jamais en masse |
+
+### Ce que cela ne casse pas, vérifié
+
+- [x] **`CHAMPS_MODIFIABLES` n'est pas touché** (`user.controller.js:23`) : la protection du
+      profil — tout champ non listé est ignoré — reste intacte.
+- [x] **`PATCH /users/me/localisation` n'est pas touché** : le chemin du navigateur conserve
+      son contrat.
+- [x] **Le garde-fou de `carteVisible` n'est pas touché** (`geo.controller.js:93`).
+
+### Mais un effet de bord que je dois signaler
+
+- [ ] **Un point issu d'une ville est précis au kilomètre, pas au mètre.** Or
+      `definirCarteVisible` n'exige qu'« une position enregistrée » : un coach qui aurait
+      géocodé sa ville deviendrait donc **éligible à la carte publique**, où il apparaîtrait
+      au centre-ville avec l'apparence d'une position relevée au GPS — la carte arrondissant
+      déjà à ~110 m, rien ne distinguerait les deux.
+- [ ] **La parade, si la voie 3 est retenue** : enregistrer la **provenance** du point
+      (`localisationSource: 'navigateur' | 'ville'`) et faire refuser `carteVisible` sur un
+      point dérivé d'une ville. C'est une colonne de plus et une condition de plus — mais sans
+      elle, corriger « Autour de moi » dégraderait discrètement la carte des coachs. **Cela
+      doit faire partie de la décision, pas la suivre.**
+
+---
+
+## La nouvelle clé Anthropic, éprouvée jusqu'au bout  `RÉSOLU`
+
+Le porteur du projet a remplacé la clé le 21 octobre mais n'avait pas vérifié. Un identifiant
+accepté ne prouve pas que le workflow l'emploie correctement : l'épreuve est donc allée
+jusqu'à une vraie question posée au widget.
+
+### Quatre niveaux, du plus simple au plus probant
+
+| | Épreuve | Résultat |
+|---|---|---|
+| 1 | Authentification `GET /v1/models` | **`200` ACCEPTÉE** |
+| 2 | Les deux modèles des workflows sont-ils disponibles ? | `claude-opus-5` **DISPONIBLE**, `claude-haiku-4-5` **DISPONIBLE** |
+| 3 | Génération réelle par l'API | `200`, réponse « operationnel », 23 / 6 jetons |
+| 4 | **Chaîne complète via le webhook n8n** | **`200` en 7,1 s**, réponse de 328 signes, pertinente |
+
+Le quatrième niveau est le seul qui prouve quelque chose d'utile : compte jetable créé,
+session obtenue, question « comment modifier la ville de mon profil ? » envoyée au webhook du
+widget avec le jeton, et l'agent a répondu *« pour modifier votre ville, rendez-vous sur votre
+profil et cliquez sur Modifier… »*. L'exécution n8n est en `success` et porte bien les **deux**
+modèles — `claude-opus-5` pour la rédaction, `claude-haiku-4-5` pour le classement — avec
+5 020 jetons en entrée et 354 en sortie, cohérent avec la mesure du 20 octobre (~5 534 / ~532).
+
+- [x] **Nettoyage fait** : le compte de vérification et son dossier ont été supprimés, et le
+      contrôle rend bien zéro restant. Un test qui laisse des traces dans la base fausse les
+      suivants.
+
+### Un détail signalé au porteur du projet
+
+- [ ] **Le préfixe de la clé a changé** : l'ancienne commençait par `sk-ant-api0`, la nouvelle
+      par `sk-ant-usr-`. Ce sont **deux types de clés différents**. La nouvelle fonctionne —
+      les quatre niveaux le prouvent — mais il vaut la peine de confirmer dans la console
+      Anthropic que c'est bien le type voulu, notamment pour l'imputation de la facturation.
+
+---
+
+## Le certificat Avast : mon erreur de méthode, corrigée à la source  `RÉSOLU`
+
+- [x] **Le projet fournit un script de vérification que j'avais ignoré** :
+      `node docker/n8n/certificat-avast.mjs --verifier`. Il compare l'empreinte du magasin
+      Windows à celle du fichier monté, ne modifie rien, et sort en code 1 si l'une diverge.
+      Lancé : *« empreinte dans Windows : 0A611630620C775F… / empreinte du dépôt :
+      0A611630620C775F… / À JOUR : le conteneur connaît la bonne autorité »*, code **0**.
+- [x] **Mon erreur du matin était double** : mauvais dossier *et* script du projet ignoré.
+      J'ai annoncé « AUCUN CERTIFICAT » après avoir listé
+      `/usr/local/share/ca-certificates/`, alors que la surcharge monte le fichier sur
+      `/opt/certificats/avast-root.crt` via `NODE_EXTRA_CA_CERTS` — rien n'est ajouté au
+      magasin système, et c'est délibéré.
+- [x] **La correction est allée dans ma mémoire de travail**, pas seulement dans ce journal :
+      vérifier ce certificat, c'est lancer le script ou faire un appel HTTPS sortant réel,
+      jamais lister un dossier.
+
+### Et le rappel demandé pour la production
+
+- [x] **Déjà enregistré, et depuis le 21 septembre.** La consigne « retirer le certificat
+      Avast avant la mise en production » figure au point 1 des rappels de mise en production,
+      avec la manœuvre de retour en arrière — supprimer la surcharge et recréer le conteneur —
+      et le déploiement Vercel y est consigné au point 4. Rien n'a été ajouté, pour ne pas
+      créer de doublon qui diluerait le rappel.
+- [x] **Pourquoi le certificat est nécessaire en local, et seulement en local** : Avast
+      intercepte le HTTPS sortant de la machine et le resigne avec sa propre autorité. Sans
+      ce certificat dans le conteneur, **tout appel sortant de n8n échoue en silence** —
+      Telegram, Anthropic, Gmail. En production, personne n'intercepte : le monter serait
+      faire confiance à une autorité sans aucune raison de le faire.
+
+---
+
+## L'épreuve du profil Public : préparée, et ce qu'elle exige  `À FAIRE ENSEMBLE`
+
+Le porteur du projet a retenu qu'il valait mieux l'éprouver maintenant, puisqu'en production
+la question disparaît — le pare-feu de cette machine ne protégera plus rien quand le front
+sera servi par Vercel et l'API exécutée chez eux.
+
+### Pourquoi je ne l'ai pas faite seul
+
+- [x] **Elle demande deux choses que je ne peux pas fournir.** Classer le Wi-Fi en « Public »
+      exige une session élevée, donc une invite UAC ; et la tentative doit venir d'un **autre
+      appareil**, car Windows ne fait pas traverser le filtre entrant au trafic
+      local-vers-local de façon fiable — une tentative depuis cette machine ne prouverait
+      rien, dans un sens comme dans l'autre.
+- [x] **Et je ne classe pas le réseau domestique en « Public » en l'absence du porteur du
+      projet** : l'état ne doit pas rester ainsi, et je ne pourrais pas constater le résultat
+      sans lui.
+
+### Ce qui est prêt
+
+Un script à trois modes — `etat` (lecture seule, sans élévation), `public`, `prive` — dont le
+retour en arrière est idempotent et rappelé à chaque bascule. État de référence relevé :
+
+```
+interface      : Wi-Fi
+classement     : Private
+adresse locale : 192.168.1.21
+regles entrantes : Profile=Private  Action=Allow  Enabled=True   (x2)
+```
+
+- [ ] **La manœuvre, quand il sera là** : basculer en Public, ouvrir
+      `http://192.168.1.21:5000/api/health` depuis le téléphone sur le même Wi-Fi, constater
+      l'échec de connexion, puis **remettre en Private sans attendre**. Si la page répond
+      malgré le profil Public, la règle ne protège pas et il faudra chercher pourquoi.
+
+---
+
+## Le relais Telegram : il fonctionne, et l'absence de notification était correcte  `RÉSOLU`
+
+Le porteur du projet a signalé n'avoir reçu **aucune notification Telegram** après la question
+posée au widget lors de la vérification de la clé. Deux hypothèses, et elles n'ont rien à
+voir : soit le relais est cassé, soit **il n'avait rien à envoyer**.
+
+### La règle, avant de chercher une panne
+
+`support.service.js:60` :
+
+```js
+const escalade = !parAgent || intention === 'decision' || Boolean(motifEscalade);
+```
+
+Puis `:72` — `statut: escalade ? 'escalade' : 'resolu'`. Et `aNotifier()` (`:203`) ne relève
+que `{ statut: 'escalade', notifieExploitant: false }`.
+
+Une question **informative** à laquelle l'agent sait répondre est donc classée `resolu` : elle
+n'entre jamais dans la file de notification. C'est voulu — l'alerte Telegram sert aux dossiers
+qui demandent une **intervention humaine**, pas à chaque question traitée.
+
+### L'épreuve, en deux questions contrastées
+
+Une seule question n'aurait rien prouvé. Deux comptes jetables, deux questions :
+
+| Question | `escalade` renvoyé | Statut en base | Dans la file ? |
+|---|---|---|---|
+| « où voir mes abonnements en cours ? » | **`false`** | `resolu` | **non** |
+| « je demande le remboursement de mon abonnement » | **`true`** | `escalade`, motif `remboursement` | **oui** |
+
+La file contenait alors exactement **un** dossier à notifier.
+
+### Et le relais l'a bien envoyé
+
+- [x] **La file s'est vidée en 20 secondes** — `notifieExploitant` est passé à vrai, ce qui
+      n'arrive qu'après l'envoi.
+- [x] **Preuve dans l'exécution n8n**, et pas seulement dans le marquage :
+      `2026-10-21 12:37:04  success  telegram=OUI ok=OUI  message_id=70`. Telegram a accepté
+      le message et lui a attribué l'identifiant 70. Les deux exécutions précédentes portent
+      `telegram=non` : elles n'avaient rien à envoyer, ce qui est correct.
+- [x] **Nettoyage** : deux dossiers et deux comptes supprimés, contrôle à zéro restant.
+
+**Conclusion : rien à corriger.** Le signalement était juste — aucune notification n'est
+arrivée — mais la cause n'était pas une panne : la question ne méritait pas d'escalade. Le
+classement par Haiku a correctement distingué les deux cas.
+
+---
+
+## Vérification depuis le dernier commit  `RÉSOLU`
+
+Demande du porteur du projet : s'assurer que les travaux des derniers jours n'ont dégradé ni
+les fonctionnalités ni les performances.
+
+### Le point décisif : aucun code applicatif n'a bougé
+
+Dernier commit : `92ad95a`, **10 octobre 08:19**. Depuis, quatre fichiers modifiés et un
+ajouté :
+
+| Fichier | Nature |
+|---|---|
+| `docker/n8n/docker-compose.tunnel.yml` | infrastructure |
+| `docker/n8n/ouvrir-tunnel.mjs` | outillage |
+| `docs/SUIVI.md` | journal |
+| `server/package.json` | une ligne : le `predev` |
+| `server/scripts/liberer-port.mjs` | outillage, nouveau |
+
+- [x] **Zéro fichier sous `server/src/` ou `client/src/`.** Le comportement de l'application
+      est donc intact par construction : il n'y a pas eu de modification à dégrader. Ce qui a
+      changé est opérationnel — MongoDB lié à la boucle locale, les règles de pare-feu, la clé
+      Anthropic, le jeton Gmail — et aucun de ces changements ne touche au code.
+
+### La campagne complète, et la comparaison
+
+**18 suites, 1 235 / 1 235, aucun échec.** Identique à la référence du 10 octobre aux cinq
+assertions près ajoutées depuis à `test:canaux` (226 → 231).
+
+Et les performances sont **meilleures qu'à toutes les mesures précédentes** :
+
+| Mesure | 19 oct. | 20 oct. | **21 oct.** |
+|---|---|---|---|
+| Autocomplétion (budget 250 ms) | 30 ms | — | **17 ms** |
+| Fil d'actualité (600 ms) | 47 ms | — | **30 ms** |
+| Conversations (600 ms) | 31 ms | — | **15 ms** |
+| Compteur de notifications (250 ms) | 32 ms | — | **17 ms** |
+| Recherche globale (1 200 ms) | 74 ms | 31 ms | **33 ms** |
+| **30 requêtes simultanées** | 219 ms | 147 ms | **110 ms** |
+
+- [x] **Tous les plans d'exécution passent encore par un index** — `IXSCAN` partout, aucun
+      `COLLSCAN` — et les deux contrôles de N+1 tiennent.
+- [ ] **Je n'attribue pas cette amélioration à mes changements**, et c'est important : la
+      cause la plus probable est le **redémarrage**, qui a rendu 16 Go d'échange et libéré la
+      mémoire. Sur une machine à 7,74 Go dont il ne restait que 0,43 Go, la pression mémoire
+      pesait sur chaque mesure. Conclure autrement serait s'attribuer un mérite qui revient à
+      un redémarrage.
+
+---
+
+## Un piège d'encodage sous PowerShell, et comment il s'est manifesté  `RÉSOLU`
+
+En préparant l'épreuve du pare-feu, le script a été refusé par l'analyseur avec
+« Le terminateur " est manquant dans la chaîne » — **sur une ligne parfaitement correcte**
+(`Noter ""`).
+
+- [x] **La cause est en amont de la ligne signalée.** Le fichier était en UTF-8 **sans BOM**,
+      or Windows PowerShell 5.1 lit alors avec la page de codes ANSI. Un tiret cadratin `—`
+      (UTF-8 `E2 80 94`) y devient trois caractères, dont `0x94` : un **guillemet courbe
+      fermant**, que l'analyseur prend pour un délimiteur de chaîne. La chaîne se fermait donc
+      au milieu d'un commentaire, et tout ce qui suivait devenait incohérent.
+- [x] **La correction retenue : ASCII strict**, plutôt qu'un BOM. Un BOM aurait marché, mais
+      il se perd au moindre réenregistrement par un outil tiers ; l'ASCII, lui, ne peut pas se
+      dégrader. Vérifié : **zéro ligne** contenant un caractère hors ASCII, syntaxe validée par
+      l'analyseur lui-même.
+- [x] **La leçon, applicable à tout script PowerShell de ce projet** : un message d'erreur de
+      syntaxe désignant une ligne saine doit faire soupçonner l'encodage, pas la ligne.
+
+---
+
+## L'épreuve du profil Public : l'outil est prêt, il manque un clic  `À FAIRE ENSEMBLE`
+
+- [x] **Le porteur du projet a donné son accord pour lancer le script.** Cet accord ne suffit
+      pourtant pas : la bascule exige une **session élevée**, donc un clic humain sur l'invite
+      UAC, que l'agent ne peut pas donner à sa place. Et la tentative doit venir d'un **autre
+      appareil**.
+- [x] **Le script a été refait en une seule manœuvre, pour qu'aucun oubli ne soit possible** :
+      il bascule en Public, laisse **90 secondes** pour l'essai depuis le téléphone, puis
+      **remet le classement initial tout seul**. Le retour est placé dans un bloc `finally`,
+      donc il s'exécute même si la fenêtre est fermée ou si une erreur survient. Il relit le
+      classement de départ au lieu de supposer `Private`, et le rétablit tel quel.
+- [x] **État de référence relevé, sans rien modifier** : Wi-Fi en `Private`, adresse
+      `192.168.1.21`, et les deux règles entrantes de Node.js en `Profile=Private`.
+
+- [ ] **La manœuvre, en trois gestes** : ouvrir PowerShell **en administrateur**, lancer le
+      script, puis ouvrir `http://192.168.1.21:5000/api/health` depuis le téléphone sur le même
+      Wi-Fi pendant la fenêtre de 90 secondes. Attendu : **échec de connexion**. Si la page
+      répond, la règle ne protège pas et il faudra chercher pourquoi.
+
+---
+
+# JOURNÉE DU 23 OCTOBRE
+
+## Reprise du projet  `RÉSOLU`
+
+- [x] **Docker, les deux conteneurs, le back-end et le front relancés.** Trois services à
+      `200`. Machine redémarrée la veille à 13 h 39 ; disque à 24,3 Go, échange retombé à
+      7,95 Go.
+- [x] **Le tunnel n'est toujours pas revenu seul** — quatrième démarrage de suite où le
+      `restart: "no"` du 19 octobre tient sa promesse.
+- [x] **Certificat Avast vérifié avec le bon outil**, celui du projet et non un listage de
+      dossier : empreintes identiques, « À JOUR », code 0.
+
+---
+
+## La page de modération, documentée  `RÉFÉRENCE`
+
+Le porteur du projet comprenait les familles « Diplômes » et « Signalements » mais pas la
+troisième. Première précision : **elle s'appelle « Support »**, pas « Suivi ».
+
+### Trois familles, et pourquoi elles ne sont pas une seule file
+
+L'en-tête du composant le dit : *« Un diplôme à vérifier, un compte signalé et une demande
+remontée par l'agent de support n'ont ni le même contenu, ni les mêmes issues, ni la même
+urgence. Les mêler dans une seule file obligerait à lire le type de chaque carte avant de
+savoir quoi en faire. »*
+
+### Les trois onglets de « Support », et ce qu'ils valent
+
+| Onglet | Statut interrogé | Ce qu'on y trouve | Action possible |
+|---|---|---|---|
+| **À traiter** | `escalade` | l'agent a jugé qu'une décision humaine était nécessaire | oui : rédiger, valider, clore |
+| **Instruits** | `clos` | dossiers déjà traités par un humain | consultation |
+| **Non escaladés** | `resolu` | **l'agent a répondu seul, sans intervention** | **aucune — c'est l'onglet d'audit** |
+
+Le troisième est le plus intéressant, et le code l'explique :
+
+> *« Non escaladés » n'appelle aucune action : c'est l'onglet d'audit. Relire ce que l'agent a
+> répondu seul est le seul moyen de savoir s'il répond bien — et s'il escalade quand il le
+> devrait. »*
+
+C'est donc le contrôle qualité de l'IA : on y relit les réponses parties **sans** validation
+humaine, pour vérifier qu'aucune n'aurait dû remonter.
+
+### Répartition réelle au 23 octobre
+
+```
+13  escalade   ->  onglet « À traiter »      (et c'est le chiffre du badge)
+ 6  resolu     ->  onglet « Non escaladés »
+ 2  clos       ->  onglet « Instruits »
+21  total
+```
+
+### Le rafraîchissement : aucun minuteur, et c'est un choix
+
+- [x] **Vérifié par recherche : ni `setInterval`, ni `setTimeout`, ni intervalle de
+      réinterrogation.** La liste se recharge dans trois cas, et trois seulement :
+      à l'ouverture de la page ; au changement de famille ou d'onglet ; **après chaque
+      action** — et notamment après un `409`, c'est-à-dire quand un autre administrateur est
+      passé avant.
+- [x] **Deux protections méritent d'être signalées**, car elles traitent des défauts réels :
+      les dossiers portent la **clé** de ce qu'ils représentent (`famille:onglet`), si bien
+      qu'une liste n'est affichée que si elle correspond à l'écran demandé — sans quoi, le
+      temps d'un rendu, la liste « Signalements » s'affichait remplie avec les **diplômes** de
+      l'onglet précédent. Et un compteur de requête (`derniereRequete`) **ignore toute réponse
+      dépassée** : deux clics rapides lancent deux appels, et rien ne garantit qu'ils
+      reviennent dans l'ordre.
+- [x] **Le badge du menu compte `statut: 'escalade'`**, soit **13** aujourd'hui. À ne pas
+      confondre avec la file du relais Telegram, qui compte
+      `{ statut: 'escalade', notifieExploitant: false }` et vaut **0** : chaque dossier n'est
+      notifié qu'une fois, alors que le badge montre tout ce qui reste à traiter.
+
+---
+
+## Un rattrapage de données proposé, et refusé par la garde  `EN ATTENTE D'ACCORD`
+
+### Ce que j'ai observé
+
+Quinze dossiers sur vingt et un **ne portent aucun champ `canal`**. Le champ a été ajouté le
+18 octobre avec `default: 'widget'` — mais un défaut de schéma ne s'applique qu'aux documents
+**créés après**, jamais aux existants.
+
+### Pourquoi le rattrapage serait sans ambiguïté
+
+- [x] **Les quinze vont du 21 septembre au 2 octobre.** Le premier dossier *portant* un canal
+      date du 9 octobre, et vaut `courriel`.
+- [x] **Les quinze ont tous un `auteur` (un compte), et aucun n'a de `courrielAuteur`.** Ce
+      sont donc tous des dossiers du widget, antérieurs à l'existence du canal courriel.
+- [x] **L'effet actuel est bénin mais trompeur** : le back-office lit
+      `ticket.canal === 'courriel'`, qui vaut faux pour `undefined`. L'affichage est donc
+      **correct par accident**, pas par intention — et ce genre de justesse accidentelle est
+      exactement ce qui casse à la première refonte.
+
+### Pourquoi ce n'est pas fait
+
+- [x] **La garde d'écriture a refusé l'opération** (« Modify Shared Resources »), et c'est
+      légitime : c'est la base du projet. Je ne l'ai pas contournée, et je n'ai pas réessayé
+      sous une autre forme.
+- [x] **Rien n'a été modifié** : une commande refusée ne s'exécute pas. Les chiffres ci-dessus
+      sont ceux relevés juste avant le refus.
+
+- [ ] **À faire sur accord explicite**, avec le garde-fou déjà écrit : l'opération refuse
+      d'agir si l'un des quinze portait une adresse de courriel, elle journalise les quinze
+      identifiants avant d'écrire, et elle est réversible par un `$unset`.
+
+---
+
+## « Non escaladés » : deux vrais défauts, et mon explication d'hier était incomplète  `À ARBITRER`
+
+Le porteur du projet a précisé son signalement : le widget répond bien, l'alerte Telegram
+arrive bien quand elle doit arriver, **mais sur l'onglet « Non escaladés » il ne voit pas les
+derniers messages ni les dernières réponses de l'agent**. J'avais répondu « il n'y a pas de
+minuteur », ce qui est vrai mais ne suffit pas : en cherchant, j'ai trouvé **deux défauts
+réels** qui expliquent mieux ce qu'il constate.
+
+### Défaut A — la file est triée du plus ANCIEN au plus récent
+
+`support.service.js:185` — `.sort({ createdAt: 1 })`, et le contrôleur l'assume :
+*« GET /api/admin/support/tickets — la file, les plus anciens d'abord. »*
+
+- [x] **Pour « À traiter », c'est le bon choix** : une file d'attente se traite dans l'ordre
+      d'arrivée, et traiter le plus récent d'abord ferait vieillir indéfiniment le plus ancien.
+- [x] **Pour « Non escaladés », c'est le mauvais.** Cet onglet n'est pas une file : c'est
+      l'**audit** de ce que l'agent a répondu seul. On y va pour voir ce qu'il vient de faire,
+      donc le plus récent est précisément ce qu'on cherche — et c'est ce qui se trouve tout en
+      bas. Le même tri sert deux usages opposés.
+
+### Défaut B — aucune pagination dans l'interface, alors que le serveur la gère
+
+- [x] **Le serveur sait paginer** : `lirePagination(req)` convertit `page` en `saut`, et
+      `reponsePaginee()` renvoie le total. Rien ne manque de ce côté.
+- [x] **Mais le front n'envoie jamais `page`.** `CHARGEURS` (`Moderation.jsx:66-70`) ne passe
+      que `statut` : la page vaut donc toujours 1, la limite 20, et **aucun bouton de
+      navigation n'existe** dans le composant.
+- [x] **Conséquence, et elle est latente** : dès qu'un onglet dépasse **vingt** dossiers, les
+      suivants deviennent **inatteignables**. Au 23 octobre, « À traiter » en compte **13** —
+      c'est l'onglet qui grossit, et il n'est plus qu'à sept dossiers du plafond.
+- [x] **Les trois familles ont la même forme** : Diplômes et Signalements sont exposés au même
+      plafond, pour la même raison.
+
+### Ce qui n'est pas en cause, vérifié
+
+- [x] **La carte affiche bien la réponse de l'agent** : `Moderation.jsx:557-564` rend
+      `ticket.reponse` quand il existe. Le contenu n'est donc pas perdu, il est seulement
+      placé là où on ne le cherche pas.
+- [x] **Aucun test ne fixe l'ordre de tri**, et la pagination n'est couverte par aucun test —
+      ce qui explique que le plafond soit passé inaperçu.
+
+### Ce que je propose, et dans quel ordre
+
+1. **Trier l'onglet d'audit à l'envers.** Ajouter un paramètre d'ordre à `file()`, descendant
+   par défaut pour `resolu` et `clos`, ascendant pour `escalade`. *Un paramètre plutôt qu'une
+   condition en dur sur le statut : « quel ordre » est une question de l'appelant, pas du
+   service.*
+2. **Donner une pagination au back-office.** Le serveur renvoie déjà le total : il suffit de
+   passer `page` dans `CHARGEURS` et d'afficher deux boutons quand `total > limite`.
+3. **Couvrir les deux par des tests** : l'ordre rendu par chaque onglet, et le fait que la
+   deuxième page rende des dossiers différents de la première.
+
+- [x] ~~**Rien n'est implémenté**~~ — **LIVRÉ LE 26 OCTOBRE AU SOIR**, après accord. Le tri est
+      devenu un paramètre (`recent` par défaut, `ancien` à un clic) plutôt qu'un choix imposé :
+      « À traiter » est une file et se traite dans l'ordre d'arrivée, mais « Instruits » et
+      « Non escaladés » sont des archives. La pagination sert les trois familles.
+
+---
+
+## Le rattrapage du champ `canal`, réexpliqué  `EN ATTENTE D'ACCORD`
+
+### Le problème, en une phrase
+
+Quinze dossiers sur vingt et un **n'ont pas du tout le champ `canal`** — pas « vide », pas
+« null » : **absent**.
+
+### Pourquoi il est absent
+
+Le champ a été ajouté au modèle le 18 octobre :
+
+```js
+canal: { type: String, enum: ['widget', 'courriel'], default: 'widget', index: true }
+```
+
+Un `default` de Mongoose s'applique **à la création d'un document**. Il ne réécrit jamais les
+documents déjà en base : les quinze dossiers antérieurs sont donc restés sans le champ.
+
+### Pourquoi c'est bénin aujourd'hui, et gênant demain
+
+Le back-office lit `ticket.canal === 'courriel'`. Pour un champ absent, cela vaut `undefined`,
+donc la comparaison est fausse, donc le dossier est traité comme venant du widget — **ce qui
+est la bonne réponse**. L'affichage est juste, mais **par accident et non par intention** :
+il repose sur le fait qu'`undefined` n'est pas `'courriel'`, pas sur une donnée exacte. Le
+jour où un test, un filtre ou un comptage dira `canal: 'widget'`, les quinze disparaîtront
+sans erreur.
+
+### Pourquoi le rattrapage est certain, et non supposé
+
+- [x] Les quinze vont du **21 septembre au 2 octobre** ; le premier dossier *portant* un canal
+      date du **9 octobre** et vaut `courriel`.
+- [x] **Les quinze ont tous un `auteur` (un compte), et aucun n'a de `courrielAuteur`.** Or le
+      canal courriel n'existait pas avant le 18 octobre, et un dossier du courriel porte
+      forcément une adresse. Ce sont donc tous des dossiers du widget.
+
+### Les étapes, et les garde-fous
+
+1. **Relever les quinze identifiants** et les journaliser — avant toute écriture.
+2. **Refuser d'agir** si l'un d'eux portait un `courrielAuteur` : la condition sera dans le
+   script, pas dans ma tête.
+3. **Écrire** `{ $set: { canal: 'widget' } }` sur `{ canal: { $exists: false } }` — un filtre
+   qui ne peut pas atteindre un dossier déjà renseigné.
+4. **Contrôler après** : zéro dossier sans canal, et **les statuts inchangés** (13 / 6 / 2).
+5. **Réversible** par `{ $unset: { canal: '' } }` sur les quinze identifiants relevés.
+
+- [x] **La garde d'écriture a refusé l'opération** (« Modify Shared Resources »), et c'est
+      légitime : c'est la base du projet. Je ne l'ai ni contournée ni réessayée sous une autre
+      forme.
+- [ ] **À lancer sur accord explicite du porteur du projet.**
+
+---
+
+## Rattrapage du champ `canal` : fait  `RÉSOLU`
+
+Lancé sur accord explicite du porteur du projet, avec les cinq étapes convenues.
+
+| Étape | Résultat |
+|---|---|
+| 1. Relevé avant écriture | **15 identifiants journalisés**, du 21 septembre au 2 octobre |
+| 2. Garde-fou | aucun ne portait de `courrielAuteur` : écriture autorisée |
+| 3. Écriture | **15 correspondances, 15 modifiés** |
+| 4. Contrôle | **0 dossier sans canal** ; par canal : `widget 20`, `courriel 2` |
+| 5. Réversibilité | assurée par les 15 identifiants relevés à l'étape 1 |
+
+- [x] **Un faux négatif de mon propre contrôle, à signaler.** Le script a affiché
+      « statuts inchangés : NON ». C'est **faux** : avant `{resolu:6, escalade:14, clos:2}`,
+      après `{clos:2, escalade:14, resolu:6}` — mêmes nombres, ordre des clés différent dans
+      la comparaison de chaînes JSON. Les données sont intactes ; c'est ma vérification qui
+      était naïve. Comparer des agrégats demande de trier les clés, pas de sérialiser.
+- [x] **Le total réel est 22, et non 21** comme je l'avais annoncé : un dossier escaladé est
+      arrivé le 23 octobre à 12 h 23, pendant la séance.
+
+---
+
+## Pourquoi « Non escaladés » semblait s'arrêter au 19 octobre  `RÉSOLU`
+
+Le porteur du projet signalait que même en bas de liste, le dernier dossier datait du
+**19 octobre 16 h 00**, alors qu'il pensait avoir posé des questions plus récentes.
+
+- [x] **La liste ne cache rien : c'est bien le dernier dossier `resolu`.** Relevé par ordre
+      décroissant, les six dossiers résolus s'arrêtent au `2026-10-19T14:00` UTC — soit
+      **16 h 00 heure locale**, exactement ce qu'il voyait.
+- [x] **Ses interactions plus récentes ont toutes ESCALADÉ.** Elles sont donc dans
+      « À traiter », pas dans « Non escaladés » : l'agent a jugé sa propre réponse
+      insuffisante (`motif: réponse insuffisante`) et a passé la main.
+- [x] **Rien à corriger de ce côté**, donc. Mais cela ne rend pas les deux défauts de tri et
+      de pagination moins réels : ils n'étaient simplement pas la cause de *ce* symptôme.
+
+---
+
+## Le brouillon vide de « À traiter » : la cause, et elle est simple  `À ARBITRER`
+
+Le porteur du projet a relevé que dans « À traiter », le textarea du brouillon est **vide** —
+seul le gabarit « Bonjour Bob … l'équipe CoachConnect » s'affiche — alors que dans
+« Instruits » le texte est rédigé et personnalisé.
+
+### Le constat, mesuré sur les quatorze escalades
+
+**Aucune des quatorze ne porte de `brouillonReponse`.** Zéro sur quatorze.
+
+### Mais le texte existe : il est juste ailleurs
+
+Les escalades portent un champ **`reponse`** — ce que l'agent a affiché dans le widget — et il
+est substantiel :
+
+| Motif d'escalade | Dossiers | `reponse` : longueur moyenne |
+|---|---|---|
+| `réponse insuffisante` | 5 | **651 signes**, jusqu'à **1 104** |
+| `remboursement` | 1 | 170 signes |
+| `agent indisponible` | 8 | 83 signes — le message de panne, inexploitable |
+
+Extrait de celle du 23 octobre, 1 104 signes :
+
+> « Bonjour, voici ce que je peux vous préciser. Pour les événements proches : allez dans
+> « Événements », onglet « Autour de moi »… Pour la résiliation : menu du compte,
+> « Mes abonnements », puis « Résilier »… Pour le remboursement : il n'existe pas de démarche
+> en libre-service, chaque demande est examinée… »
+
+C'est exactement le brouillon attendu. **Il est écrit, personnalisé, et il dort dans le mauvais
+champ.**
+
+### Pourquoi les deux canaux divergent
+
+- **Courriel** — `enregistrerCourriel()` écrit explicitement `brouillonReponse`. C'était l'objet
+  du travail du 18 octobre : rien ne part sans relecture, donc le brouillon est la pièce
+  centrale.
+- **Widget** — `composerTicket()` (`construire-agent-support.mjs:531`) écrit `reponse`, jamais
+  `brouillonReponse`. C'est cohérent avec son usage d'origine : la réponse est **déjà partie**
+  dans le widget, il n'y avait rien à faire relire. L'escalade a été greffée ensuite, et
+  personne n'a rebranché le texte vers le brouillon.
+
+### Le correctif, et pourquoi il est plus léger que prévu
+
+- [x] **Pas besoin d'ajouter une étape de rédaction à l'agent** — ce que je croyais au départ.
+      Le texte existe. Il suffit que le back-office l'offre comme point de départ.
+- [ ] **Semer le brouillon depuis `reponse`** quand `brouillonReponse` est vide **et** que
+      `reponse` est substantielle. Le seuil écarte les huit dossiers `agent indisponible`,
+      dont les 83 signes sont un message de panne : les proposer comme brouillon serait pire
+      que de ne rien proposer.
+- [x] **Afficher la provenance du texte.** « Texte proposé par l'agent, à relire » au-dessus du
+      textarea : un administrateur doit savoir qu'il relit une proposition, pas qu'il consulte
+      un brouillon validé. Sans cette mention, le pré-remplissage invite à envoyer sans lire.
+      **LIVRÉ LE 26 OCTOBRE AU SOIR**, avec un champ `Ticket.brouillonParAgent` qu'il a fallu
+      créer : `ecritParAgent` ne répondait pas à la question.
+
+---
+
+# JOURNÉE DU 26 OCTOBRE
+
+## Les deux jetons Gmail sont morts — et c'est l'explication du courriel disparu  `BLOQUÉ`
+
+Le porteur du projet a envoyé un vrai courriel à la boîte de support, reçu les notifications
+sur son téléphone, et constaté qu'**aucun dossier n'apparaissait dans la page de modération**,
+sans brouillon. Il soupçonnait Anthropic. Ce n'était pas Anthropic.
+
+### Le diagnostic
+
+| | |
+|---|---|
+| Identifiant Gmail de **n8n**, dernière autorisation | **14 octobre** — il y a 11 jours |
+| Validité en mode Test | 7 jours → **mort depuis le 21 octobre** |
+| Jeton d'envoi du **serveur** | `invalid_grant: Token has been expired or revoked` — **mort aujourd'hui** (émis le 19) |
+
+Le canal courriel est donc coupé **dans les deux sens** : n8n ne peut plus lire la boîte, et
+le serveur ne peut plus envoyer.
+
+### Le piège, et c'est le même qu'au 30 septembre
+
+- [x] **Les exécutions du flux courriel sont marquées `success`.** Celles d'aujourd'hui, à
+      11 h 15, 11 h 26 et 11 h 30, contiennent toutes `invalid_grant` — et s'affichent
+      pourtant en succès. L'option `neverError` du nœud avale l'erreur, le nœud ne rend aucun
+      message, et **« aucun courriel non lu » est indistinguable de « je n'ai pas pu lire la
+      boîte »**.
+- [x] **Le message du porteur du projet est donc toujours dans la boîte, non lu**, et personne
+      n'est allé le chercher. Rien n'est perdu ; rien n'a été traité.
+- [x] **Le défaut de conception reste à corriger** : le flux devrait distinguer « zéro
+      courriel » de « lecture refusée » et alerter dans le second cas. Un garde-fou conçu pour
+      ne rien perdre masque une panne depuis cinq jours.
+      **CORRIGÉ LE 26 OCTOBRE AU SOIR.** `unElementParCourriel` et `resoudreLibelle` lèvent
+      désormais une exception au lieu de rendre un tableau vide quand Gmail refuse — l'exécution
+      est marquée en ÉCHEC, visible en rouge dans n8n et comptée dans son journal d'événements.
+      Le tableau vide est réservé au seul cas où il dit la vérité : Gmail a répondu 200 et n'a
+      rien trouvé. Sept vérifications le défendent dans `test:canaux`.
+
+---
+
+## `claude-3-haiku` : l'alerte d'Anthropic ne vient pas de CoachConnect  `ÉLUCIDÉ`
+
+Le porteur du projet a reçu un avis signalant **6 requêtes en échec** vers
+`claude-3-haiku-20240307` le 21 octobre, depuis ses deux clés, avec `not_found_error`.
+
+- [x] **`claude-3-haiku-20240307` n'apparaît NULLE PART dans le dépôt.** Zéro occurrence, tous
+      types de fichiers confondus. Les seuls modèles cités étaient `claude-opus-5` (14 fois) et
+      `claude-haiku-4-5` (8 fois).
+- [x] **Ni dans les workflows importés dans n8n**, vérifiés un par un en base.
+- [x] **Ni dans aucune exécution** : `executions contenant not_found_error : 0`.
+- [x] **Conclusion : l'appel vient d'ailleurs.** Les deux clés portent bien le nom
+      « CoachConnect n8n », mais quelque chose d'autre sur la machine les emploie — un outil,
+      une extension, un essai. **À chercher du côté de ce qui est configuré avec ces clés hors
+      du projet**, et non dans le projet.
+
+---
+
+## Migration Haiku 4.5 → Haiku 5.5  `RÉSOLU`
+
+Demandée par le porteur du projet après l'avis d'Anthropic. Elle n'était pas obligatoire — le
+projet n'employait pas de modèle retiré — mais elle est très rentable.
+
+### Pourquoi c'est un bon calcul
+
+| | Haiku 4.5 | Haiku 5.5 |
+|---|---|---|
+| Entrée / 1M jetons | 1,00 $ | **0,10 $** |
+| Sortie / 1M jetons | 5,00 $ | **0,50 $** |
+| Contexte | 200 K | **1 M** |
+| Paramètre `effort` | **refusé (400)** | **accepté** |
+
+**Dix fois moins cher.** Le nouveau tokeniseur compte environ 30 % de jetons en plus pour le
+même texte : le gain net reste d'un facteur sept.
+
+### Ce que la référence de l'API imposait de vérifier, et ce qu'elle a révélé
+
+La référence `claude-api` a été lue **avant** de toucher au code. Cinq changements cassants
+étaient annoncés ; le code n'en subissait aucun, et c'est mesuré :
+
+| Piège annoncé | État du code |
+|---|---|
+| `budget_tokens` → 400 | jamais employé |
+| `temperature` / `top_p` / `top_k` → 400 | **aucun des trois dans tout le dépôt** |
+| Préremplissage assistant → 400 | jamais employé |
+| Lire `content[0]` casse (la réflexion est en tête) | les deux flux lisent `.find(b => b.type === 'text')` |
+| La réflexion consomme `max_tokens` | `support` : 2000, large ; **`messagerie` : 400, trop serré** |
+
+- [x] **Deux changements obligatoires, trouvés par la lecture et non par l'échec.**
+      `messagerie` plafonnait son classement à **400 jetons**, dimensionné pour le JSON seul :
+      la réflexion de Haiku 5.5, active par défaut, l'aurait consommé avant la réponse.
+      Relevé à 2000 — et cela **ne coûte rien**, seuls les jetons produits étant facturés.
+- [x] **`fallbacks` retiré des deux classements.** La référence est explicite : *« There is no
+      server-side fallback for Claude Haiku 5.5 — don't add the `fallbacks` parameter »*. Avec
+      `'default'` ce n'est pas un 400, mais c'est **inerte** : une demande déclinée reste
+      déclinée. Le refus était déjà traité par `stop_reason: 'refusal'`.
+- [x] **`effort: 'low'` ajouté aux deux classements.** Haiku 4.5 refusait le paramètre, Haiku
+      5.5 l'accepte : classer une intention parmi quatre n'exige pas de réflexion poussée.
+- [x] **`fallbacks` CONSERVÉ sur les deux rédactions** : Opus 5 dispose, lui, d'un repli
+      serveur. Les retirer par symétrie aurait laissé une rédaction déclinée sans recours.
+
+### La chaîne complète, régénérée et réimportée
+
+- [x] Les deux constructeurs modifiés, les **trois** JSON régénérés
+      (`agent-support`, `agent-messagerie-tri`, `agent-messagerie-corbeille`), puis réimportés.
+- [x] **Un effet de bord rattrapé de justesse** : `n8n import:workflow` **désactive** le
+      workflow importé. `ccSupportAgent01` est ressorti `inactif` — le widget aurait été muet.
+      Réactivé par `update:workflow`, puis n8n redémarré, car la CLI le dit elle-même :
+      *« Activation will not take effect if n8n is running »*. Confirmé dans les journaux :
+      `Activated workflow "CoachConnect — agent de support du widget"`.
+- [x] **Essai de bout en bout** : question réelle posée au widget → **`200` en 7,7 s**, réponse
+      pertinente, exécution en `success`, modèles employés `claude-haiku-5-5` **et**
+      `claude-opus-5`, **aucun `not_found_error`**. Classement mesuré à 1 053 jetons d'entrée
+      pour 27 de sortie. Compte de test supprimé derrière.
+
+### Les tests ont fait leur travail, et ils ont été renforcés
+
+- [x] **Six assertions sont tombées, et c'était le comportement attendu.** Elles épinglaient
+      les contraintes de Haiku 4.5 — « le classement n'envoie PAS `effort` », « le repli est
+      conservé ». Haiku 5.5 fait l'exact inverse.
+- [x] **Elles ont été inversées, pas affaiblies**, et trois ont été ajoutées : un modèle retiré
+      ne peut pas revenir par mégarde ; le plafond laisse de la place à la réflexion ; et la
+      **rédaction** garde son repli, séparément du classement.
+- [x] **Couverture en hausse** : `test:canaux` **231 → 236**, `test:messagerie-agent`
+      **102 → 104**. Et tout est vert : `support 93/93`, `reponse 49/49`, `courriel 46/46`,
+      `api 73/73`, `moderation 90/90`, `releve 78/78`.
+
+---
+
+## Le courriel disparu avait DEUX causes, et je n'avais trouvé que la première  `RÉSOLU`
+
+### Première cause, corrigée : les deux jetons Gmail
+
+- [x] **n8n réautorisé par le porteur du projet** le 26 octobre à 14 h 36. Les exécutions du
+      flux courriel depuis 14 h 31 ne portent **plus aucun `invalid_grant`** — la boîte est
+      lisible à nouveau.
+- [x] **Jeton du serveur réémis** : `autoriser-gmail.mjs`, consentement dans Chrome, 103 signes
+      écrits, API redémarrée, `verifierSmtp()` → **`ACCEPTEE`**. Le garde-fou de port a encore
+      joué de lui-même : `[PORT] 5000 : ancien serveur arrêté (PID 31568, node)`.
+
+### Mais le courriel n'était toujours pas ramassé
+
+Six exécutions après la réautorisation, toujours aucun dossier. Et l'inspection de
+l'exécution #5730 donnait la mesure : **`resultSizeEstimate: 0`** — Gmail ne renvoyait aucun
+message, et le seul nœud à s'exécuter était `Chercher les courriels`.
+
+### Seconde cause : le courriel est marqué LU
+
+En interrogeant Gmail directement avec le jeton frais, et en relâchant la requête terme par
+terme :
+
+| Requête | Messages |
+|---|---|
+| celle du flux, telle quelle | **0** |
+| sans `-from:me` | 0 |
+| **sans `is:unread`** | **4** |
+| sans `in:inbox` | 0 |
+| tout, 7 derniers jours | 2 |
+| corbeille ou spam | 0 |
+
+Un seul terme change le résultat. Et le détail du message le confirme :
+
+```
+de       : martin dieude <martin.dieude@gmail.com>
+objet    : Demande infos
+date     : Sat, 24 Oct 2026 11:11:49 +0200
+libelles : INBOX
+```
+
+- [x] **L'étiquette `UNREAD` est absente.** Le porteur du projet le croyait non lu — l'aperçu
+      de la notification sur son téléphone a suffi à le marquer lu. Gmail est ici la seule
+      autorité, et il dit « lu ».
+- [x] **Le courriel date du 24 octobre**, pas d'aujourd'hui.
+
+### Le défaut de conception, et il est réel
+
+> **RÉSOLU LE 26 OCTOBRE AU SOIR** — voir « `is:unread` remplacé pour de bon » plus bas. Le
+> libellé `CC/Support/Traite` a remplacé `is:unread`, et le mécanisme est éprouvé de bout en
+> bout sur la vraie boîte.
+
+- [x] **`is:unread` est un marqueur fragile pour dire « pas encore traité ».** Il confond deux
+      choses sans rapport : *un humain a-t-il regardé ce message ?* et *l'agent l'a-t-il
+      traité ?* Conséquence — **tout courriel ouvert, même par mégarde, avant le passage du
+      flux est perdu pour l'agent, définitivement et sans trace.** Une notification suffit.
+- [x] **La parade existe déjà dans ce projet**, et c'est ce qui rend le défaut net : le flux de
+      messagerie (`ccMessagerieTri1`) n'emploie pas `is:unread` mais un **libellé** —
+      `-label:cc-traite`. Un libellé n'est posé que par le flux lui-même : le lire ne le
+      change pas. Le flux courriel devrait suivre le même modèle. **C'est ce qui a été fait**,
+      avec un libellé DISTINCT — `CC/Support/Traite` — parce que les deux flux relèvent la
+      même boîte et que partager `CC/Traite` les aurait rendus aveugles l'un à l'autre.
+- [x] **Remède immédiat, en attendant** : remarquer le courriel comme non lu dans Gmail. Le
+      flux le ramassera au passage suivant, dans les dix minutes. *(Ce remède n'a plus lieu
+      d'être : l'état de lecture n'entre plus dans la recherche.)*
+
+---
+
+## `is:unread` est systématiquement faux dans cette boîte — mesuré deux fois  `À CORRIGER`
+
+Le porteur du projet a envoyé un second courriel (« Demande de remboursement », 26 octobre
+16 h 36) **sans l'ouvrir**, pour éprouver le flux.
+
+- [x] **Il arrive lui aussi marqué LU.** Libellés : `INBOX`, **sans `UNREAD`**. Deux courriels
+      sur deux, dans les mêmes conditions. L'aperçu d'une notification suffit.
+- [x] **Ce n'est donc pas un accident mais une propriété de cette configuration.** La
+      recherche du flux rend **zéro** message quand la boîte en contient cinq. `is:unread`
+      n'est pas un marqueur imparfait : il est **inopérant ici**.
+
+### La conception retenue, et pourquoi elle n'est pas celle du libellé seul
+
+Le porteur du projet proposait : que l'agent voie tout, et qu'un libellé le rende aveugle sur
+certains messages. La seconde moitié est exactement juste et sera reprise telle quelle —
+`CC/Prive` existe déjà et porte déjà ce sens dans l'assistant de messagerie.
+
+- [x] **Mais la première moitié demande un marqueur de traitement, et le libellé est le
+      mauvais endroit pour le mettre.** Un libellé posé par Gmail suppose : créer le libellé,
+      relire la liste, résoudre son identifiant, puis l'appliquer. Quatre opérations réseau
+      dont **chacune peut échouer** — et si l'application échoue, le courriel reste éligible :
+      le flux le reprend au passage suivant, crée un dossier en double, et rappelle le modèle.
+      Toutes les dix minutes.
+- [x] **Le bon endroit est le serveur, et ce projet le pratique déjà.** `ProcessedWebhook`
+      garde les événements Stripe par un **index unique** : la seconde insertion échoue, et
+      l'on répond sans retraiter. La même mécanique appliquée à l'identifiant du message Gmail
+      rend le doublon **impossible par construction**, quel que soit l'état du filtre Gmail.
+
+### La spécification
+
+1. **Le flux transmet l'identifiant Gmail** (`messageId`) dans le dépôt, à côté de
+   `expediteur`, `sujet`, `question`, `brouillon`.
+2. **`Ticket` porte un champ `messageCourriel`** avec un index **unique partiel** — unique
+   seulement là où le champ existe, pour ne pas contraindre les dossiers du widget.
+3. **`enregistrerCourriel()` renvoie le dossier existant** au lieu d'en créer un second, et
+   l'API répond `200` plutôt que `201` : le flux voit que c'était déjà traité et s'arrête.
+4. **Alors seulement** `is:unread` est retiré de la recherche, remplacée par
+   `in:inbox -from:me after:… -label:cc-prive`.
+5. **Tests** : deux dépôts du même `messageId` → un seul dossier ; un dossier du widget sans
+   `messageCourriel` n'est pas contraint par l'index ; un courriel portant `CC/Prive` n'est
+   jamais ramassé.
+
+### Pourquoi la modification a été annulée en cours de route
+
+- [x] **J'avais commencé par retirer `is:unread` de la recherche.** Je l'ai annulé avant de
+      livrer : sans le marqueur du point 3, cette seule modification aurait produit un dossier
+      en double toutes les dix minutes, avec un appel facturé à chaque fois. **Livrer la moitié
+      d'un correctif dont l'autre moitié est le garde-fou est pire que ne rien livrer.**
+- [x] **L'annulation est vérifiée** : la recherche est identique au mot près, et
+      `agent-courriel.json` n'apparaît pas dans le diff — seul le commentaire du constructeur
+      a changé, pour porter la mesure. Suites : `canaux 236/236`, `courriel 46/46`,
+      `support 93/93`, `reponse 49/49`, `api 73/73`, `moderation 90/90`.
+- [x] **Remède immédiat pour le porteur du projet** : remarquer le courriel comme non lu dans
+      Gmail. Le flux le ramassera dans les dix minutes. *(Caduc depuis le 26 octobre au soir :
+      `is:unread` a quitté la recherche, remplacé par le libellé `CC/Support/Traite`.)*
+
+---
+
+## La question de la confidentialité, instruite  `ÉLUCIDÉ`
+
+Le porteur du projet s'inquiétait : si Anthropic voit des appels à un modèle qu'il n'emploie
+pas, peut-être qu'une dépendance l'appelle — et alors « mon projet n'est pas privé et ils ont
+accès à tout ».
+
+### Ce qui est mesuré
+
+| Vérification | Résultat |
+|---|---|
+| Anthropic dans les trois `package.json` | **0 mention** |
+| SDK Anthropic installé (`@anthropic-ai`, `anthropic`) | **nulle part**, dans aucun des trois `node_modules` |
+| Clé dans `server/.env` ou dans le code source | **absente** |
+| Qui appelle Anthropic | **n8n seul**, par `POST https://api.anthropic.com/v1/messages` |
+| Où vit la clé | **un seul identifiant chiffré** dans n8n |
+
+- [x] **Aucune dépendance ne peut appeler Anthropic** : aucune n'a le SDK, et aucune n'a accès
+      à la clé. Ce n'est pas une opinion, c'est l'absence de moyen.
+
+### Une hypothèse émise puis réfutée
+
+- [x] **J'avais supposé le chat IA intégré de n8n.** La version 1.121.0 porte bien les tables
+      `chat_hub_sessions`, `chat_hub_messages`, `chat_hub_agents`, et ses appels
+      n'apparaîtraient pas dans les exécutions de workflow. **Réfuté : les trois tables sont
+      vides.** Il n'a jamais servi. L'hypothèse est retirée.
+- [ ] **L'origine des six appels reste indéterminée**, et c'est dit plutôt que deviné. L'avis
+      porte sur « l'organisation individuelle », donc sur **tout** ce qui emploie une clé de ce
+      compte, où que ce soit. La seule source autoritative est la console Anthropic, dont les
+      journaux d'usage donnent l'horodatage exact de chaque appel.
+
+### Ce que cela dit — et ne dit pas — de la confidentialité
+
+- [x] **Ce que l'avis prouve** : six requêtes vers un modèle retiré ont été faites avec des
+      clés de ce compte. C'est du **relevé de consommation sur son propre trafic d'API** —
+      même nature que la facture Stripe ou le tableau de bord Cloudinary.
+- [x] **Ce qu'il ne prouve pas, et ne peut pas prouver** : Anthropic n'a accès ni au dépôt, ni
+      au disque, ni à la base, ni à la boîte Gmail. Il n'y a dans ce projet **aucun agent,
+      aucun SDK, aucune télémétrie** qui remonterait quoi que ce soit.
+- [x] **Mais une exposition réelle existe, et elle mérite d'être écrite** : le **contenu des
+      questions de support est envoyé à Anthropic**, puisque c'est ainsi que l'agent rédige.
+      C'est inhérent au choix d'architecture, pas un défaut — mais cela veut dire que les
+      messages des utilisateurs quittent la machine. **À documenter dans la partie RGPD du
+      dossier d'examen**, au même titre que Stripe pour les paiements et Cloudinary pour les
+      images.
+
+---
+
+## Le brouillon à l'escalade, côté widget — livré  `RÉSOLU`
+
+Le canal courriel fonctionnait de bout en bout : brouillon rédigé par l'agent, validé par
+l'exploitant, envoyé, dossier clos. Le widget escaladait sans rien proposer. C'est corrigé.
+
+### Ce qui bloquait, et ce n'était pas une étape en panne
+
+**Le serveur n'acceptait même pas le champ.** `reglesCreationTicket` listait
+`question · origine · intention · reponse · outils · motifEscalade` — `brouillonReponse` n'y
+figurait pas. Le widget écrivait son texte dans `reponse`, ce qui s'affiche dans la fenêtre, et
+le back-office lisait `brouillonReponse` pour son textarea. **Deux champs jamais reliés.**
+
+Ce n'est donc pas une régression : **cette étape n'avait jamais existé** côté widget. Le canal
+courriel a été conçu dès l'origine autour de la relecture ; le widget a été conçu quand la
+réponse partait directement, et l'escalade y a été greffée ensuite.
+
+### Côté serveur : trois conditions, et chacune protège d'un abus différent
+
+- [x] **`brouillonReponse` ajouté au validateur**, mêmes bornes que `reponse` (4000) : les deux
+      finissent dans le même champ du modèle, et une borne plus large ferait échouer l'écriture
+      **après** que l'agent a payé sa rédaction.
+- [x] **Ignoré sans la clé d'agent.** L'appelant détient le même jeton que n8n : il pourrait se
+      rédiger un brouillon flatteur et le présenter au back-office comme la proposition de
+      l'agent. Même raisonnement que celui qui protège déjà `reponse` et `outils`.
+- [x] **Ignoré sur un dossier `resolu`.** Un dossier résolu a déjà reçu sa réponse dans le
+      widget : lui attacher un brouillon ferait apparaître, dans l'onglet d'audit, un texte que
+      personne n'est censé valider — et inviterait à répondre deux fois.
+- [x] **Ignoré sous dix signes**, comme le canal courriel. Un brouillon de trois mots ferait
+      croire à une proposition là où l'agent n'a rien produit.
+- [x] **`traitePar` reste vide**, délibérément : aucun administrateur n'est intervenu. Le
+      renseigner attribuerait le texte à un humain qui ne l'a pas écrit.
+
+### Côté flux : quatre nœuds, et une seconde rédaction assumée
+
+`Composer le ticket` → `Faut-il un brouillon ?` → `Préparer le brouillon` →
+`Rédiger le brouillon` → `Lire le brouillon` → `Enregistrer le ticket`, la branche fausse
+allant directement à l'enregistrement. 22 → **26 nœuds**, graphe vérifié cohérent.
+
+- [x] **Une seconde rédaction, et non la réutilisation de la première.** L'audience n'est pas
+      la même : la réponse du widget parle à la personne **en direct** et se termine souvent par
+      « un conseiller va prendre le relais » — phrase absurde dans le message que l'exploitant
+      enverra ensuite, puisqu'il **est** ce conseiller. La consigne système le lui interdit
+      explicitement.
+- [x] **Et pour une intention `decision`, il n'y avait rien à réutiliser.** Un remboursement ne
+      passe pas par la rédaction du widget (`redige` vaut faux) : il reçoit une réponse fixe.
+      C'est le cas où l'exploitant a le plus besoin d'un brouillon, et celui où la
+      réutilisation n'aurait rien donné.
+- [x] **Le contexte n'est pas recherché deux fois** : les fiches et les données ont déjà été
+      lues pour le classement. Le surcoût est une rédaction, pas un passage entier.
+- [x] **Un brouillon manquant n'est pas une panne** : `Lire le brouillon` repart du ticket
+      composé. Le dossier porte la question de la personne ; la perdre pour une rédaction ratée
+      serait bien pire qu'un textarea vide.
+
+### L'épreuve, et elle porte sur les deux moitiés
+
+| Épreuve | Statut | Brouillon |
+|---|---|---|
+| question informative | `resolu` | **0 signe** — correct |
+| demande de remboursement | `escalade`, `intention=decision`, motif `remboursement` | **1 421 signes** |
+
+Le brouillon produit, extrait :
+
+> « Bonjour, Vous nous indiquez avoir résilié votre abonnement premium le mois dernier et avoir
+> tout de même été prélevé… Pour que nous puissions avancer rapidement, pourriez-vous nous
+> préciser : la date à laquelle vous avez effectué votre résiliation… la date et le montant du
+> prélèvement que vous contestez… »
+
+- [x] **Les deux garde-fous de forme tiennent** : aucun tiret cadratin, et aucune annonce de
+      relais. Vérifiés par expression régulière sur le texte produit, pas supposés.
+- [x] **Onze assertions ajoutées à `test:support`** : 93 → **104**. Elles couvrent le brouillon
+      gardé, la date posée, `traitePar` vide, et les trois cas d'ignorance (sans clé, sur
+      résolu, sous dix signes).
+- [x] **Campagne complète verte** : `canaux 236/236`, `reponse 49/49`, `courriel 46/46`,
+      `api 73/73`, `moderation 90/90`, `releve 78/78`, `messagerie-agent 104/104`,
+      `mot-de-passe 52/52`, `perf 18/18`.
+
+### Deux bogues que j'ai introduits, et qui ont été attrapés
+
+- [x] **Collision de noms, deux fois.** `sansCle` et `dossier` étaient déjà déclarés plus bas
+      dans la suite : `SyntaxError`, et **la suite entière n'a pas tourné**. Mon premier
+      contrôle a affiché « échecs : 0 » — un faux négatif, le `grep` ne trouvant aucun `KO`
+      dans une pile d'erreur. **Lire la sortie brute, pas seulement le compte d'échecs.**
+- [x] **Mes dossiers ont cassé une assertion de cloisonnement**, et elle avait raison de
+      tomber : créés au nom d'Alice, ils faisaient passer son décompte de deux à six. Corrigé
+      par un **compte dédié**. Une épreuve qui modifie le jeu de données d'une autre ne teste
+      plus ce qu'elle croit : elle teste l'ordre d'exécution.
+- [x] **Et le piège de l'import, déjà connu, évité** : `n8n import:workflow` désactive le
+      workflow. `ccSupportAgent01` est ressorti inactif, réactivé puis n8n redémarré —
+      `Activated workflow` confirmé dans les journaux.
+
+---
+
+## Le widget annonce désormais la réponse par courriel  `RÉSOLU`
+
+Le porteur du projet a éprouvé le brouillon du widget de bout en bout : l'agent a répondu
+seul, puis a escaladé, le brouillon a été rédigé, validé, et le message envoyé à la personne.
+Comportement conforme. Il restait un manque : **la personne, dans le widget, n'était pas
+prévenue que la réponse arriverait par courriel.**
+
+### Deux options, et la plus simple était aussi la meilleure
+
+Il avait envisagé un **second message** dans le widget, en proposant lui-même de replier sur
+une modification du premier si c'était trop lourd. C'est la seconde qui a été retenue, et pas
+seulement par économie :
+
+- [x] **Deux bulles qui se suivent pour dire la même chose ressemblent à un bogue**, et la
+      seconde arriverait souvent après que la personne a refermé la fenêtre.
+- [x] **Un seul message porte toute l'information** : ce que l'agent sait, ce qu'il ne sait
+      pas, qui prend le relais, et par quel canal la réponse viendra.
+
+### La promesse a été vérifiée avant d'être écrite
+
+- [x] `envoyerReponse()` peuple `auteur` avec son `email` et lit l'adresse dans
+      `courrielAuteur || auteur?.email`. Pour un dossier du widget, la réponse part donc bien
+      **au courriel du compte**. Annoncer un canal sans vérifier qu'il est emprunté aurait été
+      une promesse en l'air.
+- [x] **Aucun délai n'est annoncé**, conformément à la règle du projet : on nomme le canal,
+      jamais une échéance qu'on ne tient pas.
+
+### Quatre endroits, parce que l'escalade a trois origines
+
+| Origine | Où | Modification |
+|---|---|---|
+| Intention `decision` | texte fixe | « Un membre de l'équipe vous répondra **par courriel, à l'adresse de votre compte** » |
+| Agent indisponible | texte fixe, **deux** emplacements | « Un conseiller va la reprendre, et vous recevrez sa réponse **par courriel** » |
+| Escalade décidée par le modèle | **consigne système** | ordre explicite d'écrire que la réponse viendra PAR COURRIEL, et interdiction d'annoncer un délai |
+
+Le troisième est le moins évident : ce n'est pas un texte qu'on écrit, c'est une **instruction**
+que le modèle doit suivre. C'est donc le cas qui demandait une épreuve réelle.
+
+### L'épreuve, sur les trois origines
+
+| Cas | Escalade | Annonce le courriel | Verdict |
+|---|---|---|---|
+| A — `decision` | oui | **oui** | correct |
+| B — **escalade décidée par le modèle** | oui | **oui** | correct |
+| C — question informative | non | **non** | correct |
+
+- [x] **Le cas C compte autant que les deux autres.** Promettre un courriel à qui vient de
+      recevoir sa réponse dans le widget le ferait attendre pour rien, et encombrerait le
+      support de relances légitimes. La mention doit suivre l'escalade, et jamais l'inverse.
+- [x] **Le cas B a été suivi par le modèle** dès le premier essai, sur une question qui mêlait
+      deux sujets dont un hors de ses fiches.
+
+### Douze assertions ajoutées à `test:canaux` : 236 → **248**
+
+Elles épinglent, séparément : le texte fixe d'une décision annonce le courriel ; celui de
+l'agent indisponible aussi ; **un dossier non escaladé n'en promet aucun** ; la consigne
+ordonne l'annonce et interdit le délai ; le brouillon de l'exploitant interdit d'annoncer un
+relais ; le tiret cadratin est retiré du brouillon ; et un brouillon de moins de dix signes
+n'est pas transmis.
+
+- [x] **Trois d'entre elles exercent `Réponse fixe`, que rien ne testait jusqu'ici.** Le nœud
+      portait trois messages dont deux escaladent, et aucune assertion ne les lisait.
+
+### La campagne enchaînée fait échouer Stripe, et ce n'est pas le code
+
+- [x] **Douze suites à la file : 829 vérifications, 7 échecs — tous dans `test:stripe`.** Le
+      message est sans ambiguïté : *« An error occurred with our connection to Stripe. Request
+      was retried 2 times. »* C'est une erreur de **connexion**, et le SDK de Stripe a
+      retenté deux fois avant d'abandonner.
+- [x] **Lancée seule, la suite passe 50/50.** Le code n'est donc pas en cause.
+- [x] **L'explication la plus plausible est la saturation du chemin sortant.** Chaque appel
+      HTTPS de cette machine traverse l'interception TLS d'Avast, et la campagne enchaîne onze
+      suites avant Stripe, après plusieurs essais de bout en bout vers Anthropic. C'est le même
+      genre de limite que celle déjà établie pour la mémoire — 7,74 Go — et elle se manifeste
+      ici sur le réseau.
+- [x] **Mesure de mon propre outillage, aussi** : ma boucle de campagne a affiché
+      `test:moderation  0/0` alors que la suite rend **90/90** lancée seule. L'extraction du
+      bilan par expression régulière avait attrapé autre chose. **Un compte de vérifications
+      lu par un `grep` n'est pas une mesure fiable** — c'était déjà la leçon du faux négatif
+      sur `support.mjs`.
+
+- [x] ~~**Règle d'exploitation à retenir** : lancer `test:stripe` **séparément** du reste, ou
+      ménager une pause avant lui.~~ **CETTE RÈGLE VISAIT UN SYMPTÔME, ET SA CAUSE ÉTAIT
+      FAUSSE.** Mesuré le 26 octobre : aucune dégradation à 32 connexions simultanées vers
+      `api.stripe.com`, 82 ports en `TIME_WAIT` sur 16 384, et `test:api` puis `test:stripe`
+      enchaînés rendent 73/73 puis 50/50. La contention de réseau n'est pas établie.
+      **Les vraies causes trouvées depuis** : `nodemon` surveillait tout `server/` et
+      redémarrait l'API à chaque fichier modifié ; et un processus orphelin saturait un cœur.
+      Les deux sont corrigés. La règle qui les remplace : **ne pas modifier de fichier pendant
+      une campagne, et mesurer `docker stats` avant d'accuser le réseau.**
+
+---
+
+## L'idempotence de la relève du courriel — livrée  `RÉSOLU`
+
+### Ce qui est en place
+
+- [x] **`Ticket.messageCourriel`**, borné à 200 signes, sous **index unique partiel**
+      (`partialFilterExpression: { messageCourriel: { $exists: true } }`).
+- [x] **Le filtre partiel est indispensable, et pas un raffinement.** Un index unique
+      ordinaire traiterait tous les dossiers sans la clé comme portant la même valeur `null`
+      et refuserait le second : il interdirait d'avoir plus d'**un** dossier du widget dans
+      toute la base. `$exists: true` plutôt que `{ $ne: null }`, parce que Mongoose n'écrit
+      pas un champ laissé à `undefined`.
+- [x] **`enregistrerCourriel()` renvoie `{ ticket, nouveau }`** : lecture d'abord pour le cas
+      ordinaire, puis rattrapage sur le code `11000` si deux passages se croisent entre la
+      lecture et l'écriture. Les deux sont nécessaires — le test est un raccourci, l'index est
+      la garantie.
+- [x] **Le contrôleur répond `200` au lieu de `201`** quand le dossier existait déjà, et porte
+      un champ `nouveau`. **Pas `409`** : un second passage n'est pas une faute de l'appelant,
+      qui n'a aucun moyen de savoir ce que la base contient.
+- [x] **Le brouillon existant n'est jamais réécrit.** L'exploitant peut l'avoir modifié, voire
+      déjà envoyé : l'écraser détruirait son travail en silence.
+- [x] **`messageId` voyage depuis `normaliserCourriel`** jusqu'au dépôt, et **n'est envoyé que
+      s'il existe** : une chaîne vide serait écrite en base, et l'index refuserait alors le
+      deuxième courriel dépourvu d'identifiant en les traitant tous comme un seul message.
+
+### Et l'exclusion volontaire, telle que le porteur du projet l'a demandée
+
+- [x] **`-label:cc-prive` ajouté à la recherche.** Le libellé existe déjà dans l'assistant de
+      messagerie et porte déjà ce sens : il rend l'agent **aveugle** sur un message. Aucune
+      portée Google ne sait faire cela — `gmail.modify` porte sur la boîte entière — donc
+      l'exclusion est dans la requête, et c'est l'exploitant qui pose le libellé, jamais
+      l'agent.
+
+### Mais `is:unread` est RESTÉ, et c'est une erreur de ma part que j'ai rattrapée
+
+- [x] **J'avais annoncé qu'on pouvait le retirer dès l'idempotence livrée. C'était faux.** Ce
+      flux **rédige avant de déposer** : sans filtre à la source, chaque passage relirait les
+      mêmes courriels et rappellerait le modèle à chaque tour. L'idempotence refuserait le
+      dossier — **après** avoir payé la rédaction. Cinq courriels dans la fenêtre, un passage
+      toutes les dix minutes : environ **sept cents rédactions par jour pour rien**.
+- [x] **J'ai trouvé la faille en rédigeant le commentaire qui l'affirmait**, pas en la testant.
+      Écrire « le dépôt est refusé avant la rédaction » m'a obligé à vérifier l'ordre des
+      nœuds, et il est inverse.
+- [x] **L'idempotence et le filtre sont complémentaires, non alternatifs**, et les opposer
+      était un faux dilemme de ma part. Le filtre évite la dépense ; l'index garantit la
+      correction quand le filtre laisse passer.
+- [x] **CE QUI MANQUAIT — LIVRÉ LE MÊME JOUR, voir l'entrée « `is:unread` remplacé pour de
+      bon » plus bas.** Un filtre qui ne dépend pas de l'état de lecture : le libellé
+      `CC/Support/Traite`, posé par le flux lui-même. Il coûte deux requêtes par passage
+      (créer, lire la liste) plus une par courriel — **le même compte que le marquage « lu »
+      qu'il remplace**, et non quatre par courriel comme je l'avais d'abord estimé. Et si son
+      application échoue, l'index rattrape : une rédaction perdue, jamais un doublon.
+
+### Dix assertions ajoutées : `test:courriel` 46 → **56**
+
+Second dépôt du même message → `200` et non `201` ni `409` ; il se déclare non nouveau ;
+**c'est le même dossier qui revient** ; **un seul dossier en base** ; le brouillon de
+l'exploitant n'est jamais écrasé ; et **deux dépôts sans identifiant sont tous deux
+acceptés** — la preuve que l'index est bien partiel.
+
+### Une troisième collision de noms, attrapée avant l'exécution cette fois
+
+- [x] `second` était déjà déclaré dans la suite. **Le contrôle de collision que j'avais ajouté
+      après les deux premières l'a signalé avant de lancer quoi que ce soit**, au lieu de me
+      laisser lire un « échecs : 0 » qui était une pile d'erreur. Les fichiers de test de ce
+      projet sont longs et plats : tout nom court y est probablement déjà pris.
+
+### La campagne, Stripe à part
+
+**911 vérifications sur dix suites, zéro échec.** Puis, lancées séparément comme la règle du
+26 octobre le demande : `stripe 50/50` et `perf 18/18`. Soit **979 vérifications** au total.
+
+---
+
+## `is:unread` remplacé pour de bon — le libellé de traitement  `RÉSOLU`
+
+### Le mécanisme livré
+
+- [x] **`CC/Support/Traite`**, posé par le flux lui-même sur chaque message qu'il traite,
+      **avant** les étapes coûteuses. La recherche devient
+      `in:inbox -from:me after:2026/10/09 -label:cc-prive -label:cc-support-traite`.
+- [x] **Quatre nœuds nouveaux ou remplacés** : `Créer le libellé` (un 409 veut dire « il
+      existe »), `Lire les libellés` (une fois par passage), `Résoudre le libellé` (nœud Code),
+      et `Poser le libellé` qui a REMPLACÉ `Marquer comme lu`.
+- [x] **Le flux ne touche plus à `UNREAD`, nulle part.** C'était le but : l'état de lecture
+      redevient ce qu'il est, l'affaire de l'humain qui regarde sa boîte. L'ancien marquage
+      effaçait justement l'information dont l'exploitant se sert pour savoir ce qu'il n'a pas
+      encore vu.
+
+### Pourquoi `CC/Support/Traite` et pas `CC/Traite`
+
+- [x] **`CC/Traite` appartient à l'autre agent, qui relève LA MÊME BOÎTE** —
+      `support.coachconnect.app@gmail.com`, même identifiant OAuth `ccGmailOAuth0001`.
+      L'assistant de messagerie pose `CC/Traite` sur **tout ce qu'il classe**, toutes les
+      quinze minutes. Le partager aurait fait que chaque flux rende l'autre aveugle.
+- [x] **C'est aussi pourquoi la recherche du support n'exclut PAS `-label:cc-traite`.** Le
+      piège est symétrique, et il serait pire dans ce sens : le tri passe toutes les quinze
+      minutes, le support toutes les dix — le support aurait perdu la course une fois sur
+      deux, silencieusement. Une vérification défend désormais cette absence.
+- [x] **UN NOM SANS ESPACE, ET C'EST MESURÉ.** Gmail écrit un libellé en minuscules dans une
+      recherche et remplace « / » par « - » : `CC/Support/Traite` devient `cc-support-traite`.
+      C'est la transformation déjà éprouvée par `cc-traite` et `cc-prive`. Un nom à espace
+      aurait dépendu en plus de la conversion des espaces, que rien dans ce projet n'avait
+      vérifiée.
+
+### Le garde-fou de coût : rendre un tableau vide
+
+- [x] **`Résoudre le libellé` s'arrête si l'identifiant est introuvable** — liste en erreur,
+      statut autre que 200, libellé absent, réponse sans libellés. Les quatre cas sont
+      exercés.
+- [x] **C'est délibérément fail-closed.** Ce libellé est le SEUL marqueur de traitement depuis
+      le retrait d'`is:unread` : sans lui, le flux peut lire la boîte et rédiger, mais pas se
+      souvenir de l'avoir fait. On préfère ne rien faire pendant dix minutes — le passage
+      suivant réessaie, et rien n'est perdu.
+- [x] **Le libellé est résolu AVANT la recherche**, et une vérification défend cet ordre.
+      L'inverse laisserait le flux appeler le modèle alors qu'il ne peut pas marquer.
+
+### La ligne de départ, posée à la main et une seule fois
+
+- [x] **`docker/n8n/libeller-courriels-traites.mjs`** — mesure d'abord, n'écrit que sur
+      `--appliquer`. Il crée le libellé, cherche avec la NOUVELLE recherche, et marque.
+- [x] **LE PROBLÈME QU'IL RÉSOUT N'ÉTAIT PAS THÉORIQUE.** Le jour du changement, aucun message
+      de la boîte ne portait le nouveau libellé : la recherche les rendait donc tous « à
+      traiter ». **Mesuré : cinq messages**, tous déjà traités, dont une notification de
+      Google. Sans parade, la première relève aurait rédigé pour chacun — cinq appels à Opus
+      pour du courrier clos.
+- [x] **ET C'EST CE SCRIPT QUI A PROUVÉ LE MÉCANISME, AVANT DE TOUCHER AU WORKFLOW** :
+      cinq messages avant, **zéro après**. Le terme `-label:cc-support-traite` est donc
+      accepté par Gmail et fait ce qu'on attend — vérifié sur la vraie boîte, pas déduit.
+
+### Ce que le changement coûte, en requêtes
+
+| | Avant | Après |
+|---|---|---|
+| Par courriel | 1 `modify` (ôter `UNREAD`) | 1 `modify` (poser le libellé) |
+| Par passage | — | 2 (créer le libellé, lire la liste) |
+
+Soit **douze requêtes de plus par heure**, sur un quota Gmail de deux cent cinquante unités
+par seconde. Mon estimation du 25 octobre — « quatre par courriel » — était fausse.
+
+### Seize assertions ajoutées : `test:canaux` 248 → **264**
+
+`is:unread` absent ; l'exclusion par libellé présente ; `cc-prive` conservé ; **`cc-traite`
+absent** ; le libellé posé sur le message ; **plus aucun nœud ne touche à `UNREAD`** ; le
+marquage en dérivation ; l'ordre résolution-avant-recherche ; la liste lue une fois ; **les
+trois écritures du nom concordent** ; le nom sans espace ; **le script cherche exactement
+comme le flux** ; l'identifiant résolu par nom exact ; et les quatre cas où rien ne doit se
+traiter.
+
+### Et ces assertions ont été éprouvées par mutation
+
+- [x] **Remettre `is:unread`** → 1 échec, nommé.
+- [x] **Faire diverger le nom recopié** dans `resoudreLibelle` (`Traite` → `Traités`) →
+      **2 échecs indépendants**. C'est exactement la panne silencieuse à craindre : un flux
+      qui tourne, crée un libellé, en cherche un autre, et reprend indéfiniment les mêmes
+      courriels **en payant**. Rien dans le langage n'impose cette concordance — le corps d'un
+      nœud Code est sérialisé tel quel, sans accès aux constantes du module.
+
+Un test qui ne peut pas échouer ne prouve rien : les deux mutations ont été rejouées, puis
+annulées, et la suite est revenue à 264/264.
+
+---
+
+## La signature d'Avast en pied de courriel — la cause, et ce qui peut l'ôter  `ÉTABLI`
+
+### Ce n'est pas nous, et aucune ligne de ce dépôt ne peut l'enlever
+
+- [x] **Zéro occurrence d'« Avast » dans `server/src`.** Le texte n'est pas composé par
+      l'application.
+- [x] **L'envoi sort en SMTP sur le port 587, `SMTP_SECURE=false`** — donc en clair jusqu'au
+      STARTTLS. C'est précisément le port que le Mail Shield d'Avast inspecte, et c'est lui
+      qui ajoute son pied de message **après** que nodemailer a rendu la main.
+- [x] **On ne peut donc pas le « cacher » non plus.** Le texte est concaténé au corps MIME
+      en aval de nous : il n'existe pas encore au moment où nous composons le message.
+
+### Les trois façons de s'en débarrasser, par ordre de coût
+
+1. **Décocher le réglage dans Avast** — gratuit, immédiat, et vaut pour tout le courrier de
+   la machine. Protection → Protections principales → Agent de messagerie →
+   « Ajouter une signature à la fin des e-mails envoyés ».
+2. **Ne rien faire, et attendre la mise en production.** Un serveur Vercel n'a pas
+   d'antivirus qui s'interpose : la signature disparaît d'elle-même. Elle ne sera jamais vue
+   par un utilisateur réel.
+3. **Passer l'envoi à l'API Gmail en HTTPS**, comme la relève l'a fait le 9 octobre. Le Mail
+   Shield ne traite que les protocoles de messagerie ; un `POST` vers
+   `gmail.googleapis.com` lui échappe. C'est la seule parade qui soit du code — et c'est un
+   chantier, pas un réglage. Noté comme piste, non engagé.
+
+---
+
+## La campagne et Stripe — je dois corriger ma propre explication  `MESURÉ`
+
+### Ce que j'avais dit, et qui n'est pas établi
+
+J'avais attribué les sept échecs de `test:stripe` en campagne à une « saturation du chemin
+sortant » due à l'interception TLS d'Avast. **Je n'ai pas su le reproduire, et mes mesures
+ne le soutiennent pas.**
+
+- [x] **Poignées de main vers `api.stripe.com`, à chaud** : 84 ms médian en douze essais
+      séquentiels. **Aucune dégradation à 8, 16 ni 32 connexions simultanées** — 117 ms
+      médian à 32, zéro échec.
+- [x] **Ports éphémères** : 82 en `TIME_WAIT` sur une plage de 16 384. L'épuisement est hors
+      de cause.
+- [x] **Reproduction tentée** : `test:api` puis `test:stripe` enchaînés sans pause →
+      **73/73 puis 50/50**. Rien.
+
+### Ce qui EST mesuré, et qui corrige une erreur plus ancienne du journal
+
+- [x] **`api.stripe.com:443` EST intercepté par Avast** — certificat émis par
+      « Avast Web/Mail Shield Root », poignée de main à froid à **505 ms** contre 84 ms à
+      chaud.
+- [x] **L'interception du 443 est SÉLECTIVE**, et c'est la vraie découverte :
+
+| Hôte | Chemin | Poignée de main à froid |
+|---|---|---|
+| `accounts.google.com` | **direct** (Google Trust Services) | 72 ms |
+| `api.stripe.com` | **intercepté** | 505 ms |
+| `api.anthropic.com` | **intercepté** | 400 ms |
+| `gmail.googleapis.com` | **intercepté** | 438 ms |
+
+- [x] **LE JOURNAL AFFIRMAIT LE CONTRAIRE, PAR GÉNÉRALISATION.** Il est écrit, à la date du
+      9 octobre : « LE HTTPS, LUI, N'EST PAS INTERCEPTÉ — mesuré :
+      `accounts.google.com:443` présente la vraie chaîne de Google. » La mesure était juste ;
+      la conclusion générale ne l'était pas. Il se trouve qu'`accounts.google.com` est le seul
+      des quatre hôtes du projet qu'Avast laisse passer en direct — vraisemblablement une
+      exclusion pour les points d'authentification.
+- [x] **CONSÉQUENCE CONCRÈTE** : c'est bien pour cela que le conteneur n8n a besoin du
+      certificat d'Avast pour joindre Anthropic et Gmail. Le flux OAuth, lui, passerait sans.
+      Ce qui explique aussi qu'une panne de certificat se manifeste par « l'agent n'atteint
+      plus Claude » alors que le rafraîchissement du jeton continue de marcher.
+
+### Ce que j'ai corrigé malgré l'absence de reproduction, et pourquoi
+
+- [x] **`timeout: 20000` au lieu des 80 000 ms par défaut du SDK.** Quatre-vingts secondes
+      sur un appel de paiement est un défaut de production, indépendamment de la panne :
+      la requête Express reste ouverte tout ce temps, le navigateur a abandonné depuis
+      longtemps, la personne a rechargé — et deux sessions de paiement existent pour un
+      seul achat. La réponse normale de Stripe est mesurée entre 80 et 500 ms.
+- [x] **`maxNetworkRetries: 3` au lieu de 2.** Le SDK pose lui-même une clé d'idempotence
+      sur ses réessais : un `POST` rejoué ne crée pas un second abonnement, c'est la
+      garantie que Stripe documente pour cet usage. Le réessai ne couvre que les pannes de
+      TRANSPORT — un refus de carte n'est jamais rejoué.
+- [x] **Je ne prétends pas que cela corrige les sept échecs.** Je ne sais pas ce qui les a
+      causés. Ces deux réglages rendent le chemin plus robuste et corrigent un défaut réel ;
+      ils ne ferment pas l'enquête.
+
+### Et la question de l'hébergement : deux directions, pas une
+
+Le porteur du projet a demandé si la cause n'était pas que « le projet est en local et que
+Stripe n'a pas accès à cette adresse ». **Les deux directions existent, et seule la seconde
+correspond à cette description :**
+
+| | Direction | Qui échoue | La parade |
+|---|---|---|---|
+| **Sortant** | serveur → `api.stripe.com` | `test:stripe` — c'est le cas observé | rien à ouvrir : Stripe est sur l'Internet public |
+| **Entrant** | Stripe → notre webhook | les treize vérifications de `test:paiement` | `stripe listen` en local, une URL publique en production |
+
+La seconde ligne est exactement le raisonnement du porteur du projet, et il est juste —
+mais elle décrit un **autre** problème que celui qui a échoué. Vercel résout la seconde, et
+accessoirement la première en retirant Avast du chemin.
+
+---
+
+## Les collisions de noms — le vrai dommage, et le garde-fou  `RÉSOLU`
+
+### Le dommage réel, et il était là, pas hypothétique
+
+- [x] **`test:courriel` N'ÉTAIT PAS ENREGISTRÉE DANS LA CAMPAGNE.** Déclarée dans
+      `server/package.json` le 25 octobre, absente de `SUITES` dans `scripts/test-tout.mjs`.
+      La suite passait — 56 vérifications au vert — mais **`npm test` ne la lançait jamais**.
+      Trente-quatre suites enregistrées, trente-cinq déclarées.
+- [x] **C'est le même dommage que la collision de noms, par un autre chemin** : une
+      couverture qui existe et ne s'exécute pas est pire qu'une couverture absente, parce
+      qu'elle rassure. Le canal courriel paraissait couvert à chaque campagne.
+
+### Pourquoi une collision fait zéro échec
+
+Une déclaration en double est une `SyntaxError`, donc une erreur de **compilation** : le
+fichier entier est refusé, **aucune** vérification ne s'exécute, et la sortie ne contient
+aucun « ECHEC » — seulement une pile d'erreur. **Qui compte les « ECHEC » lit zéro et croit
+la suite au vert.** C'est exactement ce que j'ai fait le 25 octobre.
+
+### Deux contrôles ajoutés en tête des prérequis, et ils bloquent
+
+- [x] **`verifierRegistre()`** — compare les scripts `test:*` des deux `package.json` à la
+      liste `SUITES`. Toute suite déclarée et non enregistrée bloque la campagne. La mémoire
+      ne pouvait pas suffire : la liste vit dans un fichier, les suites dans deux autres.
+- [x] **`verifierSyntaxe()`** — `node --check` sur chaque fichier de suite, en une seconde,
+      avant d'engager les minutes d'une campagne.
+
+### Les deux contrôles ont été éprouvés en les mettant en échec
+
+- [x] **Registre** : trente-cinq suites enregistrées, zéro oubli après correction.
+- [x] **Syntaxe** : une déclaration `const resultats` en double ajoutée à
+      `courriel-support.mjs` → `node --check` **REFUSE** et nomme l'identifiant, tandis que
+      le comptage de « ECHEC » lit **0**. La démonstration est faite côte à côte.
+- [x] **Première tentative d'épreuve invalide, et je le note** : j'avais dupliqué `dossier`,
+      qui n'existait qu'à l'intérieur d'une fonction — aucune collision, donc aucun refus.
+      J'ai lu « PASSE (mauvais signe) » et failli en conclure que le contrôle ne marchait
+      pas. **Une épreuve qui ne reproduit pas le défaut ne mesure rien** : il a fallu vérifier
+      qu'un vrai nom de portée module était en cause.
+
+### Ce que le lanceur faisait DÉJÀ bien, et qu'il faut dire
+
+`scripts/test-tout.mjs` conclut `if (code === 0 && score)` : un code non nul **ou** une
+sortie sans ligne de score comptent pour un échec. L'outil du projet était correct depuis le
+début — c'est **ma** boucle improvisée qui comptait des « ECHEC ». Le `0/0` attribué à
+`test:moderation` était de la même famille : une suite interrompue avant la première
+vérification, qu'un comptage lit comme un silence rassurant.
+
+---
+
+## La vraie cause des suites à `0/0` : `nodemon` surveillait tout `server/`  `RÉSOLU`
+
+### Trouvée en la reproduisant pendant la campagne de ce soir
+
+Trois suites consécutives — `moderation`, `support`, `mot-de-passe` — ont rendu
+**`0/0` + `INTERROMPU : fetch failed`**. Elles sont vertes relancées seules : 90/90, 104/104
+et 52/52. La fenêtre de leur échec correspond exactement au moment où je modifiais
+`server/tests/agents-canaux.mjs`.
+
+- [x] **`"dev": "nodemon src/server.js"`, SANS `--watch`.** Nodemon surveille alors le
+      répertoire courant en entier — donc `server/tests/`, `server/scripts/`, tout. **Trente
+      redémarrages de l'API** comptés dans le journal de la session.
+- [x] **Modifier un fichier de test redémarrait donc l'API**, et toute suite en vol tombait
+      sur `fetch failed`. Le symptôme accuse le code ; la cause est l'outil de développement.
+- [x] **CORRIGÉ** : `nodemon --watch src --ext js,mjs,json src/server.js`. Vérifié au
+      redémarrage — `watching path(s): src\**\*`.
+
+### Et cela corrige MON diagnostic du 26 octobre sur Stripe
+
+J'avais écrit que les sept échecs de `test:stripe` en campagne venaient d'une « saturation du
+chemin sortant ». **C'était une hypothèse, pas une mesure, et elle ne tient pas** : rien ne
+se dégrade à 32 connexions simultanées, et l'enchaînement ne reproduit rien.
+
+**L'explication la plus simple est celle-ci** : j'éditais des fichiers pendant cette campagne
+aussi. Je ne peux pas le prouver après coup — les sorties n'ont pas été conservées — mais le
+mécanisme est établi, reproduit ce soir, et il explique des échecs groupés sur des suites
+consécutives sans rapport entre elles.
+
+### La règle qui en découle remplace celle d'hier
+
+La règle « lancer `test:stripe` séparément » visait un symptôme. La vraie règle est :
+**ne pas modifier de fichier pendant une campagne** — et désormais, modifier un fichier hors
+de `server/src` est sans effet de toute façon.
+
+---
+
+## Bilan des épreuves — seize suites, plus deux à part
+
+| Suite | | Suite | |
+|---|---|---|---|
+| `api` | 73/73 | `releve` | 78/78 |
+| `relations` | 28/28 | **`canaux`** | **264/264** |
+| `evenements` | 76/76 | `telegram` | 57/57 |
+| `geocodage` | 19/19 | `reponse` | 49/49 |
+| `recherche` | 64/64 | `messagerie-agent` | 104/104 |
+| `messagerie` | 62/62 | **`courriel`** | **56/56** |
+| `notifications` | 47/47 | `moderation` | 90/90 |
+| `support` | 104/104 | `mot-de-passe` | 52/52 |
+
+**1 223 vérifications sur seize suites**, puis `stripe 50/50` et `perf 18/18` lancées à
+part : **1 291 au total, zéro échec.** `test:stripe` passe avec le nouveau délai de vingt
+secondes et les trois réessais.
+
+### Le câblage n8n, éprouvé sur l'instance réelle
+
+J'avais d'abord noté ici que la référence d'expression interne à n8n restait à exercer. **Le
+journal d'événements de n8n le prouve**, et je n'avais pas pensé à le lire :
+
+```
+ccAgentCourri01 : 4 workflow.started, 4 workflow.success, 0 échec
+noeuds exécutés  : Relève périodique → Créer le libellé → Lire les libellés
+                   → Résoudre le libellé → Chercher les courriels → Un élément par courriel
+```
+
+- [x] **Le nœud Code `Résoudre le libellé` s'exécute et rend un élément** — sinon la chaîne
+      s'arrêterait là, et `Chercher les courriels` ne figurerait pas dans la liste.
+- [x] **La chaîne s'arrête à `Un élément par courriel`**, exactement comme prévu : la recherche
+      ne rend aucun message, puisque la ligne de départ est posée.
+- [x] **Il reste un seul maillon non exercé** : `Poser le libellé`, qui demande un courriel
+      entrant. Le `modify` avec `addLabelIds` est néanmoins prouvé côté Gmail — le script l'a
+      employé cinq fois avec succès.
+
+### Et les « Task rejected by Runner » du journal ne sont pas des pannes
+
+Le journal du conteneur répète `Task rejected by Runner with reason "Offer expired"`. Ce
+n'est pas un échec : **98 tâches demandées au runner, 98 réponses reçues**, et 51 workflows
+démarrés pour 51 succès. C'est le va-et-vient normal du protocole d'offres entre le courtier
+et le runner. Les `Database connection timed out / recovered` viennent, eux, de
+`DB_SQLITE_POOL_SIZE` non réglé — la dépréciation annoncée au démarrage.
+
+**Compter les lignes rouges du journal aurait conclu à une panne ; compter les événements
+conclut à zéro échec.** C'est la même leçon que le comptage de « ECHEC ».
+
+---
+
+## Les quatre correctifs du back-office de modération  `LIVRÉ`
+
+### ① Le tri — et un désaccord que je signale plutôt que de le trancher seul
+
+Le porteur du projet a demandé **le plus récent d'abord sur les trois onglets**. Le code
+triait dans l'autre sens, et son commentaire défendait ce choix :
+
+> « LES PLUS ANCIENS D'ABORD. Une file d'attente se traite dans l'ordre d'arrivée ;
+> présenter les plus récents en premier laisserait les dossiers anciens au fond
+> indéfiniment. »
+
+- [x] **CE RAISONNEMENT EST JUSTE POUR « À traiter », QUI EST UNE FILE.** Il ne l'est pas
+      pour « Instruits » et « Non escaladés », qui sont des **archives** : on y vient voir ce
+      que l'agent vient de faire. Le même tri sur les trois onglets servait donc mal deux
+      d'entre eux.
+- [x] **D'OÙ UN PARAMÈTRE, ET NON UN CHOIX IMPOSÉ.** `recent` est le défaut, comme demandé ;
+      `ancien` reste à un clic, et l'ordre d'arrivée n'est perdu pour personne. Je n'avais pas
+      à arbitrer seul entre une demande explicite et un commentaire que j'avais lu.
+- [x] **LA VALEUR EST BORNÉE PAR LE VALIDATEUR**, en liste fermée, et le service la traduit
+      lui-même en `{ createdAt: ±1 }` : à aucun moment une chaîne venue de l'URL n'atteint un
+      champ de tri. Un tri sur un champ non indexé suffirait à faire ramper la file ; sur un
+      champ inexistant, il rendrait un ordre arbitraire sans le dire.
+- [x] **Le réglage n'est affiché que sur le support**, seule famille dont la route l'accepte.
+
+### ② La pagination — la plomberie existait, l'écran ne s'en servait pas
+
+- [x] Le serveur rendait déjà `{ page, limite, total, pages, aSuivante }`, et le client
+      envoyait déjà `page` : **rien ne les affichait**. L'exploitant voyait vingt dossiers et
+      n'avait aucun moyen de savoir qu'il y en avait vingt-deux.
+- [x] **Les trois familles en profitent**, pas seulement le support : les trois routes sont
+      paginées à l'identique, et la commande est la même.
+- [x] **TOUT CHANGEMENT DE PÉRIMÈTRE RAMÈNE À LA PAGE 1.** Rester sur la page 4 en changeant
+      d'onglet demanderait une page qui n'existe pas dans la nouvelle liste : le serveur
+      rendrait honnêtement un tableau vide, et l'écran afficherait « aucun dossier dans cette
+      catégorie » sur une catégorie qui en contient. Le message serait parfaitement crédible.
+- [x] **Les boutons sont fermés pendant le chargement**, et pas seulement aux bornes : deux
+      clics rapides sur « Suivante » sauteraient une page, et le compteur de requêtes
+      n'empêche que l'affichage désordonné, pas le saut.
+
+### ③ La suppression — et le seul cas qu'elle ne doit jamais permettre
+
+- [x] **`DELETE /api/admin/support/tickets/:id`**, pour les dossiers `clos` et `resolu` : les
+      deux cas demandés — ceux auxquels on a répondu, et ceux auxquels l'agent a répondu seul.
+- [x] **UN DOSSIER EN ATTENTE N'EST PAS SUPPRIMABLE**, et c'est le point qui compte. Un
+      dossier `escalade` est une demande à laquelle **personne n'a encore répondu** : le
+      supprimer ferait disparaître la question de quelqu'un sans que quelqu'un l'ait lue.
+      Réponse `409`, avec le motif en clair.
+- [x] **LA VÉRIFICATION EST DANS LE FILTRE DE L'ÉCRITURE**, pas seulement avant. Lire puis
+      supprimer laisserait une fenêtre : un dossier rouvert entre les deux — ce que fait
+      `envoyerReponse` quand l'envoi échoue — serait supprimé alors qu'il vient de redevenir
+      une demande en attente.
+- [x] **« Introuvable » et « pas supprimable » sont distingués** : `404` contre `409`. Sans
+      cela, l'exploitant lirait « dossier introuvable » sur un dossier qu'il a sous les yeux.
+- [x] **LA CLÉ DE SERVICE N'OUVRE PAS CETTE ROUTE**, même invariant que l'instruction d'un
+      dossier. Un agent qui pourrait effacer ses propres dossiers effacerait la trace de ce
+      qu'il a répondu — c'est-à-dire exactement ce que l'onglet « Non escaladés » sert à
+      relire.
+- [x] **Deux clics, et la confirmation est DANS la carte.** Un `confirm()` du navigateur ne
+      dit pas de quel dossier il parle, et c'est précisément ce qu'il faut savoir avant
+      d'effacer.
+- [x] **Si la page se vide, l'écran remonte d'une page.** Supprimer le dernier dossier d'une
+      page laisserait l'exploitant devant « aucun dossier » alors que les précédentes en
+      contiennent.
+
+### ④ La provenance du brouillon — il fallait d'abord créer l'information
+
+- [x] **`ecritParAgent` NE RÉPONDAIT PAS À LA QUESTION.** Il dit qui a écrit la *réponse
+      automatique*, au moment de la création, et ne change jamais. Un brouillon, lui, se
+      réécrit : par l'agent d'abord, puis par l'exploitant au clavier ou en dictant au bot.
+      Il n'existait donc **aucun** champ disant d'où venait le texte affiché.
+- [x] **`Ticket.brouillonParAgent`** : `true` aux deux écritures de l'agent (widget et
+      courriel), `false` dès que `enregistrerBrouillon` passe par là — back-office ou
+      Telegram, c'est un humain dans les deux cas.
+- [x] **LA MARQUE TOMBE MÊME SI L'EXPLOITANT N'A CHANGÉ QU'UN MOT.** On ne peut pas savoir ce
+      qu'il a conservé, et prétendre « proposé par l'agent » sur un texte relu serait faux
+      dans le seul sens qui compte : il l'a validé des yeux.
+- [x] **L'avertissement disparaît après le premier enregistrement.** Le laisser en ferait un
+      ornement, qu'on cesserait de voir — et il perdrait tout son sens le jour où il serait
+      vrai.
+
+---
+
+## Un défaut d'affichage trouvé en chemin, et qui ne venait pas de moi  `RÉSOLU`
+
+La suite navigateur du back-office a échoué sur **« sans débordement en 375 px »**. Mon
+premier réflexe a été de chercher la cause dans mes ajouts.
+
+- [x] **MESURE AVANT ACCUSATION.** J'ai remisé mes modifications et relancé la même suite sur
+      la version d'origine : **elle échoue à l'identique**, 426 px pour une fenêtre de 375.
+      Le défaut préexistait.
+- [x] **LE COUPABLE, MESURÉ ÉLÉMENT PAR ÉLÉMENT** : le `blockquote` qui cite la question
+      débordait **son propre cadre** de 88 px — `clientWidth` 297, `scrollWidth` 385 — et
+      poussait toute la page. Aucun rectangle ne dépassait le bord droit, ce qui est pourquoi
+      un premier balayage par `getBoundingClientRect` n'avait rien trouvé : il faut comparer
+      `scrollWidth` à `clientWidth`, pas les positions.
+- [x] **LA CAUSE** : un mot sans point de coupure dans un courriel réel du 26 octobre. Un
+      texte écrit par un inconnu ne contient pas que des mots français — une adresse, un
+      identifiant de commande, une URL suffisent.
+- [x] **CORRIGÉ** par `break-words` sur les deux citations de l'écran, celle d'un ticket et
+      celle d'un signalement, pour la même raison. Mesuré après : **375 = 375**.
+
+*Et une erreur de ma part au passage : j'avais placé un commentaire JSX dans une branche de
+ternaire, ce qui n'est pas une position valide — Vite a refusé de compiler. Le commentaire
+est remonté au-dessus du ternaire.*
+
+---
+
+## Les épreuves de ce lot
+
+### Côté serveur : `test:support` 104 → **128**
+
+Tri — le plus récent en tête par défaut ; `ordre=ancien` rend l'ordre d'arrivée ; les deux
+rendent les mêmes dossiers en ordre inverse ; un ordre inventé → **400**.
+Pagination — la pagination est annoncée ; une page rend au plus `limite` ; **deux pages ne
+partagent aucun dossier** ; `aSuivante` dit la vérité.
+Provenance — un brouillon de l'agent est marqué ; **la marque tombe dès que l'exploitant
+écrit**.
+Suppression — sans administrateur **403**, sans jeton **401**, **avec la clé de service
+401** ; un dossier répondu part et **disparaît réellement de la base** ; **un dossier en
+attente → 409 et il est toujours là** ; un dossier instruit part ; un second appel → **404** ;
+un identifiant mal formé → **400**.
+
+### Côté navigateur : `client test:support` 79 → **91**
+
+Les deux ordres proposés ; « Plus récents » par défaut ; **changer l'ordre change le dossier
+en tête** — la preuve que le tri vient du serveur et non de l'écran ; **aucun réglage de tri
+sur les familles qui ne le gèrent pas** ; le total annoncé ; **un brouillon de l'agent
+s'annonce** ; **la mention tombe après relecture** ; **aucune suppression sur un dossier en
+attente** ; un dossier instruit la propose ; **un premier clic ne supprime rien** ; le second
+supprime, et la base le confirme ; et le débordement en 375 px, réparé.
+
+Trois dossiers de test créés sur un **compte dédié**, `elias` — un jeu de données ajouté au
+compte d'Alice avait cassé une assertion de cloisonnement le 25 octobre, et elle avait raison
+de tomber.
+
+---
+
+## Un cœur à 100 % pendant 1 h 09, et c'était moi  `À FINIR PAR L'EXPLOITANT`
+
+### Comment c'est arrivé sous mes yeux sans que je le voie
+
+`test:telegram` est tombée en campagne sur **`Server selection timed out after 8000 ms`** —
+une attente de MongoDB, pas de l'API. Relancée seule : **57/57**. Troisième interruption de
+la soirée, et la troisième cause différente.
+
+En mesurant la charge des conteneurs plutôt qu'en supposant :
+
+```
+coachconnect-n8n   cpu=100.08%   mem=2.328 GiB / 3.762 GiB   (+32 Mo/minute)
+sportsocial-mongo  cpu=2.95%     mem=0.210 GiB
+```
+
+**Un cœur plein, en continu, sur une instance n8n au repos.** Et la mémoire qui monte de
+trente-deux mégaoctets par minute, sur une VM Docker qui en compte 3 762 au total.
+
+### Le coupable, nommé
+
+```
+PID 4122  sh -c n8n list:workflow --onlyId 2>/dev/null | head -3
+PID 4128  node /usr/local/bin/n8n list:workflow --onlyId     C=99  TIME=01:09:26
+```
+
+**C'est une commande que j'ai lancée à 20 h 54 et interrompue aussitôt.** `head -3` a pris
+ses trois lignes et s'est retiré ; la CLI de n8n n'est pas morte du `SIGPIPE`, elle s'est
+mise à tourner à vide. Et l'arrêt de la tâche a tué **le client `docker exec`, pas le
+processus dans le conteneur**.
+
+**C'EST EXACTEMENT LA LEÇON DU 24 OCTOBRE**, celle qui a donné `liberer-port.mjs` : arrêter
+une tâche d'arrière-plan tue le processus que l'on voit, pas ses enfants. Je l'avais apprise
+sur un port tenu par un nodemon orphelin ; je viens de la repayer sur un cœur.
+
+### Ce qui reste à faire, et pourquoi je ne l'ai pas fait
+
+Tuer ce processus demande `docker exec -u 0 … kill`, que le classificateur de sécurité de
+l'environnement a refusé — « Interfere With Workloads ». **Je n'ai pas cherché à contourner
+le refus.** La commande à passer, une fois :
+
+```
+docker exec -u 0 coachconnect-n8n kill -9 4128 4122
+```
+
+Ou, plus simplement et sans privilège : `docker restart coachconnect-n8n`, suivi d'une
+vérification que les trois workflows se réactivent.
+
+### Ce que cela réexplique, et ce que cela n'explique pas
+
+- **Les interruptions de suites de la soirée** : un cœur saturé et une VM à 61 % de mémoire
+  suffisent à faire expirer une sélection de serveur MongoDB à huit secondes.
+- **Les sept échecs de `test:stripe` du 25 octobre, non.** Ce processus n'existait pas
+  encore. Cette piste-là reste ouverte, et je n'ai toujours pas su la reproduire.
+
+### La règle qui s'ajoute aux deux autres
+
+1. Ne pas modifier de fichier pendant une campagne *(nodemon, corrigé à la source)*.
+2. Lire le code de sortie **et** la ligne de score, jamais un comptage de « ECHEC ».
+3. **Mesurer la charge des conteneurs avant d'accuser le réseau ou le code.** `docker stats`
+   et `docker top` répondent en une seconde, et ils m'auraient évité trois hypothèses.
+
+---
+
+## Le dernier maillon du courriel, éprouvé pour zéro euro  `RÉSOLU`
+
+### Ce qui restait
+
+`Poser le libellé` n'avait jamais tourné : il faut un courriel entrant, et la boîte était à
+zéro depuis que la ligne de départ était posée. Tout le reste était prouvé — création du
+libellé, résolution de son identifiant, `modify` avec `addLabelIds`, et quatre exécutions n8n
+réussies s'arrêtant exactement où elles devaient.
+
+### L'astuce : se servir d'un garde-fou comme d'un interrupteur
+
+`preparerQuestion` écarte les expéditeurs automatiques sur
+`/^(no-?reply|mailer-daemon|postmaster|bounce|bounces|do-?not-?reply)@/`. Or **`Poser le
+libellé` est en DÉRIVATION depuis `Normaliser le courriel`, donc AVANT ce filtre.**
+
+Il suffisait donc de retirer le marqueur de traitement de la **notification de Google**
+restée dans la boîte — `no-reply@accounts.google.com` :
+
+- le flux la voit, la lit, la normalise ;
+- **il pose le libellé** ← le maillon à prouver ;
+- `preparerQuestion` l'écarte, et la chaîne s'arrête là.
+
+**Aucun appel au modèle. Aucun dossier créé. Aucun courriel envoyé.**
+
+### Le résultat, mesuré
+
+```
+recherche du flux    1 message  →  (passage du flux)  →  0 message
+dossiers en base     27                                   27
+nœuds exécutés       … → Normaliser → Poser le libellé → Préparer la question → (fin)
+exécutions           11 démarrées, 11 réussies, 0 échec
+```
+
+Le flux a **reposé le libellé tout seul**, au passage suivant, sans intervention. Les nœuds
+`Chercher des fiches`, `Rédiger la réponse` et `Déposer le brouillon` n'apparaissent nulle
+part dans le journal : ils n'ont jamais été atteints.
+
+**LE CANAL COURRIEL EST DONC ÉPROUVÉ DE BOUT EN BOUT.** Il ne reste aucun maillon non
+exercé.
+
+### Le script d'épreuve reste hors du dépôt, et c'est délibéré
+
+Il retire un marqueur de traitement. Sur un vrai courriel de question, cela ferait rédiger à
+nouveau, et facturerait. L'outil n'a de sens que sur un message que les garde-fous écartent,
+et le laisser dans le dépôt en ferait un piège pour qui le lancerait sans lire.
+
+---
+
+## « Zéro courriel » et « je n'ai pas pu lire » ne se ressemblent plus  `RÉSOLU`
+
+### Le défaut était ouvert dans ce journal depuis le 24 octobre
+
+> « Le flux devrait distinguer *zéro courriel* de *lecture refusée* et alerter dans le second
+> cas. Un garde-fou conçu pour ne rien perdre masque une panne depuis cinq jours. »
+
+Le 19 octobre, trois exécutions portaient `invalid_grant` — le jeton OAuth était mort — et
+**s'affichaient en succès**. `neverError` avale l'erreur, le nœud rend un tableau vide, et
+une boîte illisible ressemble trait pour trait à une boîte vide. Pendant ce temps, un message
+du porteur du projet attendait sans que personne n'aille le chercher.
+
+### Mon garde-fou du matin le résolvait à moitié — et je ne l'avais pas vu
+
+`resoudreLibelle` s'arrêtait proprement quand Gmail refusait la liste des libellés. C'était
+« fail-closed », donc la dépense était évitée. **Mais c'était fail-closed EN SILENCE**, soit
+exactement le défaut que le journal décrivait, reproduit dans du code neuf.
+
+### La correction : une exception, pas un tableau vide
+
+Les deux arrêtent la branche. Mais une exception **marque l'exécution en ÉCHEC** — rouge dans
+n8n, comptée dans le journal d'événements, et elle nomme la cause. Le coût est identique : un
+passage perdu, repris dix minutes plus tard.
+
+| Fonction | Rend `[]` | Lève une exception |
+|---|---|---|
+| `unElementParCourriel` | Gmail a répondu **200** et n'a rien trouvé | erreur réseau, 401, 429, tout statut ≠ 200 |
+| `resoudreLibelle` | **jamais** | liste illisible, malformée, ou libellé absent |
+
+`resoudreLibelle` ne rend jamais de tableau vide, et c'est voulu : `Créer le libellé` vient
+de s'exécuter une seconde plus tôt. Qu'il soit introuvable n'est pas un cas normal.
+
+### Sept vérifications, et des messages qui nomment la cause
+
+`test:canaux` 264 → **267**. Les quatre anciennes assertions « rien n'est traité » sont
+devenues « l'exécution ÉCHOUE », et trois s'ajoutent sur la recherche — réseau, 401 (jeton
+expiré, le cas réel du 19 octobre) et 429.
+
+Chaque message est lisible sans ouvrir le code :
+
+```
+Gmail refuse la recherche (statut 401). Une boîte illisible n'est pas une boîte
+vide : le passage est abandonné, et le suivant réessaiera.
+```
+
+---
+
+## La signature d'Avast : décision prise  `ARBITRÉ`
+
+- [x] **Le porteur du projet choisit l'option 2 : ne rien faire.** La signature est ajoutée
+      par l'Agent de messagerie d'Avast sur le port SMTP 587, en aval de notre code ; aucune
+      ligne du dépôt ne peut l'ôter ni la cacher.
+- [x] **Elle disparaîtra d'elle-même au déploiement sur Vercel**, où aucun antivirus ne
+      s'interpose. Aucun utilisateur réel ne la verra.
+- [x] **Rien à faire, donc, et rien à retenir pour la mise en production** — sinon que ce
+      point est désormais tranché et n'a pas à être rouvert.
+
+---
+
+## Un libellé d'onglet reformulé, et une suite entière à l'arrêt  `RÉSOLU`
+
+### Ce qui s'est passé
+
+La suite navigateur du back-office, verte à 91/91 une heure plus tôt, s'est arrêtée net à
+**38/38** sur `locator.click: Timeout 30000ms exceeded — waiting for
+getByRole('button', { name: 'Instruits' })`.
+
+**Aucune ligne de code client n'avait changé entre les deux.** C'est ce qui a orienté la
+recherche ailleurs que vers une régression.
+
+### La cause, trouvée en listant ce que la page affiche vraiment
+
+```
+onglets rendus : [ 'À traiter', 'Traiter', 'Non escaladés' ]
+« Instruits » par rôle : 0
+```
+
+Le libellé de l'onglet `clos` avait été reformulé de **« Instruits » en « Traiter »** à
+23 h 39 — modification extérieure à mon travail, repérée par l'horodatage du fichier et la
+mise à jour HMR de Vite.
+
+### Je n'ai pas défait cette modification, et voici ce que j'en pense
+
+**Le libellé appartient au porteur du projet.** Mais deux remarques, qu'il arbitrera :
+
+- **« À traiter » et « Traiter » sont à une lettre l'un de l'autre et désignent des choses
+  opposées** — ce qui attend une réponse, et ce qui est terminé. Lus vite, dans une barre
+  d'onglets, ils se confondent.
+- La famille « Signalements » nomme le même état **« Traités »**, au pluriel et au participe.
+  Si « Instruits » ne convient pas, **« Traités »** aligne les deux familles.
+
+### Le vrai défaut était dans le test, et il est corrigé
+
+Un test qui clique un onglet **par son texte** se casse dès qu'on reformule ce texte. Et le
+message d'échec — un délai d'attente de trente secondes — n'accuse rien de ce qui a changé :
+on cherche une régression applicative qui n'existe pas.
+
+**Les six clics d'onglet de la suite désignent désormais `data-test="onglet-<statut>"`.**
+L'identifiant porte le STATUT du dossier — `escalade`, `clos`, `resolu` — qui vient du modèle
+serveur. Il ne change que si le modèle change, auquel cas le test doit être relu de toute
+façon.
+
+**Un libellé est un choix de produit ; un statut est un contrat.** Le test doit s'accrocher
+au second.
+
+Suite revenue à **91/91**, et désormais insensible à toute reformulation.
+
+---
+
+## Bilan des épreuves de la soirée
+
+| | |
+|---|---|
+| 16 suites serveur enchaînées | **1 250 / 1 250** — aucune interruption |
+| `stripe` seule | **50 / 50** |
+| `perf` seule | **18 / 18** |
+| Navigateur, back-office | **91 / 91** |
+| **Total** | **1 409, zéro échec** |
+
+**C'est la première campagne entièrement propre depuis que `nodemon` ne surveille plus que
+`src`.** Les trois interruptions de la veille — `moderation`, `support`, `mot-de-passe` à
+`0/0` — ne se sont pas reproduites.
+
+---
+
+# JOURNÉE DU 27 OCTOBRE
+
+## « Instruits » devient « Traiter », partout  `LIVRÉ`
+
+### La décision vient du porteur du projet, et elle est assumée
+
+Il a renommé l'onglet lui-même, et il en donne la raison : *« cet onglet concerne bien toutes
+les demandes qui ont été traitées »*. J'avais signalé que **« À traiter » et « Traiter » sont
+à une lettre l'un de l'autre et désignent l'inverse** ; il a maintenu son choix après l'avoir
+lu. C'est son arbitrage, et le vocabulaire du produit lui appartient.
+
+### Ce qui a été changé, et ce qui ne l'a pas été
+
+**Neuf chaînes visibles**, c'est-à-dire tout ce qu'un exploitant lit à l'écran :
+
+| Où | Avant | Après |
+|---|---|---|
+| Badge d'un dossier `clos` | `Instruit` | **`Traité`** |
+| Historique d'un dossier | `Instruit le …` | **`Traité le …`** |
+| Historique d'un signalement | `Instruit le …` | **`Traité le …`** |
+| Réponse de l'API | `Dossier instruit` | **`Dossier traité`** |
+| Refus de double décision | `Ce dossier a déjà été instruit` | **`… a déjà été traité`** |
+| Refus de suppression | `Seul un dossier instruit ou répondu…` | **`… un dossier traité ou répondu…`** |
+
+**LE BADGE DIT « Traité » ET NON « Traiter », ET C'EST DÉLIBÉRÉ.** Un onglet est un filtre —
+l'infinitif y passe. Un badge décrit l'état d'UN dossier : « Traiter » sur un dossier terminé
+se lirait comme une consigne, soit l'inverse de ce qu'il annonce. Le participe est la seule
+forme qui ne puisse pas être mal lue. Si le porteur du projet préfère l'uniformité stricte,
+il suffit de le dire.
+
+**Vingt-cinq commentaires et libellés de test** ont suivi, pour que le code ne nomme plus un
+onglet qui n'existe plus. Un commentaire qui cite un libellé périmé est une fausse piste pour
+qui le lira dans six mois.
+
+**Ce qui n'a PAS été touché** : les variables locales nommées `instruit` dans les suites, et
+la prose des familles « Signalements » et « Diplômes » là où elle reste exacte. Un
+remplacement aveugle aurait produit « un dossier Traiter », qui n'est pas du français.
+
+### Trois vérifications visaient ces chaînes, et elles ont suivi
+
+`client/tests/support.mjs` attendait `Dossier instruit` et `Ce dossier a déjà été instruit`.
+Elles ont été mises à jour en même temps que les chaînes — sans quoi la suite serait tombée
+exactement comme elle l'a fait hier soir sur le libellé d'onglet.
+
+**C'est d'ailleurs la deuxième fois en deux jours qu'un changement de mot casse un test.** La
+leçon d'hier — *un libellé est un choix de produit, un statut est un contrat* — vaut pour les
+clics d'onglet, désormais corrigés. Elle ne vaut PAS pour ces trois-ci : un test qui vérifie
+qu'un message de confirmation s'affiche doit bien, lui, connaître son texte.
+
+---
+
+## Le relais Stripe : les treize vérifications ont enfin tourné  `RÉSOLU`
+
+### Sans `stripe login`, et c'est ce qui a permis de le faire seul
+
+La CLI était installée (winget, `stripe version 1.50.5`) mais **non connectée**, et
+`stripe login` demande un navigateur. **`stripe listen --api-key <sk_test…>` contourne
+l'étape** : la clé de test est déjà dans `server/.env`.
+
+```
+stripe listen --api-key <STRIPE_SECRET_KEY> --forward-to localhost:5000/api/webhooks/stripe
+```
+
+- [x] **La version d'API annoncée par le relais est `2026-07-29.dahlia`** — exactement celle
+      que `server/src/config/stripe.js` fige. Rien à aligner.
+- [x] **Le secret de signature est IDENTIQUE à `STRIPE_WEBHOOK_SECRET`** — comparé sans
+      l'afficher. Aucune modification de `.env`, aucun redémarrage.
+
+### Le résultat : 47/47, et le webhook au cœur
+
+**Les treize vérifications qui n'avaient jamais tourné sont vertes.** Elles portent toutes sur
+ce qui se passe APRÈS que Stripe a rappelé l'API :
+
+- **abonnement créé en base par le webhook**, statut « actif », montant 1 990 centimes ;
+- **contenu premium déverrouillé** — médias, description, URL, et dans le fil ;
+- résiliation programmée en fin de période, **accès conservé jusqu'au terme payé**, reprise ;
+- revenus du coach : brut 19,90 €, commission 15 % soit 2,99 €, **net 16,91 €** ;
+- **contenu REVERROUILLÉ après un échec de prélèvement** — le statut `impaye` est posé, puis
+  l'accès retiré partout.
+
+Carte de test `4242`, mode test, aucune somme débitée.
+
+### Et le relais a été arrêté PROPREMENT, avec vérification
+
+C'est la leçon d'hier, appliquée le jour même : l'arrêt de la tâche a été suivi d'un
+`Get-Process stripe` — **aucun processus restant**. Un relais oublié aurait tourné toute la
+nuit en relayant des événements vers une API qui aurait pu être arrêtée.
+
+### Ce qu'il reste à savoir pour la production
+
+`stripe listen` n'existe plus en production : on déclare un **endpoint** dans le tableau de
+bord Stripe vers `https://<domaine>/api/webhooks/stripe`, et l'on copie **son** secret, qui
+est différent de celui de la CLI. C'est le même piège qu'au développement, à l'envers.
+
+---
+
+## Stripe en production : ce qui est prêt, et ce qui ne l'est pas  `ANALYSÉ`
+
+### Ce qui est déjà correct, et n'aura rien à changer
+
+- [x] **La version d'API est figée** — `2026-07-29.dahlia` dans `server/src/config/stripe.js`,
+      et c'est la même que celle annoncée par le relais. Elle ne dépend ni du compte ni du
+      mode : rien à refaire en production.
+- [x] **Le délai d'attente et les réessais** — 20 s et trois réessais, posés le 26 octobre.
+      Valeurs de production, pas de développement.
+- [x] **La signature des webhooks est vérifiée** — `stripe.webhooks.constructEvent` sur un
+      corps brut livré par `express.raw`, monté AVANT `express.json()`. Un webhook non signé
+      est refusé. C'est le seul rempart qui compte, et il est en place.
+- [x] **La commission est paramétrable** — `STRIPE_COMMISSION_PCT`, défaut 15.
+- [x] **Aucune URL en dur** dans le service Stripe : tout passe par `CLIENT_URL`.
+
+### LE PIÈGE QUE J'AI TROUVÉ, ET QUI CASSERAIT LA PRODUCTION EN SILENCE
+
+```js
+const urlBase = () => config.clientUrls[0] || 'http://localhost:5173';
+```
+
+`CLIENT_URL` sert **deux choses différentes** :
+
+| Usage | Ce qu'il lit |
+|---|---|
+| CORS (`app.js`, `sockets/index.js`) | **toute** la liste |
+| Stripe Checkout, onboarding Connect, **liens de mot de passe oublié** | **le PREMIER seulement** |
+
+**Or `CLIENT_URL` contient déjà DEUX origines** — `http://localhost:5173,http://localhost:4173`.
+Le jour du déploiement, ajouter le domaine Vercel **à la fin** de cette liste ferait :
+
+- une session Checkout qui renvoie l'acheteur sur `http://localhost:5173` ;
+- un coach qui termine son onboarding Connect sur `http://localhost:5173` ;
+- et surtout **des courriels de réinitialisation de mot de passe envoyés à de vrais
+  utilisateurs avec un lien mort**.
+
+Rien ne planterait. Les trois échoueraient en silence, chez l'utilisateur.
+
+**LA CAUSE EST UNE CONFUSION DE CONCEPTS** : « les origines autorisées à appeler l'API » et
+« l'adresse publique de l'application » sont deux choses, et elles partagent une variable.
+
+### Les six gestes de la bascule en production
+
+1. **Activer le compte Stripe en mode réel** — vérification d'identité et coordonnées
+   bancaires de la plateforme. Sans cela, aucune clé `sk_live_` n'existe.
+2. **Activer Connect en mode réel** et renseigner le profil de la plateforme. **Les comptes
+   des coachs sont des objets de TEST** : en production, chaque coach devra refaire son
+   onboarding. Rien ne se migre.
+3. **Trois clés à remplacer** :
+
+   | Variable | De | À |
+   |---|---|---|
+   | `STRIPE_SECRET_KEY` (serveur) | `sk_test_…` | `sk_live_…` |
+   | `VITE_STRIPE_PUBLIC_KEY` (client) | `pk_test_…` | `pk_live_…` |
+   | `STRIPE_WEBHOOK_SECRET` (serveur) | secret de la CLI | **secret de l'endpoint du tableau de bord** |
+
+4. **Déclarer l'endpoint** vers `https://<domaine>/api/webhooks/stripe`, avec **les neuf
+   événements que le code traite** — sinon la moitié des parcours ne se termine jamais :
+
+   ```
+   checkout.session.completed        customer.subscription.updated
+   customer.subscription.deleted     invoice.payment_succeeded
+   invoice.payment_failed            account.updated
+   v2.core.account.updated           capability.updated
+   account.external_account.created
+   ```
+
+5. **`CLIENT_URL` : mettre le domaine Vercel EN PREMIER.** C'est le piège ci-dessus.
+6. **Vérifier par un vrai paiement**, avec une vraie carte et un vrai remboursement derrière.
+   Le mode test ne prouve pas l'activation du compte.
+
+### Et le risque qu'il ne faut pas oublier
+
+En mode réel, `test:paiement` **débiterait une vraie carte**. La suite doit rester pointée
+sur des clés de test, ou ne plus être lancée contre l'environnement de production.
+
+---
+
+## Une attente fixe qui mesurait la machine, pas le code  `RÉSOLU`
+
+### La seule défaillance des 1 917 vérifications
+
+La campagne complète du 27 octobre — **35 suites, relais Stripe compris** — a rendu
+**1 916/1 917**. L'unique échec :
+
+```
+[31/35] Navigateur — notifications … ÉCHEC
+        ECHEC **supprimer retire la ligne**  -> 0 → 2
+```
+
+### « 0 → 2 » dit tout, à condition de le lire
+
+Le test comptait les lignes AVANT de cliquer, cliquait, recomptait. Il a lu **zéro avant** et
+**deux après**. Une suppression qui fait monter le compte de zéro à deux n'existe pas : c'est
+le premier comptage qui était faux.
+
+**La liste n'était pas encore rendue.** Le test attendait `waitForTimeout(2000)` — deux
+secondes suffisent quand la suite tourne seule, pas en **trente-et-unième position** d'une
+campagne. Le clic, lui, attend le bouton par nature : il a donc bien supprimé une ligne sur
+trois, et il en restait deux.
+
+**La vérification a comparé 2 à -1, et a échoué sur un comportement parfaitement correct.**
+
+- [x] **Confirmé en la relançant seule : 32/32, et `3 → 2`.** Le code n'avait rien.
+- [x] **Et ce n'est pas mon renommage** : `client/tests/notifications.mjs` ne contient aucune
+      référence à la modération, au support, ni aux mots changés. Vérifié avant d'accuser quoi
+      que ce soit.
+
+### La correction : attendre une CONDITION, pas une durée
+
+```js
+const lignes = pageAlice.getByTestId('liste-notifications').locator('li');
+await lignes.first().waitFor({ state: 'visible', timeout: 20000 });
+const avant = await lignes.count();
+```
+
+Et après le clic, on attend que le compte ait **baissé**, par petits pas, plutôt qu'un délai
+arbitraire. Si la suppression ne marche pas, la boucle expire et la vérification échoue — ce
+qui est le résultat voulu, pour la bonne raison cette fois.
+
+**UNE ATTENTE FIXE MESURE LA VITESSE DE LA MACHINE.** Elle passe seule et tombe en campagne,
+ce qui est le pire des deux mondes : le défaut n'apparaît que lorsqu'on regarde le moins.
+
+C'est la troisième fragilité de banc d'essai corrigée en deux jours, après le comptage de
+« ECHEC » et les clics d'onglet par libellé. **Les trois faisaient dire au banc autre chose
+que ce qu'il mesurait.**
+
+---
+
+## `PUBLIC_URL` : séparer « qui entre » de « où l'on renvoie »  `LIVRÉ`
+
+### Le piège, et il était armé
+
+```js
+const urlBase = () => config.clientUrls[0] || 'http://localhost:5173';
+```
+
+`CLIENT_URL` servait **deux concepts qui n'en sont qu'un en apparence** :
+
+| Usage | Ce qu'il lit |
+|---|---|
+| CORS (`app.js`), Socket.io | **toute** la liste |
+| Stripe Checkout, onboarding Connect, **liens de mot de passe oublié** | **la PREMIÈRE seulement** |
+
+Et `CLIENT_URL` contenait déjà `http://localhost:5173,http://localhost:4173`.
+
+**Le geste naturel du déploiement — ajouter le domaine Vercel à la fin, pour autoriser une
+origine de plus — aurait laissé l'adresse publique sur `localhost`.** Conséquences :
+
+- l'acheteur revient sur `localhost:5173` après avoir payé ;
+- le coach termine son onboarding Connect sur `localhost` ;
+- **de vrais courriels de réinitialisation partent avec un lien mort.**
+
+**Aucune erreur ne serait remontée au serveur.** La panne est invisible de son point de vue :
+c'est l'utilisateur qui reçoit le lien mort.
+
+### La correction, en trois pièces
+
+1. **`PUBLIC_URL`, une variable qui dit ce qu'elle nomme.** À défaut, on retombe sur la
+   première origine — **le comportement d'avant, à l'identique**. Aucune installation
+   existante ne change : vérifié, `urlPublique` vaut toujours `http://localhost:5173` ici.
+2. **Les trois points d'appel lisent `config.urlPublique`** : Stripe Connect, Checkout, et le
+   lien des courriels. Plus aucun `clientUrls[0]` dans le code.
+3. **EN PRODUCTION, L'APPLICATION REFUSE DE DÉMARRER** si l'adresse publique est locale, avec
+   un message qui nomme les deux variables. C'est le raisonnement déjà appliqué aux secrets
+   JWT quelques lignes plus haut : mieux vaut un serveur qui refuse en disant quoi corriger
+   qu'un serveur à moitié configuré. Ici c'est encore plus vrai, puisque la panne ne serait
+   visible que chez l'utilisateur.
+
+### Cinq vérifications, dont celle du piège exact
+
+`test:support` 128 → **133**.
+
+- sans `PUBLIC_URL`, la première origine — **le comportement d'avant est conservé** ;
+- `PUBLIC_URL` prend le dessus quand elle est renseignée ;
+- **le domaine ajouté EN DERNIER ne devient pas l'adresse publique** — le piège reproduit ;
+- en production, une adresse locale **empêche le démarrage** ;
+- et le message nomme les deux variables à corriger.
+
+### Et trois vérifications sont tombées, pour la bonne raison
+
+`test:mot-de-passe` est passée à **49/52** : mon garde-fou se déclenche **avant** celui du
+SMTP, et ces trois épreuves ne renseignaient pas `PUBLIC_URL`. Elles mesuraient donc une
+cause sans rapport avec ce qu'elles vérifient.
+
+**Le fichier prévenait déjà de ce piège, pour les secrets JWT :**
+
+> « Secrets JWT longs : sans eux, la production refuserait de démarrer pour une AUTRE raison,
+> et la vérification passerait à tort. »
+
+La même phrase valait pour l'adresse publique. `PUBLIC_URL` a rejoint l'environnement de la
+fonction d'aide, et la suite est revenue à **52/52**.
+
+**C'est la quatrième fragilité de banc d'essai de la semaine**, et la seule que j'ai créée
+moi-même. Les trois autres — comptage de « ECHEC », clics d'onglet par libellé, attente fixe
+— préexistaient.
+
+---
+
+## La campagne complète, deux fois de suite  `VALIDÉ`
+
+| | Vérifications | Échecs |
+|---|---|---|
+| Campagne du 27 octobre, avant `PUBLIC_URL` | **1 917 / 1 917** | 0 |
+| Campagne du 27 octobre, après `PUBLIC_URL` | **1 922 / 1 922** | 0 |
+
+**Les 35 suites, relais Stripe actif, y compris le parcours de paiement de bout en bout.**
+C'est la première fois que la campagne entière passe sans une seule interruption ni un seul
+échec — et elle l'a fait deux fois d'affilée, la seconde avec cinq vérifications de plus.
+
+### Ce que cela valide, et qui n'avait jamais été vérifié ensemble
+
+- **Le parcours de paiement complet** — 47/47, webhook compris. Jamais tourné avant le
+  26 octobre au soir, faute de relais.
+- **Les trois corrections de banc d'essai** de la semaine, sous charge réelle : le registre
+  des suites, `node --check`, et l'attente par condition dans `notifications`.
+- **Le renommage « Instruits » → « Traiter »**, sur les 35 suites.
+- **`PUBLIC_URL`**, sans régression nulle part.
+
+### Et une erreur d'exploitation, corrigée dans la foulée
+
+La campagne de validation a d'abord été lancée **détachée du suivi**, avec un `&` — soit
+exactement l'orphelin dont la leçon avait été tirée la veille. Arrêtée, vérifiée (aucun
+processus de test, aucun navigateur Playwright restant), relancée proprement.
+
+**La vérification après arrêt est devenue systématique** : `stripe.exe`, navigateurs
+Playwright et processus de campagne sont contrôlés après chaque fin de tâche longue.
