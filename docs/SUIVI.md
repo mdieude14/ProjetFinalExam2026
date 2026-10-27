@@ -10116,3 +10116,44 @@ processus de test, aucun navigateur Playwright restant), relancée proprement.
 
 **La vérification après arrêt est devenue systématique** : `stripe.exe`, navigateurs
 Playwright et processus de campagne sont contrôlés après chaque fin de tâche longue.
+
+---
+
+## Sept commits, poussés  `LIVRÉ`
+
+La règle posée par le porteur du projet était : **commiter seulement quand l'agent de support
+marche de bout en bout**. C'est acquis depuis le 26 octobre au soir — le widget, le courriel,
+le dépôt du brouillon, la validation et l'envoi — et la campagne complète est passée deux fois
+sans un échec. Le feu vert est venu le 27.
+
+**Découpage par thème**, et deux thèmes de plus que les cinq demandés, parce que le tunnel et
+la migration des modèles n'entrent dans aucun des cinq et qu'il valait mieux les nommer que
+les y ranger de force.
+
+| | Commit | Fichiers |
+|---|---|---|
+| `99f234a` | Tunnel : quatre défauts qui se renforçaient | 2 |
+| `2961634` | Banc d'essai : quatre fragilités qui le faisaient mentir | 6 |
+| `0f76c5d` | Agents : Haiku 5.5, et le widget annonce le courriel | 4 |
+| `be7b2b6` | Courriel : le libellé `CC/Support/Traite` remplace `is:unread` | 5 |
+| `40a6879` | Back-office : trier, paginer, supprimer, et la provenance du brouillon | 11 |
+| `345d68a` | Production : l'adresse publique séparée des origines CORS, Stripe borné | 6 |
+| `378d1fc` | Journal | 1 |
+
+**35 fichiers, 5 840 lignes ajoutées**, poussés sur `origin/main` en `92ad95a..378d1fc`.
+
+### Ce que le découpage n'a pas pu séparer, et qui est dit dans les messages
+
+Trois fichiers portent des changements de deux thèmes à la fois —
+`server/src/services/support.service.js`, `server/src/models/Ticket.js` et
+`server/tests/support.mjs` contiennent à la fois l'idempotence du canal courriel, le
+back-office et les vérifications de `PUBLIC_URL`. Un découpage au niveau du fichier ne pouvait
+pas les démêler sans réécrire l'historique ligne à ligne.
+
+**Ils ont donc été rangés là où se trouve le gros du changement, et leurs messages de commit
+le disent explicitement** — plutôt que de laisser croire à un découpage plus net qu'il ne l'est.
+
+### Auteur
+
+Les sept commits portent `mdieude14 <martin.dieude@gmail.com>`, et **aucune ligne de
+co-auteur** : vérifié avant la poussée, conformément à la règle du porteur du projet.
