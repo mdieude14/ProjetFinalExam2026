@@ -3225,10 +3225,12 @@ désambiguïsateur.
 
 ### 9.8.6 Reste à traiter
 
-- [ ] L'onglet « Autour de moi » dépend de `navigator.geolocation` seul : si
-      le navigateur refuse, la liste reste vide alors que le profil porte une
-      ville. Un repli sur `utilisateur.ville` demanderait de géocoder aussi
-      les profils — à décider séparément.
+- [x] **REPRIS ET INSTRUIT** — voir « Autour de moi sans géolocalisation : l'enquête, et la
+      décision qui reste », plus bas, qui chiffre le terrain et pose trois voies.
+      *Constat d'origine :* l'onglet dépend de `navigator.geolocation` seul ; si le
+      navigateur refuse, la liste reste vide alors que le profil porte une ville. Un repli
+      sur `utilisateur.ville` demanderait de géocoder aussi les profils.
+      **Ce point restait ouvert EN DOUBLE de la section d'enquête** : corrigé le 27 octobre.
 
 ### 9.8.7 Suite dédiée, et un défaut d'empilement révélé par le correctif
 
@@ -7416,7 +7418,12 @@ Les sept suites touchant n8n ont été rejouées **après** le cycle ouverture/f
 
 ### Une échéance plus large que celle des jetons Google
 
-- [ ] **La clé API Anthropic « CoachConnect n8n » expire dans sept jours**, signalée par
+- [x] **RENOUVELÉE, ET VÉRIFIÉE LE 27 OCTOBRE.** Le porteur du projet l'a remplacée ; la
+      preuve est mesurée et non supposée — **dernier appel Anthropic réussi le 27 octobre à
+      01 h 38**, six jours après l'expiration annoncée, et **dix-huit exécutions du widget
+      pour dix-huit succès**, nœuds `Classer la demande` et `Rédiger la réponse` compris.
+      Le rappel en mémoire a été supprimé : il était devenu faux.
+      *Texte d'origine :* la clé expirait dans sept jours, signalée par
       courriel de l'éditeur. Elle est rangée dans l'identifiant `anthropicApi`
       « Anthropic — CoachConnect », dont la dernière mise à jour date du 21 septembre.
       **Quand elle tombera, les quatre agents cesseront de rédiger** : widget, courriel,
@@ -7618,9 +7625,11 @@ d'erreur.
 - [x] **Huit suites rejouées après la bascule** : `api 73/73`, `support 93/93`,
       `courriel 46/46`, `reponse 49/49`, `moderation 90/90`, `messagerie 62/62`,
       `evenements 76/76`, `recherche 64/64`. **553 vérifications, aucun échec.**
-- [ ] **Supprimer `sportsocial-mongo-ancien`** quand quelques jours auront confirmé que tout
-      va bien : `docker rm sportsocial-mongo-ancien`. Sans urgence — un conteneur arrêté ne
-      coûte que son image, déjà partagée.
+- [x] **FAIT LE 27 OCTOBRE**, huit jours après son arrêt, sur accord du porteur du projet.
+      **Vérifié avant d'agir** : les deux conteneurs partageaient le MÊME volume nommé
+      `sportsocial-mongo-data`, et `docker rm` ne supprime pas un volume nommé — les données
+      ne risquaient rien. **Vérifié après** : le volume existe toujours, et la base contient
+      les mêmes **2 049 documents dans 16 collections**, au document près.
 
 ### Chez Google : on ne publie pas, et c'est un choix arbitré
 
@@ -10306,3 +10315,54 @@ pour mille.
 ouvert dit qu'il reste du travail, et fait chercher ailleurs ce qui est déjà fait. C'est
 exactement ce qui s'est produit ce soir — j'ai cherché sur quoi travailler, et j'ai d'abord
 trouvé des tâches déjà accomplies.
+
+---
+
+## Les huit marques fausses : corrigées, et les tâches faites pour de vrai  `FAIT`
+
+Le porteur du projet a demandé de ne pas me contenter de décocher, mais de **réaliser
+vraiment** ce qui se cachait derrière. Vérification faite : **sept des huit ne cachaient
+rien** — le travail avait bien eu lieu, seule la marque avait dérivé. La huitième restait à
+faire, et elle est faite.
+
+| Marque | Était-ce vraiment fait ? | Preuve |
+|---|---|---|
+| Jeton Gmail réémis | oui | 15 exécutions, 15 succès le 27 |
+| `STRIPE_WEBHOOK_SECRET` conforme | oui | secrets identiques, parcours 47/47 |
+| Tunnel refermé (×2) | oui | aucun `cloudflared`, `WEBHOOK_URL` vide |
+| Avast sur le 465 | oui | `SMTP_PORT=587`, `SMTP_SECURE=false` |
+| Puce fusionnée OAuth2 | oui | OAuth2 en place depuis le 8 octobre |
+| « Non escaladés » à arbitrer | oui | tri et pagination livrés le 26 |
+| **`sportsocial-mongo-ancien`** | **NON** | **supprimé le 27** |
+
+### La seule qui restait : le conteneur Mongo de secours
+
+- [x] **Vérifié AVANT d'agir, et c'est ce qui rendait le geste sûr** : les deux conteneurs
+      partageaient le **même volume nommé** `sportsocial-mongo-data`, et `docker rm` ne
+      supprime jamais un volume nommé. Les données ne vivaient pas dans le conteneur.
+- [x] **Vérifié APRÈS** : le volume existe toujours, et la base contient les mêmes
+      **2 049 documents dans 16 collections**, au document près.
+- [x] Huit jours s'étaient écoulés depuis son arrêt — la condition posée le 19 octobre
+      (« quand quelques jours auront confirmé que tout va bien ») était remplie.
+
+### La clé Anthropic : renouvelée, et je l'ai vérifiée comme demandé
+
+Le porteur du projet a confirmé l'avoir remplacée, en me demandant de contrôler quand même.
+**Mesuré plutôt que cru :**
+
+```
+dernier appel Anthropic réussi   27 octobre, 01 h 38
+exécutions du widget             18 démarrées, 18 réussies, 0 échec
+nœuds exercés                    Classer la demande, Rédiger la réponse, Rédiger le brouillon
+```
+
+Six jours après l'expiration annoncée. **Le rappel en mémoire a été supprimé** : un rappel
+faux use la confiance qu'on accorde aux autres.
+
+### Et un doublon de plus, trouvé en chemin
+
+L'onglet « Autour de moi » avait **deux** points ouverts : le constat d'origine du module
+9.8.6, et la section d'enquête qui le reprend et le chiffre. Le premier pointe désormais vers
+la seconde.
+
+**Vingt-six points ouverts ce soir, vingt-trois après ce passage.**
