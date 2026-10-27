@@ -4505,13 +4505,20 @@ Mesures reportées de 15.15 : réponse complète ≈ 7 ¢, escalade ≈ 1,8 ¢.
       `destinationPour()` renvoie `boite`, pour qu'un test n'envoie jamais de
       courriel à une personne réelle. Le dossier est ignoré par git, ces
       fichiers contenant des liens valides
-- [x] **SANS OBJET** : remplacé par OAuth2 (`XOAUTH2`), sans mot de passe d’application. — **Envoi réel — en attente de l'exploitant** : activer la validation en
-      deux étapes du compte Google, créer un **mot de passe d'application**
-      (16 caractères), renseigner `SMTP_USER`, `SMTP_PASS` et `MAIL_FROM`,
-      puis redémarrer l'API. `verifierSmtp()` teste la connexion sans rien
-      envoyer et servira de contrôle au démarrage
-- [ ] **Point de vigilance** : l'Agent Mail d'Avast intercepte aussi le SMTP
-      sortant sur le port 465 — piste à regarder en cas d'échec de connexion
+- [x] **SANS OBJET DEPUIS LE 8 OCTOBRE** — remplacé par OAuth2 (`XOAUTH2`).
+      *(Puce remise au propre le 27 octobre : un « SANS OBJET » avait été collé
+      en tête d'un point encore ouvert, et la ligne se lisait à la fois comme
+      faite et comme à faire.)* Le plan abandonné était : activer la validation
+      en deux étapes du compte Google, créer un **mot de passe d'application**
+      de seize signes, renseigner `SMTP_USER`, `SMTP_PASS` et `MAIL_FROM`. Il
+      est tombé le 6 octobre, quand Google a répondu que le réglage n'était pas
+      disponible pour ce compte.
+- [x] **RÉGLÉ** : l'Agent Mail d'Avast intercepte bien le SMTP sortant sur le
+      port 465, et c'est arrivé. La parade est en place depuis le 9 octobre —
+      `SMTP_PORT=587` avec `SMTP_SECURE=false`, donc STARTTLS. Vérifié le
+      27 octobre : le `.env` porte bien 587, et aucun envoi n'est passé par le
+      465 depuis. *(Le 993 de l'IMAP, lui, n'avait pas de parade : la relève est
+      passée à l'API Gmail en HTTPS.)*
 
 ## 15.17 — Relève des escalades sur Telegram (21 septembre)
 
@@ -7088,9 +7095,10 @@ N8N_EDITOR_BASE_URL = http://localhost:5678/              ← le rappel OAuth, i
       réelle sur Telegram, seule preuve définitive.*
 - [x] Certificat Avast toujours monté après recréation (1 526 o), n8n répond `200` par le
       tunnel, conteneur `coachconnect-tunnel` debout.
-- [ ] **Refermer le tunnel après usage** : `node docker/n8n/ouvrir-tunnel.mjs --fermer`.
-      L'adresse mène à n8n, **éditeur compris** — protégé par authentification, mais à ne
-      publier nulle part.
+- [x] **FAIT, et vérifié le 27 octobre** : aucun conteneur `cloudflared`, et `WEBHOOK_URL`
+      est vide dans `docker/n8n/.env` — donc aucune adresse résiduelle.
+      `node docker/n8n/ouvrir-tunnel.mjs --fermer`. L'adresse menait à n8n, **éditeur
+      compris** — protégé par authentification, mais à ne publier nulle part.
 
 ### Campagne du 10 octobre, après-midi — 35 suites
 
@@ -7116,7 +7124,11 @@ par WinGet) — la suite n'est qu'à une commande de passer :
 stripe listen --forward-to localhost:5000/api/webhooks/stripe
 ```
 
-- [ ] **Attention au secret** : le README exige que `STRIPE_WEBHOOK_SECRET` corresponde à
+- [x] **VÉRIFIÉ LE 27 OCTOBRE : les deux secrets sont IDENTIQUES**, comparés sans les
+      afficher, et le parcours complet est passé **47/47** avec le relais actif. Rien à
+      changer dans `.env`, aucun redémarrage. *(En production, ce sera le secret de
+      l'endpoint du tableau de bord, qui diffère de celui de la CLI — c'est le même piège,
+      à l'envers.)* Le README exige que `STRIPE_WEBHOOK_SECRET` corresponde à
       celui qu'affiche `stripe listen`. Comparer, et mettre à jour `server/.env` s'ils
       diffèrent — sinon les signatures seront refusées et la suite échouera autrement.
 - [x] **Ce prérequis a désormais son contrôle au démarrage de la suite**, qui dirait
@@ -7307,8 +7319,9 @@ c'est dans cet ordre qu'il faut vérifier.
 - [x] **SANS OBJET depuis le 19 octobre.** `ouvrir-tunnel.mjs` active désormais
       `ccAgentTelegr01` **avant** de recréer n8n, et c'est le démarrage qui déclare
       l'adresse à Telegram. La bascule manuelle n'a plus lieu d'être.
-- [ ] **Refermer le tunnel après usage** : `node docker/n8n/ouvrir-tunnel.mjs --fermer`.
-      Désormais il ne se rouvrira plus tout seul au prochain démarrage.
+- [x] **FAIT, et vérifié le 27 octobre** — tunnel fermé, adresse retirée du fichier
+      d'environnement. `node docker/n8n/ouvrir-tunnel.mjs --fermer`. Et depuis le passage
+      à `restart: "no"`, il ne se rouvre plus tout seul au prochain démarrage.
 
 ---
 
@@ -7622,8 +7635,12 @@ d'erreur.
 - [x] **`gmail.modify` reste non déclarée sur l'écran de consentement.** Elle fonctionne
       aujourd'hui, et l'écart ne devient bloquant qu'à la publication — donc jamais, tant
       que l'option A tient. **À rouvrir si le projet est hébergé pour de vrai.**
-- [ ] **Prochaine réémission : le 26 octobre.** `node server/scripts/autoriser-gmail.mjs`,
-      consentement dans **Chrome**, puis redémarrage de l'API — désormais sans risque
+- [x] **FAIT LE 26 OCTOBRE** — les deux jetons réémis, celui du serveur et celui de n8n,
+      `node server/scripts/autoriser-gmail.mjs` avec consentement dans **Chrome**.
+      *Preuve au 27 octobre : quinze exécutions du flux courriel, quinze succès, et la
+      lecture de la boîte par le jeton du serveur fonctionne à chaque mesure.*
+      **Prochaine réémission : le 2 novembre**, l'application Google restant en mode Test
+      — sept jours de validité.
       d'ancien processus fantôme, grâce au garde-fou de port.
 
 ### Le garde-fou de port s'est prouvé tout seul
@@ -10212,3 +10229,80 @@ En relisant les points encore ouverts pour savoir sur quoi travailler, trois ne 
 
 **Un point coché à tort dit qu'il reste du travail là où il n'y en a plus** — et fait chercher
 ailleurs ce qui est déjà fait. Trente-et-un points restent ouverts ; ils le sont vraiment.
+
+---
+
+## Audit des cases du journal  `FAIT`
+
+Le porteur du projet a demandé de vérifier **ce qui est coché à juste titre, et ce qui est
+coché sans avoir été fait**. Dix mille lignes et **1 960 cases cochées** : les relire à l'œil
+n'aurait rien prouvé. J'ai donc vérifié ce qui est *vérifiable par une mesure*.
+
+### Premier passage — les citations de fichiers et de commandes
+
+| Ce qui a été vérifié | Résultat |
+|---|---|
+| Les 9 scripts `npm run …` cités dans des cases cochées | **9 existent** |
+| Les 35 chemins de fichiers cités entre accents graves | 29 existent, **6 à éclaircir** |
+
+Les six : cinq sont écrits `scripts/creerAdmin.js` là où le fichier vit en
+`server/scripts/creerAdmin.js` — **citation relative imprécise, pas affirmation fausse**. Le
+sixième, `destinations.local.json`, est **volontairement hors dépôt** (`.gitignore:49`), son
+exemple étant versionné à côté.
+
+**Aucune fausse affirmation dans cette catégorie.**
+
+### Deuxième passage — dix-sept affirmations structurelles
+
+Celles qui coûteraient cher si elles étaient fausses, vérifiées contre le code réel :
+`is:unread` retiré · `cc-support-traite` présent · `cc-prive` conservé · `cc-traite` **non**
+exclu · aucun nœud ne touche `UNREAD` · aucun `emailSend` · index unique **partiel** ·
+`brouillonParAgent` exposé · suppression bornée à `clos`/`resolu` · route `DELETE` derrière
+un administrateur · `urlPublique` · refus de démarrer sur une adresse locale · `predev` ·
+`nodemon --watch src` · Haiku 5.5 sur les deux classements · `break-words` sur les deux
+citations.
+
+**Dix-sept vraies, zéro fausse.** *(La dix-septième s'est affichée « FAUX » au premier
+passage : c'était mon échappement d'expression régulière qui était faux, pas le code — le
+garde-fou est bien là, ligne 90 de `env.js`. **Un contrôle qui échoue n'a pas forcément
+raison.**)*
+
+### Troisième passage — la contradiction inverse
+
+Une case **cochée** dont le texte dit qu'il reste à faire, ou **ouverte** sur quelque chose de
+fait. Neuf candidates repérées par leur formulation ; sept étaient du vocabulaire métier
+(« événements à venir », « ce qui reste à annoncer »). **Deux étaient de vrais défauts :**
+
+- **Une puce fusionnée.** Un « SANS OBJET : remplacé par OAuth2 » avait été collé **en tête**
+  d'un point encore ouvert sur le mot de passe d'application. La ligne se lisait à la fois
+  comme faite et comme à faire. Remise au propre.
+- **Avast sur le port SMTP 465**, resté ouvert comme « point de vigilance » alors que la
+  parade est en place depuis le 9 octobre. Vérifié : `SMTP_PORT=587`, `SMTP_SECURE=false`.
+
+### Quatrième passage — les points ouverts qui ne l'étaient plus
+
+Les trente-et-un points ouverts, relus un par un contre l'état réel de la machine :
+
+| Point | Mesure | Verdict |
+|---|---|---|
+| Réémission du jeton Gmail « le 26 octobre » | **15 exécutions, 15 succès** le 27 | fait |
+| `STRIPE_WEBHOOK_SECRET` doit correspondre | **secrets identiques**, parcours 47/47 | fait |
+| Refermer le tunnel (×2) | aucun `cloudflared`, `WEBHOOK_URL` **vide** | fait |
+| Avast sur le 465 | `SMTP_PORT=587` | fait |
+| `sportsocial-mongo-ancien` | **existe encore**, arrêté depuis 7 jours | **ouvert** |
+| `Ankama`, 12 Go | non vérifié, c'est au porteur du projet | ouvert |
+
+**Trente-et-un points ouverts, dont six l'étaient à tort. Il en reste vingt-six**, et une
+prochaine réémission du jeton Gmail est datée au **2 novembre** plutôt que laissée au passé.
+
+### Ce que l'audit dit du journal
+
+**Les affirmations techniques tiennent.** Ce qui dérive, ce sont les **marques** : une case se
+coche au moment où l'on écrit, et personne ne repasse derrière quand le monde change. Sur
+1 991 cases, huit étaient fausses — **six ouvertes à tort, deux cochées à tort** — soit quatre
+pour mille.
+
+**Les six « ouvertes à tort » sont les plus coûteuses**, et pas les deux autres : un point
+ouvert dit qu'il reste du travail, et fait chercher ailleurs ce qui est déjà fait. C'est
+exactement ce qui s'est produit ce soir — j'ai cherché sur quoi travailler, et j'ai d'abord
+trouvé des tâches déjà accomplies.
