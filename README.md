@@ -112,6 +112,10 @@ demandent une décision :
 doivent être **différents l'un de l'autre** : signés avec le même, une fuite
 du secret d'accès permettrait de forger des refresh tokens.
 
+**Et `PUBLIC_URL` dès que `NODE_ENV=production`** — l'adresse publique de
+l'application, distincte des origines CORS. Voir [Déploiement](#déploiement) :
+le serveur refuse de démarrer si elle est restée locale.
+
 ```bash
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
@@ -140,12 +144,25 @@ voir la section suivante.
 ## Lancer les tests
 
 ```bash
-npm test          # à la racine : les quinze suites, une par une
+npm test          # à la racine : les trente-cinq suites, une par une
 ```
 
 La commande **vérifie d'abord les prérequis** et s'arrête avec un message
 clair si l'un manque, plutôt que de laisser échouer des dizaines de
 vérifications sans rapport avec la cause.
+
+Trois de ces contrôles portent sur le banc d'essai lui-même, et ils bloquent :
+
+- **toute suite déclarée dans un `package.json` doit être enregistrée** dans la
+  campagne — une suite oubliée ne tourne jamais, et ses vérifications au vert
+  rassurent sans rien prouver ;
+- **chaque fichier de suite doit se compiler** (`node --check`) — une
+  déclaration en double est une `SyntaxError`, donc le fichier entier est
+  refusé, **aucune** vérification ne s'exécute et la sortie ne contient aucun
+  « ECHEC » ;
+- **une suite n'est au vert que si son code de sortie vaut zéro ET qu'elle a
+  imprimé une ligne de score.** Compter les « ECHEC » dans la sortie lirait
+  zéro sur une pile d'erreur.
 
 ### Ce qui doit tourner avant
 
@@ -198,12 +215,45 @@ Get-NetTCPConnection -LocalPort 5173 -State Listen | Select LocalPort,OwningProc
 Comparer un appel **direct** à l'API et le même appel **via le proxy** désigne
 la cause en deux commandes.
 
-### Les suites lancées à la chaîne expirent au hasard
+### Une suite rend `0/0` ou « INTERROMPU » en campagne, et passe seule
 
-Enchaînées dans une seule commande, plusieurs suites navigateur saturent la
-machine et l'une d'elles dépasse son délai au premier chargement de page. Ce
-n'est pas l'application. `npm test` les lance **une par une** pour cette
-raison.
+Trois causes réelles, trouvées en les mesurant — et **aucune n'était celle
+qu'on soupçonnait d'abord**.
+
+**1. Un fichier modifié pendant la campagne redémarre l'API.** `nodemon`
+surveillait tout `server/`, pas seulement `server/src` : éditer un fichier de
+test coupait l'API sous les pieds des suites en vol. Corrigé — le script `dev`
+porte désormais `--watch src`. Par prudence, **ne rien éditer pendant une
+campagne**.
+
+**2. Un processus orphelin sature la machine.** Arrêter une tâche tue le
+processus lancé, **pas** ses enfants ni ce qui tourne dans un conteneur. Une
+CLI oubliée a déjà occupé un cœur entier pendant plus d'une heure, jusqu'à
+faire expirer la sélection de serveur MongoDB d'une suite.
+
+```bash
+docker stats --no-stream          # un conteneur au repos au-dessus de quelques % est suspect
+docker top coachconnect-n8n       # la colonne TIME nomme le coupable
+```
+
+**3. Une attente fixe mesure la machine, pas le code.** Un
+`waitForTimeout(2000)` suffit quand la suite tourne seule et pas en trentième
+position d'une campagne. **Attendre une condition, jamais une durée.**
+
+`npm test` lance par ailleurs les suites **une par une**, et ménage une pause
+entre deux suites navigateur : Chromium met un instant à rendre mémoire et
+sockets.
+
+### Le port 5000 reste occupé après l'arrêt du serveur
+
+Même mécanisme que le point 2 ci-dessus : `nodemon` meurt, son enfant garde le
+port, et `GET /api/health` répond **200 depuis l'ancien processus** — avec
+l'ancienne configuration. Le symptôme accuse le code.
+
+`npm run dev` exécute donc `predev` → `scripts/liberer-port.mjs`, qui libère le
+port 5000. Il ne tue que `node`/`nodemon` : **tout autre occupant est nommé et
+l'opération s'interrompt**, plutôt que de tuer à l'aveugle le processus de
+quelqu'un d'autre.
 
 ### L'autocomplétion ne trouve rien sur les comptes existants
 
@@ -275,8 +325,28 @@ d'environnement. Ce que le passage en production déclenche :
 |---|---|---|---|
 | Cookie du refresh token | `sameSite: 'lax'`, `secure: false` | `sameSite: 'none'`, `secure: true` | En local, front et API partagent `localhost`. En production ils sont sur deux domaines : le navigateur exige alors `secure` pour accepter `sameSite: 'none'`. |
 | Limiteurs de débit | neutralisés | actifs | Cinq connexions de test suffiraient sinon à se bloquer soi-même un quart d'heure. `RATE_LIMIT_DEV=true` les réactive en local pour les vérifier. |
-| Origines CORS | `http://localhost:5173` | domaine du front | Lues dans `CLIENT_URL`, séparées par des virgules. |
+| Origines CORS | `http://localhost:5173` | domaine du front | Lues dans `CLIENT_URL`, séparées par des virgules. **Qui a le droit d'entrer.** |
+| **Adresse publique** | repli sur la 1ʳᵉ origine | **`PUBLIC_URL` obligatoire** | **Où l'on renvoie les gens** : retours Stripe, onboarding Connect, liens des courriels. Le serveur **refuse de démarrer** si elle est locale en production. |
 | Stockage des médias | local si Cloudinary absent | Cloudinary | Le stockage local ne survit pas à un redéploiement. |
+
+#### `CLIENT_URL` et `PUBLIC_URL` répondent à deux questions différentes
+
+`CLIENT_URL` est une **liste** : les origines autorisées à appeler l'API.
+`PUBLIC_URL` est une **adresse unique** : celle vers laquelle on renvoie les
+gens.
+
+Elles ont longtemps été la même variable, et le piège était réel. `CLIENT_URL`
+contient déjà deux origines locales : **ajouter le domaine de production à la
+fin** — le geste naturel, puisqu'il s'agit d'autoriser une origine de plus —
+laissait l'adresse publique sur `localhost`. Conséquences :
+
+- l'acheteur revient sur `localhost` après avoir payé ;
+- le coach termine son onboarding Connect sur `localhost` ;
+- **les courriels de réinitialisation partent à de vrais utilisateurs avec un
+  lien mort.**
+
+Rien ne plante. Les trois échouent **chez l'utilisateur**, invisibles depuis le
+serveur. D'où la variable dédiée, et le refus de démarrer.
 
 ### Serveur
 
@@ -289,6 +359,11 @@ d'environnement. Ce que le passage en production déclenche :
    celui de la connexion Mongo. C'est cette route qu'il faut donner à
    l'hébergeur : un processus vivant mais sans base n'est pas un service en
    état de marche.
+5. **L'API doit rester joignable par n8n, et ce n'est pas un oubli.** Les
+   workflows l'appellent de l'extérieur du processus — en local par
+   `host.docker.internal:5000`, en production par son domaine. **La lier à
+   `127.0.0.1` couperait les quatre agents.** L'exposition est structurelle :
+   c'est au pare-feu ou au groupe de sécurité de la borner, jamais au code.
 
 ### Client
 
@@ -311,13 +386,41 @@ Le relais `stripe listen` ne sert **qu'en local**. En production :
 1. Déclarer l'URL `https://<api>/api/webhooks/stripe` dans le tableau de bord
    Stripe.
 2. Reporter le secret de signature affiché dans `STRIPE_WEBHOOK_SECRET`.
-3. Vérifier que les événements `checkout.session.completed`,
-   `customer.subscription.*`, `invoice.payment_*` et `capability.updated`
-   sont bien abonnés.
+3. Vérifier que **les neuf événements que le code traite** sont abonnés :
+
+```
+checkout.session.completed        customer.subscription.updated
+customer.subscription.deleted     invoice.payment_succeeded
+invoice.payment_failed            account.updated
+v2.core.account.updated           capability.updated
+account.external_account.created
+```
 
 > `capability.updated` est facile à oublier et son absence a déjà été
 > constatée : sans lui, un coach dont Stripe vient de valider le dossier reste
 > bloqué en « en attente » jusqu'à un rafraîchissement manuel.
+
+**Le secret du tableau de bord n'est PAS celui de la CLI.** C'est le même
+piège qu'en local, à l'envers : une signature refusée ressemble à un webhook
+qui n'arrive pas.
+
+**Et les trois adresses doivent désigner le même domaine** — `PUBLIC_URL`,
+l'URL de l'endpoint Stripe, et le domaine du front. Si l'une diverge, soit le
+webhook arrive sans que l'acheteur ne revienne, soit l'inverse : dans les deux
+cas **l'abonnement n'est pas créé alors que le paiement a abouti**.
+
+#### En local, sans `stripe login`
+
+La CLI accepte la clé de test directement, ce qui évite le passage par le
+navigateur :
+
+```bash
+stripe listen --api-key sk_test_… --forward-to localhost:5000/api/webhooks/stripe
+```
+
+Comparer le `whsec_…` affiché avec `STRIPE_WEBHOOK_SECRET` **avant** de lancer
+`test:paiement` : s'ils diffèrent, les treize vérifications d'abonnement
+échouent sur une cause qu'aucun de leurs messages ne nomme.
 
 ### Poids du paquet client
 

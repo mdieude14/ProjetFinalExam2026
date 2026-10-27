@@ -6922,10 +6922,13 @@ qui se desserre explique cela ; un défaut de code ne l'expliquerait pas. Et l'A
 **Rejouées seules, les quatre passent** : `premium` 18/18, `evenements` 38/38,
 `recherche` 36/36, `messagerie` 26/26.
 
-- [ ] **À retenir pour les prochaines campagnes** : la moitié navigateur demande de la
-      place. Fermer les fenêtres d'éditeur en trop et le navigateur, et au besoin arrêter
-      n8n le temps de la campagne — il n'est utile qu'à la relève du courriel, qui peut
-      attendre une demi-heure.
+- [x] **CONSEIL RÉFUTÉ PAR LA MESURE, le 27 octobre.** Il reposait sur la théorie de la
+      saturation machine, qui ne tient pas : les **deux campagnes complètes du 26 octobre**
+      ont tourné **avec n8n actif, l'éditeur ouvert et le navigateur lancé**, et ont rendu
+      **1 917/1 917 puis 1 922/1 922**. Les vraies causes des suites interrompues étaient
+      `nodemon` surveillant tout `server/` et un processus orphelin saturant un cœur — les
+      deux corrigés. *Texte d'origine : fermer les fenêtres d'éditeur, le navigateur, et
+      arrêter n8n le temps de la campagne.*
 
 ### `test:paiement` : un prérequis absent, pas une régression
 
@@ -7144,8 +7147,9 @@ vraie limite de ce poste pour les campagnes navigateur, chaque suite lançant un
 Rien n'était arrêtable aujourd'hui : n8n devait rester debout pour l'essai Telegram, Vite
 et l'API servent les suites.
 
-- [ ] **Pour une campagne complète fiable** : fermer les fenêtres d'éditeur en trop et le
-      navigateur, et arrêter n8n si aucun essai de messagerie n'est en cours.
+- [x] **MÊME RÉFUTATION** (27 octobre) : deux campagnes complètes, tout ouvert, zéro échec.
+      La seule règle qui tienne est **ne rien modifier pendant une campagne** — et depuis
+      que `nodemon` ne surveille plus que `server/src`, même cela ne coupe plus l'API.
 
 ---
 
@@ -7245,10 +7249,11 @@ ouvre **tous** ses ports sans qu'aucune règle ne mentionne le 5000.
       composition** — l'étiquette `config_files` est vide, il vient d'un `docker run`. Le
       corriger demande de le recréer, ce qui n'a pas été fait sans surveillance : c'est la
       base de données du projet.
-- [ ] **L'API, elle, DOIT écouter hors loopback**, et ce n'est pas un oubli : n8n l'appelle
-      par `host.docker.internal:5000` depuis son conteneur. La lier à `127.0.0.1` couperait
-      les quatre workflows. L'exposition est donc structurelle, et c'est au pare-feu — non
-      au code — de la borner.
+- [x] **CONSIGNÉ DANS LE README** le 27 octobre, section « Déploiement / Serveur », point 5 :
+      un constat utile le jour du déploiement n'avait rien à faire dans le seul journal.
+      L'API DOIT écouter hors boucle locale — n8n l'appelle par `host.docker.internal:5000`
+      depuis son conteneur, et la lier à `127.0.0.1` couperait les quatre agents.
+      L'exposition est structurelle : c'est au pare-feu, non au code, de la borner.
 
 ---
 
@@ -10366,3 +10371,111 @@ L'onglet « Autour de moi » avait **deux** points ouverts : le constat d'origin
 la seconde.
 
 **Vingt-six points ouverts ce soir, vingt-trois après ce passage.**
+
+---
+
+# JOURNÉE DU 27 OCTOBRE — SECONDE SÉANCE
+
+## Relance du projet  `FAIT`
+
+Le poste avait été éteint. **Docker Desktop ne tournait pas** : les trois services étaient
+injoignables, et c'est de là que tout partait.
+
+- [x] **Le certificat Avast vérifié AVANT tout diagnostic**, comme la règle du projet le veut.
+      À jour — empreinte `0A611630620C775F…` identique entre le magasin Windows et le dépôt.
+      *Le vérifier d'abord évite de chercher une panne applicative là où tout ce qui sort du
+      conteneur échouerait en silence.*
+- [x] **Docker Desktop lancé**, moteur prêt en cinq secondes. Les deux conteneurs sont
+      repartis seuls — `sportsocial-mongo` et `coachconnect-n8n`.
+- [x] **Le jeu de réplicas `rs0` vérifié avant de lancer l'API** : `myState: 1`, donc primaire.
+      Démarrer le serveur avant que Mongo ne soit élu donnerait une erreur de connexion qui
+      accuserait la configuration.
+- [x] **API, client et n8n à 200**, proxy `/api` du client compris — le cas le plus traître,
+      où Vite répond mais ne relaie plus.
+- [x] **Trois workflows actifs**, aucun processus parasite, n8n à 0,39 % de CPU.
+- [x] **Le chemin sortant éprouvé, pas supposé** : le jeton Gmail du serveur répond, et la
+      recherche du flux courriel rend zéro message — la ligne de départ tient depuis hier.
+
+---
+
+## Le README rattrape le travail d'hier  `LIVRÉ`
+
+C'est le premier document qu'un correcteur ouvre, et il était **en retard sur le code**.
+
+### Une erreur factuelle
+
+- [x] **« les quinze suites »** alors que la campagne en enregistre **trente-cinq**. Vérifié
+      par comptage dans `scripts/test-tout.mjs`, pas à la main.
+
+### Trois choses livrées hier et absentes du README
+
+- [x] **`PUBLIC_URL`** — la variable qui casserait la production en silence n'était documentée
+      nulle part. Ajoutée aux obligatoires, au tableau du déploiement, et expliquée : pourquoi
+      `CLIENT_URL` (qui entre) et `PUBLIC_URL` (où l'on renvoie) répondent à deux questions
+      différentes, et ce que coûterait de les confondre.
+- [x] **Les neuf événements Stripe**, là où le README n'en listait que quatre familles. Plus
+      le rappel que **le secret du tableau de bord n'est pas celui de la CLI**, et que les
+      trois adresses doivent désigner le même domaine.
+- [x] **`stripe listen --api-key`** — la variante qui évite `stripe login` et son navigateur.
+
+### Un piège documenté avec sa VRAIE cause
+
+La section « Les suites lancées à la chaîne expirent au hasard » expliquait le symptôme par
+la **saturation machine**. **C'est faux, et mesuré comme tel.** Réécrite avec les trois causes
+réelles : `nodemon` qui surveillait tout `server/`, les processus orphelins, et les attentes
+fixes. Plus une section neuve sur le port 5000 tenu par un enfant orphelin.
+
+- [x] **Les trois contrôles du banc d'essai** sont désormais annoncés dans le README : registre
+      des suites, `node --check`, et la règle « code de sortie **et** ligne de score ».
+- [x] **La contrainte d'exposition de l'API** est passée du journal au README, section
+      « Déploiement / Serveur » : un constat utile le jour du déploiement n'avait rien à faire
+      dans le seul journal.
+
+### Six contrôles de cohérence, zéro écart
+
+Le README est vérifié **contre le code** et non relu : nombre de suites, présence de
+`PUBLIC_URL`, les neuf événements, `predev`, `--watch src`, et l'absence de « quinze suites ».
+
+---
+
+## Deux conseils d'exploitation réfutés par la mesure  `CORRIGÉ`
+
+Le journal conseillait, depuis le 8 octobre, de **fermer l'éditeur, le navigateur et d'arrêter
+n8n** avant une campagne. Ce conseil reposait sur la théorie de la saturation machine.
+
+**Les deux campagnes complètes du 26 octobre ont tourné avec tout ouvert** — n8n actif,
+éditeur ouvert, navigateur lancé — et ont rendu **1 917/1 917 puis 1 922/1 922**.
+
+- [x] **La seule règle qui tienne est : ne rien modifier pendant une campagne.** Et depuis que
+      `nodemon` ne surveille plus que `server/src`, même cela ne coupe plus l'API.
+- [x] **Un conseil fondé sur une cause fausse fait perdre du temps deux fois** : à l'appliquer,
+      et à chercher ailleurs quand il ne suffit pas.
+
+**Vingt-trois points ouverts ce matin, vingt après ce passage.**
+
+---
+
+## Campagne de validation après relance  `VALIDÉ`
+
+**1 922 / 1 922 — les trente-cinq suites, relais Stripe actif, zéro échec.**
+
+Identique au résultat d'hier soir, **sur une machine redémarrée et des services relancés de
+zéro**. C'est la troisième campagne complète entièrement verte d'affilée.
+
+### Ce que cette campagne valide en plus des précédentes
+
+- [x] **La relance complète ne laisse rien derrière elle.** Docker arrêté puis relancé, les
+      conteneurs repartis seuls, le jeu de réplicas réélu, les trois workflows réactivés : le
+      projet se remonte sans intervention manuelle.
+- [x] **Les corrections du README n'ont touché à aucun comportement** — ce qui était attendu,
+      mais une documentation qui diverge du code finit par le contredire, et seule une
+      campagne le prouve.
+- [x] **Et le conseil réfuté ci-dessus l'est une troisième fois** : cette campagne a tourné,
+      elle aussi, avec n8n actif, l'éditeur ouvert et le navigateur lancé.
+
+### Arrêt propre, vérifié
+
+Relais Stripe arrêté puis **contrôlé** : aucun `stripe.exe`, aucun navigateur Playwright,
+aucun processus de campagne. La vérification après arrêt est devenue systématique depuis
+l'orphelin du 26 octobre — **un geste qui coûte deux secondes et a déjà coûté une heure de
+cœur quand il manquait.**
