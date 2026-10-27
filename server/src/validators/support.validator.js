@@ -34,6 +34,20 @@ export const reglesCreationTicket = [
   body('reponse').optional().isString().trim().isLength({ max: 4000 }),
 
   /*
+   * LE BROUILLON PROPOSÉ À L'EXPLOITANT, quand le dossier escalade.
+   *
+   * MÊMES BORNES QUE `reponse`, et ce n'est pas un hasard : les deux finissent
+   * dans le même champ de 4000 signes du modèle, et c'est le même modèle de
+   * langage qui les produit. Une borne plus large ferait échouer l'écriture en
+   * base après que l'agent a payé sa rédaction.
+   *
+   * LE SERVICE DÉCIDE S'IL LE GARDE, pas ce validateur : il l'ignore sans clé
+   * d'agent, et sur un dossier non escaladé. Valider ici ne vaut autorisation
+   * de rien — c'est une borne de forme, pas un droit d'écriture.
+   */
+  body('brouillonReponse').optional().isString().trim().isLength({ max: 4000 }),
+
+  /*
    * LES OUTILS SONT UNE TRACE, PAS UNE COMMANDE. On borne le tableau pour
    * qu'un agent en boucle ne puisse pas gonfler indéfiniment un document —
    * vingt appels suffisent largement à répondre à une question de support.
@@ -65,6 +79,21 @@ export const reglesFileTickets = [
     .withMessage(`Le statut doit valoir : ${[...STATUTS, 'tous'].join(', ')}`),
   query('page').optional().isInt({ min: 1 }).toInt(),
   query('limite').optional().isInt({ min: 1, max: 50 }).toInt(),
+
+  /*
+   * L'ORDRE DE TRI, EN LISTE FERMÉE.
+   *
+   * Deux valeurs, et le service les traduit lui-même en `{ createdAt: ±1 }` :
+   * à aucun moment une chaîne venue de l'URL n'atteint un champ de tri. C'est
+   * la même raison que la liste fermée des intentions en tête de ce fichier,
+   * mais contre un risque différent — ici, un tri sur un champ non indexé
+   * suffirait à faire ramper la file, et un tri sur un champ inexistant
+   * rendrait un ordre arbitraire sans le dire.
+   */
+  query('ordre')
+    .optional()
+    .isIn(['recent', 'ancien'])
+    .withMessage('L’ordre doit valoir « recent » ou « ancien »'),
 ];
 
 /**
@@ -234,6 +263,21 @@ export const reglesCourrielService = [
     .isLength({ max: 254 }).withMessage('Adresse d’expéditeur trop longue'),
 
   body('sujet').optional().isString().trim().isLength({ max: 120 }),
+
+  /*
+   * L'IDENTIFIANT DU MESSAGE GMAIL — LA CLÉ D'IDEMPOTENCE.
+   *
+   * OPTIONNEL, ET DÉLIBÉRÉMENT. Un dépôt sans identifiant reste accepté : il
+   * crée simplement un dossier sans protection contre le doublon, ce qui est le
+   * comportement d'avant le 26 octobre. Le rendre obligatoire ferait échouer
+   * tout appelant qui ne l'envoie pas encore — et ferait perdre la demande d'une
+   * personne pour une raison purement technique.
+   *
+   * BORNÉ À 200 SIGNES, comme le champ du modèle. Gmail en rend une vingtaine
+   * en hexadécimal ; la marge couvre un éventuel changement de format sans
+   * laisser passer une valeur arbitrairement longue dans un champ indexé.
+   */
+  body('messageId').optional().isString().trim().isLength({ max: 200 }),
 
   body('question')
     .exists().withMessage('La question est requise').bail()

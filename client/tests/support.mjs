@@ -470,7 +470,7 @@ try {
   ok('il s’active une fois la décision écrite', await bouton.isEnabled());
 
   await bouton.click();
-  await ecran.getByText('Dossier instruit').waitFor({ state: 'visible', timeout: 15000 });
+  await ecran.getByText('Dossier traité').waitFor({ state: 'visible', timeout: 15000 });
   ok('l’administration confirme l’instruction', true);
 
   await ecran.waitForFunction(
@@ -488,16 +488,29 @@ try {
       String(enBase?.traitePar) === String(admin.id),
     `statut « ${enBase?.statut} »`);
 
-  await ecran.getByRole('button', { name: 'Instruits' }).click();
+  /*
+   * LES ONGLETS SE DÉSIGNENT PAR LEUR IDENTIFIANT, PAS PAR LEUR LIBELLÉ.
+   *
+   * Ils étaient cliqués par leur texte — `{ name: 'Instruits' }` — jusqu'au
+   * 26 octobre au soir, où le libellé de l'onglet `clos` a été reformulé. La
+   * suite entière s'est arrêtée net à cet endroit, sur un délai d'attente de
+   * trente secondes, et le message n'accusait rien de ce qui avait changé.
+   *
+   * UN LIBELLÉ EST UN CHOIX DE PRODUIT : il doit pouvoir être reformulé sans
+   * casser un test. L'identifiant `data-test`, lui, désigne le statut du
+   * dossier — `escalade`, `clos`, `resolu` — et ne change que si le modèle
+   * change, auquel cas le test DOIT être relu.
+   */
+  await ecran.getByTestId('onglet-clos').click();
   const carteInstruite = ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_ESCALADE });
   await carteInstruite.waitFor({ state: 'visible', timeout: 15000 });
   const texteInstruit = await carteInstruite.innerText();
-  ok('« Instruits » le montre avec son historique', texteInstruit.includes(`par @${admin.pseudo}`));
+  ok('« Traiter » le montre avec son historique', texteInstruit.includes(`par @${admin.pseudo}`));
   ok('et la décision prise', texteInstruit.includes('Décision : Remboursement accordé'));
-  ok('plus aucun bouton d’action sur un dossier instruit',
+  ok('plus aucun bouton d’action sur un dossier traité',
     (await carteInstruite.getByRole('button', { name: 'Clore sans courriel' }).count()) === 0);
 
-  await ecran.getByRole('button', { name: 'Non escaladés' }).click();
+  await ecran.getByTestId('onglet-resolu').click();
   const carteUsage = ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_USAGE });
   await carteUsage.waitFor({ state: 'visible', timeout: 15000 });
   ok('« Non escaladés » montre les échanges sans intervention humaine',
@@ -531,7 +544,7 @@ try {
 
   await ecran.reload({ waitUntil: 'domcontentloaded' });
   await ecran.getByTestId('famille-support').click();
-  await ecran.getByRole('button', { name: 'À traiter' }).click();
+  await ecran.getByTestId('onglet-escalade').click();
 
   const carteCourriel = ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_COURRIEL });
   await carteCourriel.waitFor({ state: 'visible', timeout: 15000 });
@@ -683,7 +696,7 @@ try {
   /* =================================================================== *
    *  DEUX ADMINISTRATEURS, UN DOSSIER
    * =================================================================== */
-  section('Un dossier instruit ailleurs pendant qu’on le lit');
+  section('Un dossier traité ailleurs pendant qu’on le lit');
 
   const concurrent = await creerTicket({ question: QUESTION_CONCURRENTE, intention: 'decision' });
   const idConcurrent = concurrent.json?.ticket?._id;
@@ -697,7 +710,7 @@ try {
    */
   await ecran.reload({ waitUntil: 'domcontentloaded' });
   await ecran.getByTestId('famille-support').click();
-  await ecran.getByRole('button', { name: 'À traiter' }).click();
+  await ecran.getByTestId('onglet-escalade').click();
   const carteConcurrente = ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_CONCURRENTE });
   await carteConcurrente.waitFor({ state: 'visible', timeout: 15000 });
 
@@ -718,10 +731,10 @@ try {
   await carteConcurrente.getByLabel('Décision').fill('Désactivation maintenue.');
   await carteConcurrente.getByRole('button', { name: 'Clore sans courriel' }).click();
 
-  await ecran.getByText('Ce dossier a déjà été instruit').waitFor({ state: 'visible', timeout: 15000 })
+  await ecran.getByText('Ce dossier a déjà été traité').waitFor({ state: 'visible', timeout: 15000 })
     .catch(() => {});
   ok('**l’écran explique le refus**',
-    (await ecran.getByText('Ce dossier a déjà été instruit').count()) > 0);
+    (await ecran.getByText('Ce dossier a déjà été traité').count()) > 0);
 
   await ecran.waitForFunction(
     (q) => !document.body.innerText.includes(q),
@@ -768,7 +781,7 @@ try {
 
   await ecran.goto(`${BASE}/admin/moderation`, { waitUntil: 'domcontentloaded' });
   await ecran.getByTestId('famille-support').click();
-  await ecran.getByRole('button', { name: 'À traiter' }).click();
+  await ecran.getByTestId('onglet-escalade').click();
 
   const carteEntrante = ecran
     .getByTestId('dossier-ticket')
@@ -817,6 +830,141 @@ try {
     String(apresEnvoiCourriel?.reponseCanal));
 
   /* =================================================================== *
+   *  TRI, PAGINATION, PROVENANCE, SUPPRESSION
+   * =================================================================== */
+  section('Le back-office : trier, paginer, relire, supprimer');
+
+  await ecran.goto(`${BASE}/admin/moderation`, { waitUntil: 'domcontentloaded' });
+  await ecran.getByTestId('famille-support').click();
+  await ecran.getByTestId('onglet-escalade').click();
+  await ecran.getByTestId('dossier-ticket').first().waitFor({ state: 'visible', timeout: 15000 });
+
+  /* ---------------------------- Le tri ---------------------------- */
+
+  ok('les deux ordres de tri sont proposés sur le support',
+    (await ecran.getByTestId('ordre-recent').count()) === 1 &&
+    (await ecran.getByTestId('ordre-ancien').count()) === 1);
+
+  ok('**« Plus récents » est l’ordre par défaut**',
+    (await ecran.getByTestId('ordre-recent').getAttribute('aria-pressed')) === 'true');
+
+  const premierRecent = await ecran.getByTestId('dossier-ticket').first().innerText();
+
+  await ecran.getByTestId('ordre-ancien').click();
+  await ecran.waitForTimeout(1200);
+  const premierAncien = await ecran.getByTestId('dossier-ticket').first().innerText();
+
+  /*
+   * DEUX DOSSIERS DIFFÉRENTS EN TÊTE : c'est la preuve que le paramètre
+   * atteint réellement la base, et pas seulement l'URL. Un tri appliqué côté
+   * écran aurait produit le même résultat sur une seule page — mais pas sur
+   * une file qui en compte plusieurs.
+   */
+  ok('**changer l’ordre change le dossier en tête** — le tri vient bien du serveur',
+    premierRecent !== premierAncien);
+
+  await ecran.getByTestId('ordre-recent').click();
+  await ecran.waitForTimeout(1200);
+
+  /*
+   * LE TRI N'EST PAS PROPOSÉ AILLEURS, et c'est voulu : les routes des
+   * diplômes et des signalements ne l'acceptent pas. Un réglage sans effet est
+   * pire qu'un réglage absent.
+   */
+  await ecran.getByTestId('famille-diplomes').click();
+  await ecran.waitForTimeout(1000);
+  ok('**aucun réglage de tri sur les familles qui ne le gèrent pas**',
+    (await ecran.getByTestId('ordre-recent').count()) === 0);
+
+  await ecran.getByTestId('famille-support').click();
+  await ecran.getByTestId('onglet-escalade').click();
+  await ecran.getByTestId('dossier-ticket').first().waitFor({ state: 'visible', timeout: 15000 });
+
+  ok('le nombre total de dossiers est annoncé',
+    (await ecran.getByTestId('total-dossiers').count()) === 1);
+
+  /* ---------------------- La provenance du brouillon ---------------------- */
+
+  const ADRESSE_RELIRE = `relire${S}${DOM}`;
+  const depotRelire = await appel('/support/service/courriel', {
+    methode: 'POST',
+    cleService: CLE_SERVICE,
+    corps: {
+      expediteur: ADRESSE_RELIRE,
+      sujet: 'Texte à relire',
+      question: 'Pouvez-vous me dire où retrouver mes factures mensuelles ?',
+      brouillon: 'Bonjour, vos factures se trouvent dans Paramètres puis Facturation.',
+    },
+  });
+  ok('condition réunie : un second dépôt de l’assistant aboutit',
+    depotRelire.statut === 201, `statut ${depotRelire.statut}`);
+
+  await ecran.reload({ waitUntil: 'domcontentloaded' });
+  await ecran.getByTestId('famille-support').click();
+  await ecran.getByTestId('onglet-escalade').click();
+
+  const carteARelire = ecran.getByTestId('dossier-ticket').filter({ hasText: ADRESSE_RELIRE });
+  await carteARelire.waitFor({ state: 'visible', timeout: 15000 });
+
+  /*
+   * L'AVERTISSEMENT DE PROVENANCE, ET POURQUOI IL COMPTE.
+   *
+   * Un brouillon proposé par un modèle de langage et un brouillon écrit par
+   * l'exploitant ont exactement la même apparence dans le champ. Le texte part
+   * tel quel : sans cette mention, rien ne dit qu'il n'a jamais été relu.
+   */
+  ok('**un brouillon venu de l’agent s’annonce comme tel**',
+    await carteARelire.getByTestId('provenance-brouillon').isVisible());
+
+  await carteARelire.getByTestId('brouillon-reponse').fill(
+    'Bonjour, vos factures sont dans Paramètres puis Facturation. Bonne journée.'
+  );
+  await carteARelire.getByTestId('enregistrer-brouillon').click();
+  await ecran.waitForTimeout(1500);
+
+  /*
+   * ET IL DISPARAÎT DÈS QUE L'EXPLOITANT A ÉCRIT. Le laisser ensuite en ferait
+   * un ornement, qu'on cesserait de voir — et la mention perdrait tout son
+   * sens le jour où elle serait vraie.
+   */
+  ok('**et la mention tombe dès que l’exploitant a relu et enregistré**',
+    (await carteARelire.getByTestId('provenance-brouillon').count()) === 0);
+
+  /* ---------------------------- La suppression ---------------------------- */
+
+  /*
+   * AUCUN BOUTON DE SUPPRESSION SUR UN DOSSIER EN ATTENTE. C'est la garantie
+   * qui compte : un dossier escaladé est une demande à laquelle personne n'a
+   * encore répondu. Le serveur refuse de toute façon, mais l'écran ne doit pas
+   * proposer un geste qui détruirait la question de quelqu'un.
+   */
+  ok('**aucune suppression possible sur un dossier en attente de réponse**',
+    (await carteARelire.getByTestId('supprimer-dossier').count()) === 0);
+
+  await ecran.getByTestId('onglet-clos').click();
+  const carteClose = ecran.getByTestId('dossier-ticket').filter({ hasText: ADRESSE_VISITEUR });
+  await carteClose.waitFor({ state: 'visible', timeout: 15000 });
+
+  ok('un dossier traité propose, lui, la suppression',
+    await carteClose.getByTestId('supprimer-dossier').isVisible());
+
+  /*
+   * DEUX CLICS, ET LE SECOND BOUTON EST AILLEURS. Un `confirm()` du navigateur
+   * ne dit pas DE QUEL dossier il parle — c'est exactement ce qu'il faut savoir
+   * avant d'effacer. La confirmation est donc dans la carte, à côté du dossier.
+   */
+  await carteClose.getByTestId('supprimer-dossier').click();
+  ok('**un premier clic demande confirmation**, il ne supprime rien',
+    await carteClose.getByTestId('confirmer-suppression').isVisible() &&
+    (await bdd.collection('tickets').findOne({ courrielAuteur: ADRESSE_VISITEUR })) !== null);
+
+  await carteClose.getByTestId('confirmer-suppression').click();
+  await carteClose.waitFor({ state: 'detached', timeout: 15000 });
+
+  ok('**le second clic supprime, et la base le confirme**',
+    (await bdd.collection('tickets').findOne({ courrielAuteur: ADRESSE_VISITEUR })) === null);
+
+  /* =================================================================== *
    *  MOBILE
    * =================================================================== */
   section('Mobile');
@@ -824,7 +972,7 @@ try {
   await ecran.setViewportSize({ width: 375, height: 800 });
   await ecran.goto(`${BASE}/admin/moderation`, { waitUntil: 'domcontentloaded' });
   await ecran.getByTestId('famille-support').click();
-  await ecran.getByRole('button', { name: 'Instruits' }).click();
+  await ecran.getByTestId('onglet-clos').click();
   await ecran.getByTestId('dossier-ticket').first().waitFor({ state: 'visible', timeout: 15000 });
 
   const deborde = await ecran.evaluate(

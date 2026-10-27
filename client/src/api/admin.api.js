@@ -40,15 +40,34 @@ export const adminApi = {
 
   /**
    * File des tickets de support. Par defaut les dossiers escalades, du plus
-   * ancien au plus recent — une file se traite dans l'ordre d'arrivee.
+   * RECENT au plus ancien depuis le 26 octobre.
+   *
+   * L'ORDRE EST UN PARAMETRE, et les deux valeurs ont leur usage. « À traiter »
+   * est une file, et une file se traite dans l'ordre d'arrivee : `ancien` y
+   * reste a un clic. « Traiter » et « Non escalades » sont des archives, ou
+   * l'on vient voir ce que l'agent vient de faire : `recent` y est le bon
+   * defaut, et c'est celui qui a ete demande.
+   *
    * @param {'escalade'|'clos'|'resolu'|'tous'} statut
+   * @param {'recent'|'ancien'} ordre
    */
-  tickets: ({ statut = 'escalade', page = 1, limite = 20 } = {}) =>
-    api.get('/admin/support/tickets', { params: { statut, page, limite } }),
+  tickets: ({ statut = 'escalade', page = 1, limite = 20, ordre = 'recent' } = {}) =>
+    api.get('/admin/support/tickets', { params: { statut, page, limite, ordre } }),
+
+  /**
+   * Suppression definitive d'un dossier CLOS ou REPONDU.
+   *
+   * LE SERVEUR REFUSE LES AUTRES, en 409. Un dossier escalade est une demande
+   * a laquelle personne n'a encore repondu : le supprimer ferait disparaitre
+   * la question de quelqu'un sans que quelqu'un l'ait lue. L'ecran ne propose
+   * donc le bouton que sur les deux onglets d'archive — mais c'est le serveur
+   * qui garantit, pas l'ecran.
+   */
+  supprimerTicket: (idTicket) => api.delete(`/admin/support/tickets/${idTicket}`),
 
   /**
    * Instruction d'un ticket. La decision est obligatoire : l'auteur la lira.
-   * Un dossier deja instruit renvoie 409 — une decision humaine ne s'ecrase pas.
+   * Un dossier deja traite renvoie 409 — une decision humaine ne s'ecrase pas.
    */
   trancherTicket: (idTicket, decision) =>
     api.patch(`/admin/support/tickets/${idTicket}`, { decision, statut: 'clos' }),

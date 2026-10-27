@@ -14,7 +14,7 @@ import api from './axios';
  * un appel mal formé capable de DÉbloquer alors qu'on voulait bloquer.
  *
  * Pas de `retirerSignalement` : un signalement ne se retire pas. Il est
- * instruit par l'administration, qui le classe.
+ * traité par l'administration, qui le classe.
  */
 export const moderationApi = {
   bloquer: (idUtilisateur) => api.post(`/users/${idUtilisateur}/blocage`),

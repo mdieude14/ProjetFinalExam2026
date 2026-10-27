@@ -102,6 +102,29 @@ const ticketSchema = new Schema(
       maxlength: [254, 'Adresse trop longue'], // RFC 5321
     },
 
+    /*
+     * L'IDENTIFIANT DU MESSAGE GMAIL, ET IL SERT DE CLÉ D'IDEMPOTENCE.
+     *
+     * POURQUOI ICI PLUTÔT QU'UN LIBELLÉ DANS GMAIL. Marquer le courriel traité
+     * côté Gmail demande quatre opérations réseau — créer le libellé, lire la
+     * liste, résoudre son identifiant, l'appliquer — et chacune peut échouer. Si
+     * la dernière échoue, le courriel reste éligible : la relève le reprend au
+     * passage suivant, crée un second dossier et rappelle le modèle. Toutes les
+     * dix minutes, en silence.
+     *
+     * UN INDEX UNIQUE, LUI, NE PEUT PAS « ÉCHOUER À S'APPLIQUER » : soit
+     * l'insertion passe, soit elle est refusée. La garantie est structurelle et
+     * non procédurale, et elle tient même si la recherche Gmail rend trop de
+     * résultats — ce qui arrivera le jour où la fenêtre sera élargie. C'est
+     * l'idiome que ce projet emploie déjà pour les événements Stripe
+     * (`ProcessedWebhook`) : un seul idiome d'idempotence, pas deux.
+     */
+    messageCourriel: {
+      type: String,
+      trim: true,
+      maxlength: [200, 'Identifiant de message trop long'],
+    },
+
     /**
      * L'AUTEUR EST DÉDUIT DU JETON, JAMAIS DU CORPS DE LA REQUÊTE.
      * Le contrôleur pose `req.user._id`. Accepter un identifiant envoyé par
@@ -196,6 +219,28 @@ const ticketSchema = new Schema(
      */
     brouillonReponse: { type: String, trim: true, maxlength: 4000 },
     brouillonLe: { type: Date },
+
+    /**
+     * QUI A ÉCRIT LE BROUILLON QUI EST ACTUELLEMENT EN BASE.
+     *
+     * `ecritParAgent` NE RÉPOND PAS À CETTE QUESTION : il dit qui a écrit la
+     * RÉPONSE automatique, au moment de la création du dossier, et ne change
+     * jamais ensuite. Un brouillon, lui, se réécrit — par l'agent d'abord, puis
+     * par l'exploitant au clavier ou en dictant au bot.
+     *
+     * POURQUOI L'EXPLOITANT A BESOIN DE LE SAVOIR. Un texte proposé par un
+     * modèle de langage se relit ; un texte qu'on a écrit soi-même se relit
+     * moins. Sans cette distinction, les deux ont exactement la même apparence
+     * dans le champ — et le jour où l'on revient sur un dossier ouvert la
+     * veille, plus rien ne dit si ces mots sont les siens.
+     *
+     * TROIS ÉCRITURES, DEUX VALEURS : `true` à la création par l'agent (widget
+     * et courriel), `false` dès que `enregistrerBrouillon` passe par là, quelle
+     * que soit la voie — back-office ou Telegram, c'est un humain dans les deux
+     * cas.
+     */
+    brouillonParAgent: { type: Boolean, default: false },
+
     reponseExploitant: { type: String, trim: true, maxlength: 4000 },
     reponseEnvoyeeLe: { type: Date },
 
@@ -244,6 +289,24 @@ ticketSchema.index(
 ticketSchema.index(
   { notifieExploitant: 1, createdAt: 1 },
   { partialFilterExpression: { statut: 'escalade', notifieExploitant: false } }
+);
+
+/**
+ * L'IDEMPOTENCE DE LA RELÈVE DU COURRIEL : un message Gmail, un dossier.
+ *
+ * PARTIEL, ET C'EST INDISPENSABLE. Un index unique ordinaire traiterait tous les
+ * documents sans `messageCourriel` comme portant la même valeur — `null` — et
+ * refuserait le second. Autrement dit : il interdirait d'avoir plus d'UN dossier
+ * du widget dans toute la base. Le filtre partiel ne contraint que les documents
+ * qui portent effectivement le champ.
+ *
+ * `$exists: true` ET NON `{ $ne: null }`, parce que Mongoose n'écrit pas un
+ * champ laissé à `undefined` : les dossiers du widget n'ont pas la clé du tout,
+ * et c'est exactement ce que ce filtre doit laisser passer.
+ */
+ticketSchema.index(
+  { messageCourriel: 1 },
+  { unique: true, partialFilterExpression: { messageCourriel: { $exists: true } } }
 );
 
 /* ------------------------------------------------------------------ *
@@ -353,6 +416,7 @@ ticketSchema.methods.versionExploitant = function () {
     decision: this.decision,
     brouillonReponse: this.brouillonReponse,
     brouillonLe: this.brouillonLe,
+    brouillonParAgent: this.brouillonParAgent,
     reponseExploitant: this.reponseExploitant,
     reponseEnvoyeeLe: this.reponseEnvoyeeLe,
     reponseCanal: this.reponseCanal,

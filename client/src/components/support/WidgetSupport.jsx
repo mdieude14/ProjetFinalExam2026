@@ -19,7 +19,7 @@ import Spinner from '@/components/ui/Spinner';
  *                         sans jeton il n'aurait rien à consulter
  *   une URL d'agent       absente, le widget est MASQUÉ et non cassé — le
  *                         support est une couche en plus, pas une dépendance
- *   hors back-office      un administrateur y instruit les dossiers ; lui
+ *   hors back-office      un administrateur y traite les dossiers ; lui
  *                         proposer le widget mélangerait les deux rôles
  *
  * L'ORIGINE EST TRANSMISE AVEC LA QUESTION. La même phrase n'appelle pas la

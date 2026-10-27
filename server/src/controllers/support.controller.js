@@ -192,22 +192,51 @@ export const marquerNotifies = asyncHandler(async (req, res) => {
  *  ZONE EXPLOITANT — back-office humain
  * ================================================================== */
 
-/** GET /api/admin/support/tickets — la file, les plus anciens d'abord. */
+/** GET /api/admin/support/tickets — la file, les plus récents d'abord. */
 export const listerTickets = asyncHandler(async (req, res) => {
   const { page, limite, saut } = lirePagination(req);
   const { elements, total } = await support.file({
     statut: req.query.statut ?? 'escalade',
     saut,
     limite,
+    /*
+     * L'ORDRE VIENT DE L'URL, mais le validateur l'a déjà borné à deux valeurs.
+     * Le service ne lit que « est-ce `ancien` ? » : même si une valeur
+     * inattendue arrivait, elle retomberait sur le défaut au lieu de désigner
+     * un champ de tri arbitraire.
+     */
+    ordre: req.query.ordre ?? 'recent',
   });
 
   return res.json(reponsePaginee(elements, total, { page, limite }));
 });
 
 /**
+ * DELETE /api/admin/support/tickets/:id
+ *
+ * Supprime définitivement un dossier clos ou répondu.
+ *
+ * HORS DE PORTÉE DE LA CLÉ DE SERVICE, comme `trancherTicket` : seul un
+ * administrateur authentifié supprime. Un agent qui pourrait effacer ses
+ * propres dossiers effacerait la trace de ce qu'il a répondu — c'est-à-dire
+ * exactement ce que l'onglet « Non escaladés » sert à relire.
+ *
+ * LE SERVICE REFUSE LES DOSSIERS EN ATTENTE, et répond 409 avec la raison.
+ */
+export const supprimerTicket = asyncHandler(async (req, res) => {
+  const supprime = await support.supprimer(req.params.id);
+
+  return res.json({
+    succes: true,
+    message: `Dossier ${supprime.reference} supprimé`,
+    ...supprime,
+  });
+});
+
+/**
  * PATCH /api/admin/support/tickets/:id
  *
- * Instruit un dossier escaladé.
+ * Traite un dossier escaladé.
  *
  * VOLONTAIREMENT HORS DE PORTÉE DE n8n. Trancher est une décision humaine :
  * la clé de service n'ouvre pas cette route, et ne doit jamais l'ouvrir.
@@ -216,7 +245,7 @@ export const listerTickets = asyncHandler(async (req, res) => {
 export const trancherTicket = asyncHandler(async (req, res) => {
   const ticket = await support.trancher(req.params.id, req.user, req.body);
 
-  return res.json({ succes: true, message: 'Dossier instruit', ticket });
+  return res.json({ succes: true, message: 'Dossier traité', ticket });
 });
 
 /** GET /api/admin/support/stats — compteurs de la file. */
@@ -281,11 +310,24 @@ export const compteTelegramService = asyncHandler(async (req, res) => {
  * widget, au lieu de répondre sans relecture.
  */
 export const courrielService = asyncHandler(async (req, res) => {
-  const ticket = await support.enregistrerCourriel(req.body);
+  const { ticket, nouveau } = await support.enregistrerCourriel(req.body);
 
-  return res.status(201).json({
+  /*
+   * 200 QUAND LE DOSSIER EXISTAIT DÉJÀ, 201 QUAND IL VIENT D'ÊTRE CRÉÉ.
+   *
+   * Le même courriel peut être déposé deux fois — relance après panne, rejeu
+   * manuel, restauration — et ce n'est pas une faute de l'appelant : il n'a
+   * aucun moyen de savoir ce que la base contient. Répondre `409` l'obligerait
+   * à traiter un conflit qui n'en est pas un, et un `201` systématique lui
+   * ferait croire qu'il a créé quelque chose. Le code dit donc ce qui s'est
+   * passé, et l'assistant peut s'arrêter là sans rien interpréter.
+   */
+  return res.status(nouveau ? 201 : 200).json({
     succes: true,
-    message: 'Demande enregistrée, brouillon en attente de validation',
+    message: nouveau
+      ? 'Demande enregistrée, brouillon en attente de validation'
+      : 'Ce courriel a déjà été enregistré',
+    nouveau,
     dossier: ticket.versionExploitant(),
   });
 });
@@ -300,7 +342,7 @@ export const courrielService = asyncHandler(async (req, res) => {
  * La clé prouve que l'appel vient de n8n ; elle ne dit pas qui parle. Ces
  * trois routes exigent donc, EN PLUS, une conversation Telegram rattachée à un
  * compte administrateur : c'est elle qui porte l'identité, et le dossier est
- * ensuite instruit à ce nom-là, pas au nom du service.
+ * ensuite traité à ce nom-là, pas au nom du service.
  */
 const administrateurDuBot = (req) =>
   telegram.administrateurDeConversation(req.body?.conversation ?? req.query?.conversation);

@@ -26,6 +26,7 @@ import {
   statistiquesSupport,
   brouillonAdmin,
   envoyerAdmin,
+  supprimerTicket,
 } from '../controllers/support.controller.js';
 
 import {
@@ -108,6 +109,23 @@ router.patch('/support/tickets/:id', reglesDecisionTicket, validate, trancherTic
  */
 router.patch('/support/tickets/:id/brouillon', reglesBrouillonAdmin, validate, brouillonAdmin);
 router.post('/support/tickets/:id/envoyer', reglesIdTicket, validate, envoyerAdmin);
+
+/*
+ * LA SUPPRESSION D'UN DOSSIER CLOS, ET D'AUCUN AUTRE.
+ *
+ * Demandée par le porteur du projet pour vider les onglets « Instruits » et
+ * « Non escaladés », qui s'allongent indéfiniment sans qu'aucun de leurs
+ * dossiers n'appelle plus d'action.
+ *
+ * LE SERVICE REFUSE TOUT DOSSIER EN ATTENTE, et le filtre est dans l'écriture
+ * elle-même : un dossier rouvert entre la lecture et la suppression — ce que
+ * fait `envoyerReponse` quand le SMTP échoue — n'est pas supprimé.
+ *
+ * ELLE EST DÉFINITIVE, et c'est assumé : ces dossiers ont déjà reçu leur
+ * réponse, qui est partie par courriel et vit donc ailleurs. Une corbeille
+ * ajouterait un troisième état à relire sans rien protéger de plus.
+ */
+router.delete('/support/tickets/:id', reglesIdTicket, validate, supprimerTicket);
 
 router.get('/support/stats', statistiquesSupport);
 

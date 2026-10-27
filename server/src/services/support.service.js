@@ -50,15 +50,33 @@ export const MOTIFS_ESCALADE_AUTOMATIQUE = [
  *     remboursement » et de le présenter au back-office comme tel ;
  *   - le ticket S'ESCALADE toujours. « Résolu » veut dire que l'agent a
  *     répondu : sans agent, personne n'a répondu, et un ticket classé résolu
- *     finirait dans un onglet que personne ne lit pour agir.
+ *     finirait dans un onglet que personne ne lit pour agir ;
+ *   - `brouillonReponse` est IGNORÉ, pour la même raison que `reponse` : sans
+ *     la clé, l'appelant pourrait se préparer un brouillon flatteur et le
+ *     présenter au back-office comme la proposition de l'agent.
+ *
+ * LE BROUILLON N'EXISTE QUE SUR UN DOSSIER ESCALADÉ, et c'est délibéré. Un
+ * dossier `resolu` a déjà reçu sa réponse dans le widget : lui attacher un
+ * brouillon ferait apparaître, dans l'onglet d'audit, un texte que personne
+ * n'est censé valider ni envoyer — et inviterait à envoyer deux fois.
  */
 export async function enregistrer(
   utilisateur,
-  { question, origine, intention, reponse, outils, motifEscalade },
+  { question, origine, intention, reponse, outils, motifEscalade, brouillonReponse },
   { parAgent = false } = {}
 ) {
   const escalade = !parAgent || intention === 'decision' || Boolean(motifEscalade);
   const motifParDefaut = parAgent ? 'demande de décision' : 'demande sans agent';
+
+  /*
+   * MÊME SEUIL DE DIX SIGNES QUE LE CANAL COURRIEL. Un brouillon de trois mots
+   * n'est pas un brouillon : il ferait croire à une proposition là où l'agent
+   * n'a rien produit, et l'exploitant perdrait son temps à l'ouvrir pour le
+   * vider. En dessous, on préfère un textarea franchement vide.
+   */
+  const propose = parAgent && escalade ? String(brouillonReponse ?? '').trim() : '';
+  const avecBrouillon = propose.length >= 10;
+  const maintenant = new Date();
 
   const ticket = await Ticket.create({
     auteur: utilisateur._id,
@@ -71,7 +89,17 @@ export async function enregistrer(
     ecritParAgent: parAgent,
     statut: escalade ? 'escalade' : 'resolu',
     motifEscalade: escalade ? motifEscalade || motifParDefaut : undefined,
-    escaladeLe: escalade ? new Date() : undefined,
+    escaladeLe: escalade ? maintenant : undefined,
+    /*
+     * PAS DE `traitePar` ICI, et c'est le même raisonnement que pour le canal
+     * courriel : aucun administrateur n'est intervenu, c'est l'agent qui a
+     * rédigé. Renseigner ce champ attribuerait le texte à un humain qui ne l'a
+     * pas écrit.
+     */
+    brouillonReponse: avecBrouillon ? propose.slice(0, 4000) : undefined,
+    brouillonLe: avecBrouillon ? maintenant : undefined,
+    // Le back-office l'affichera comme « proposé par l'agent, à relire ».
+    brouillonParAgent: avecBrouillon,
   });
 
   return ticket;
@@ -93,21 +121,50 @@ export async function enregistrer(
  *
  * POURQUOI `traitePar` RESTE VIDE. Personne n'a encore relu ce texte : c'est
  * l'assistant qui l'a écrit. Y poser un administrateur mentirait sur qui a
- * instruit le dossier, et `envoyerReponse` l'y inscrira de toute façon au
+ * traite le dossier, et `envoyerReponse` l'y inscrira de toute façon au
  * moment de la validation — c'est-à-dire quand ce sera vrai.
  *
  * RIEN NE PART D'ICI. Aucun courriel n'est envoyé par cette fonction : elle
  * dépose un brouillon, et c'est tout. L'expédition passe par `envoyerReponse`,
  * après une validation humaine.
  *
- * LIMITE CONNUE : aucune déduplication. Si l'assistant repassait sur le même
- * courriel — une relance après panne, par exemple — il créerait un second
- * dossier. Sans conséquence pour la personne, puisque rien ne part sans
- * validation, mais l'exploitant verrait deux fois la même demande.
+ * LA DÉDUPLICATION SE FAIT ICI, SUR L'IDENTIFIANT DU MESSAGE GMAIL.
+ *
+ * Elle a été ajoutée le 26 octobre, et elle remplace un garde-fou qui n'en
+ * était pas un : la relève écartait les courriels déjà lus (`is:unread`). Or
+ * deux courriels de test sont arrivés dans la boîte DÉJÀ marqués lus, sans que
+ * personne les ouvre — l'aperçu d'une notification suffit. Le filtre était donc
+ * inopérant dans un sens (il masquait des courriels à traiter) et fragile dans
+ * l'autre (rien n'empêchait un rejeu).
+ *
+ * POURQUOI RENVOYER L'EXISTANT PLUTÔT QUE LEVER UNE ERREUR. Un second passage
+ * sur le même courriel n'est pas une faute de l'appelant : c'est une relance
+ * après panne, un rejeu manuel, une restauration. L'assistant doit pouvoir
+ * repasser sans conséquence. Il reçoit alors le dossier déjà créé, et le
+ * contrôleur répond `200` au lieu de `201` — ce qui lui dit, sans ambiguïté,
+ * que c'était déjà fait.
+ *
+ * ON NE RÉÉCRIT PAS LE BROUILLON EXISTANT, et c'est important : l'exploitant
+ * peut l'avoir modifié, voire déjà envoyé. L'écraser avec une rédaction neuve
+ * détruirait son travail en silence.
  */
-export async function enregistrerCourriel({ expediteur, sujet, question, brouillon }) {
+export async function enregistrerCourriel({ expediteur, sujet, question, brouillon, messageId }) {
   const texte = String(brouillon ?? '').trim();
   if (texte.length < 10) throw ApiError.badRequest('Le brouillon est trop court');
+
+  const reference = String(messageId ?? '').trim();
+
+  /*
+   * LECTURE D'ABORD, POUR LE CAS ORDINAIRE. L'index unique est la garantie ; ce
+   * test n'est qu'un raccourci qui évite de produire une erreur d'écriture dans
+   * le cas de loin le plus fréquent. Les deux sont nécessaires : entre la
+   * lecture et l'écriture, deux passages simultanés peuvent se croiser, et
+   * c'est alors l'index qui tranche.
+   */
+  if (reference) {
+    const dejaVu = await Ticket.findOne({ messageCourriel: reference });
+    if (dejaVu) return { ticket: dejaVu, nouveau: false };
+  }
 
   const maintenant = new Date();
 
@@ -117,21 +174,38 @@ export async function enregistrerCourriel({ expediteur, sujet, question, brouill
    * donne à l'exploitant le contexte qui change la réponse, et il évite
    * d'ajouter un champ pour la même fonction.
    */
-  const ticket = await Ticket.create({
-    canal: 'courriel',
-    courrielAuteur: expediteur,
-    question,
-    origine: sujet ? String(sujet).slice(0, 120) : undefined,
-    ecritParAgent: true,
-    statut: 'escalade',
-    motifEscalade: 'demande reçue par courriel',
-    escaladeLe: maintenant,
-    brouillonReponse: texte.slice(0, 4000),
-    brouillonLe: maintenant,
-    notifieExploitant: false,
-  });
+  try {
+    const ticket = await Ticket.create({
+      canal: 'courriel',
+      courrielAuteur: expediteur,
+      messageCourriel: reference || undefined,
+      question,
+      origine: sujet ? String(sujet).slice(0, 120) : undefined,
+      ecritParAgent: true,
+      statut: 'escalade',
+      motifEscalade: 'demande reçue par courriel',
+      escaladeLe: maintenant,
+      brouillonReponse: texte.slice(0, 4000),
+      brouillonLe: maintenant,
+      brouillonParAgent: true,
+      notifieExploitant: false,
+    });
 
-  return ticket;
+    return { ticket, nouveau: true };
+  } catch (erreur) {
+    /*
+     * CODE 11000 : L'INDEX UNIQUE A TRANCHÉ. Deux passages se sont croisés entre
+     * la lecture ci-dessus et cette écriture. Ce n'est pas une panne, c'est la
+     * garantie qui joue son rôle : on relit le dossier que l'autre vient de
+     * créer et on le renvoie, exactement comme si on l'avait trouvé au premier
+     * test. Toute autre erreur remonte telle quelle.
+     */
+    if (erreur?.code === 11000 && reference) {
+      const concurrent = await Ticket.findOne({ messageCourriel: reference });
+      if (concurrent) return { ticket: concurrent, nouveau: false };
+    }
+    throw erreur;
+  }
 }
 
 /**
@@ -169,11 +243,24 @@ export async function monTicket(idUtilisateur, idTicket) {
 /**
  * La file de l'exploitant.
  *
- * LES PLUS ANCIENS D'ABORD, contrairement à « mes tickets ». Une file
- * d'attente se traite dans l'ordre d'arrivée ; présenter les plus récents en
- * premier laisserait les dossiers anciens au fond indéfiniment.
+ * LE PLUS RÉCENT D'ABORD PAR DÉFAUT, DEPUIS LE 26 OCTOBRE — et l'ordre
+ * inverse reste accessible, parce que les deux ont raison selon l'onglet.
+ *
+ * CE CODE TRIAIT DU PLUS ANCIEN AU PLUS RÉCENT, avec ce raisonnement, qui
+ * tient toujours : « une file d'attente se traite dans l'ordre d'arrivée ;
+ * présenter les plus récents en premier laisserait les dossiers anciens au
+ * fond indéfiniment. » Il est juste pour « À traiter », qui EST une file.
+ *
+ * MAIS « Traiter » ET « Non escaladés » NE SONT PAS DES FILES : ce sont des
+ * archives, et l'on y vient pour voir ce que l'agent vient de faire. Le même
+ * tri sur les trois onglets servait donc mal deux d'entre eux.
+ *
+ * D'OÙ UN PARAMÈTRE PLUTÔT QU'UN CHOIX IMPOSÉ. Le porteur du projet a demandé
+ * le plus récent d'abord : c'est le défaut. L'ordre d'arrivée reste à un clic,
+ * et la valeur est bornée par le validateur — un tri qui vient de l'URL ne doit
+ * pas pouvoir désigner un champ arbitraire.
  */
-export async function file({ statut = 'escalade', saut = 0, limite = 20 } = {}) {
+export async function file({ statut = 'escalade', saut = 0, limite = 20, ordre = 'recent' } = {}) {
   const filtre = statut === 'tous' ? {} : { statut };
 
   const [elements, total] = await Promise.all([
@@ -182,13 +269,55 @@ export async function file({ statut = 'escalade', saut = 0, limite = 20 } = {}) 
       // Le pseudo de l'instructeur seulement — de quoi écrire « par @… » dans
       // l'historique du back-office, comme pour les signalements.
       .populate('traitePar', 'pseudo')
-      .sort({ createdAt: 1 })
+      .sort({ createdAt: ordre === 'ancien' ? 1 : -1 })
       .skip(saut)
       .limit(limite),
     Ticket.countDocuments(filtre),
   ]);
 
   return { elements: elements.map((t) => t.versionExploitant()), total };
+}
+
+/**
+ * Supprime définitivement un dossier clos.
+ *
+ * SEULS `clos` ET `resolu` SONT SUPPRIMABLES, et ce n'est pas une précaution
+ * de forme. Un dossier `escalade` est une demande à laquelle PERSONNE n'a
+ * encore répondu : le supprimer ferait disparaître la question de quelqu'un
+ * sans que quelqu'un l'ait lue. Un dossier `ouvert` est en cours de traitement
+ * par l'agent. Dans les deux cas, la suppression détruirait de l'information
+ * que personne n'a encore vue — c'est le seul cas qu'un back-office ne doit
+ * jamais permettre d'un clic.
+ *
+ *   clos    traité par un humain, réponse envoyée
+ *   resolu  répondu par l'agent, sans escalade
+ *
+ * LA VÉRIFICATION EST DANS LE FILTRE DE L'ÉCRITURE, et pas seulement avant.
+ * Lire puis supprimer laisserait une fenêtre : un dossier rouvert entre les
+ * deux — `envoyerReponse` le fait quand le SMTP échoue — serait supprimé alors
+ * qu'il vient de redevenir une demande en attente.
+ *
+ * ON NE PASSE PAS PAR `deleteOne` SEUL : il faut distinguer « introuvable » de
+ * « pas dans un statut supprimable », sans quoi l'exploitant lirait « dossier
+ * introuvable » sur un dossier qu'il a sous les yeux.
+ */
+export async function supprimer(idTicket) {
+  const ticket = await Ticket.findById(idTicket).select('statut');
+  if (!ticket) throw ApiError.notFound('Dossier introuvable');
+
+  const supprimable = await Ticket.findOneAndDelete({
+    _id: idTicket,
+    statut: { $in: ['clos', 'resolu'] },
+  });
+
+  if (!supprimable) {
+    throw ApiError.conflict(
+      'Seul un dossier traité ou répondu peut être supprimé. ' +
+      'Celui-ci attend encore une réponse.'
+    );
+  }
+
+  return { reference: referenceDe(supprimable._id), statut: supprimable.statut };
 }
 
 /**
@@ -261,14 +390,14 @@ export async function marquerNotifies(ids) {
 }
 
 /**
- * Instruit un dossier escaladé.
+ * Traite un dossier escaladé.
  *
  * Le ticket est CONSERVÉ, jamais supprimé — même choix qu'au module 14 pour
  * les signalements : un dossier classé reste consultable, et l'instructeur
  * reste identifié.
  *
  * UNE DÉCISION HUMAINE NE S'ÉCRASE PAS. Le premier jet ne protégeait que le
- * statut « clos » : un dossier instruit en « resolu » pouvait l'être une
+ * statut « clos » : un dossier traité en « resolu » pouvait l'être une
  * seconde fois, et la seconde décision remplaçait la première — `traitePar`
  * compris, si bien que l'historique perdait jusqu'à l'identité de celui qui
  * avait tranché. Le critère est donc « un humain a-t-il déjà décidé », pas
@@ -300,7 +429,7 @@ export async function trancher(idTicket, administrateur, { decision, statut = 'c
   // Aucun document modifié : il reste à dire pourquoi.
   const existe = await Ticket.exists({ _id: idTicket });
   if (!existe) throw ApiError.notFound('Ticket introuvable');
-  throw ApiError.conflict('Ce dossier a déjà été instruit');
+  throw ApiError.conflict('Ce dossier a déjà été traité');
 }
 
 /** Compteurs de la file, pour le back-office et le résumé Telegram. */
@@ -377,7 +506,20 @@ export async function enregistrerBrouillon(ticket, administrateur, texte) {
 
   const maj = await Ticket.findOneAndUpdate(
     { _id: ticket._id, reponseEnvoyeeLe: null },
-    { $set: { brouillonReponse: propre.slice(0, 4000), brouillonLe: new Date(), traitePar: administrateur._id } },
+    {
+      $set: {
+        brouillonReponse: propre.slice(0, 4000),
+        brouillonLe: new Date(),
+        traitePar: administrateur._id,
+        /*
+         * LE TEXTE N'EST PLUS CELUI DE L'AGENT, même si l'exploitant n'a changé
+         * qu'un mot. On ne peut pas savoir ce qu'il a conservé, et prétendre
+         * « proposé par l'agent » sur un texte relu et modifié serait faux dans
+         * le seul sens qui compte : il l'a validé des yeux.
+         */
+        brouillonParAgent: false,
+      },
+    },
     { new: true, runValidators: true }
   ).populate('auteur', 'pseudo nom prenom type email');
 

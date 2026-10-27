@@ -57,17 +57,39 @@ const ONGLETS = {
    */
   support: [
     { cle: 'escalade', libelle: 'À traiter' },
-    { cle: 'clos', libelle: 'Instruits' },
+    { cle: 'clos', libelle: 'Traiter' },
     { cle: 'resolu', libelle: 'Non escaladés' },
   ],
 };
 
-/** Chargement de la file de chaque famille, pour un statut donné. */
+/**
+ * Chargement de la file de chaque famille, pour un statut et une page donnés.
+ *
+ * `ordre` N'EST PASSÉ QU'AU SUPPORT, et pas par oubli : c'est la seule des
+ * trois routes qui l'accepte. L'envoyer aux deux autres ferait passer un
+ * paramètre que leur validateur ignore — silencieusement aujourd'hui, en 400
+ * le jour où quelqu'un y ajoute un contrôle de paramètres inconnus.
+ */
 const CHARGEURS = {
-  diplomes: (statut) => adminApi.diplomes({ statut }),
-  signalements: (statut) => adminApi.signalements({ statut }),
-  support: (statut) => adminApi.tickets({ statut }),
+  diplomes: (statut, { page }) => adminApi.diplomes({ statut, page }),
+  signalements: (statut, { page }) => adminApi.signalements({ statut, page }),
+  support: (statut, { page, ordre }) => adminApi.tickets({ statut, page, ordre }),
 };
+
+/**
+ * Les deux ordres de tri, et pourquoi le choix existe.
+ *
+ * « À traiter » EST UNE FILE : elle se traite dans l'ordre d'arrivée, sans
+ * quoi les dossiers anciens restent au fond indéfiniment. « Traiter » et
+ * « Non escaladés » sont des ARCHIVES : on y vient voir ce que l'agent vient
+ * de faire, donc le plus récent d'abord.
+ *
+ * Le défaut est `recent`, comme demandé ; l'ordre d'arrivée reste à un clic.
+ */
+const ORDRES = [
+  { cle: 'recent', libelle: 'Plus récents' },
+  { cle: 'ancien', libelle: 'Ordre d’arrivée' },
+];
 
 /** Onglets dont la liste vide signifie « rien en attente ». */
 const ONGLETS_EN_ATTENTE = ['en_attente', 'ouvert', 'escalade'];
@@ -320,9 +342,13 @@ function DossierSignalement({ signalement, onDecision, enCours }) {
         LES PRÉCISIONS SONT AFFICHÉES TELLES QUELLES, sans troncature.
         Elles sont bornées à 500 caractères côté serveur ; les couper ici
         obligerait à ouvrir la base pour lire la fin d'une alerte.
+
+        `break-words` pour la même raison que la question d'un ticket : ce
+        texte est écrit par quelqu'un d'autre, et rien ne garantit qu'il
+        contienne un espace tous les vingt signes.
       */}
       {signalement.commentaire ? (
-        <blockquote className="mt-3 rounded-lg border-l-4 border-erreur/40 bg-ardoise-50 px-3 py-2 text-sm leading-relaxed text-ardoise-700">
+        <blockquote className="mt-3 break-words rounded-lg border-l-4 border-erreur/40 bg-ardoise-50 px-3 py-2 text-sm leading-relaxed text-ardoise-700">
           {signalement.commentaire}
         </blockquote>
       ) : (
@@ -374,10 +400,10 @@ function DossierSignalement({ signalement, onDecision, enCours }) {
         </div>
       </div>
 
-      {/* Historique, pour les dossiers déjà instruits */}
+      {/* Historique, pour les dossiers déjà traités */}
       {signalement.traiteLe && (
         <p className="mt-3 text-xs text-ardoise-500">
-          Instruit le {date(signalement.traiteLe)}
+          Traité le {date(signalement.traiteLe)}
           {signalement.traitePar?.pseudo && ` par @${signalement.traitePar.pseudo}`}
         </p>
       )}
@@ -453,8 +479,16 @@ function DossierSignalement({ signalement, onDecision, enCours }) {
  * n'a pas pu voir quelque chose ; ce qu'il y avait à voir, il le vérifie
  * lui-même, avec ses propres droits.
  */
-function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) {
+function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, onSupprimer, enCours }) {
   const [decision, setDecision] = useState('');
+
+  /*
+   * DEUX CLICS POUR SUPPRIMER, et la même raison que pour l'envoi : un
+   * `confirm()` du navigateur ne dit pas DE QUEL dossier il parle, et c'est
+   * exactement ce qu'il faut savoir avant d'effacer. L'état vit dans la carte,
+   * donc à côté du dossier concerné.
+   */
+  const [confirmeSuppression, setConfirmeSuppression] = useState(false);
   const { auteur } = ticket;
 
   /*
@@ -528,7 +562,7 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
               <Badge variante="neutre">Demande directe, sans agent</Badge>
             </span>
           )}
-          {ticket.statut === 'clos' && <Badge variante="succes">Instruit</Badge>}
+          {ticket.statut === 'clos' && <Badge variante="succes">Traité</Badge>}
           {ticket.statut === 'resolu' && <Badge variante="marque">Non escaladé</Badge>}
         </div>
 
@@ -543,8 +577,15 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
 
       {/* La question entière : bornée côté serveur, la couper obligerait à
           ouvrir la base pour en lire la fin — même règle que les précisions
-          d'un signalement. */}
-      <blockquote className="mt-3 rounded-lg border-l-4 border-marque-300 bg-ardoise-50 px-3 py-2 text-sm leading-relaxed text-ardoise-800">
+          d'un signalement.
+
+          `break-words` N'EST PAS DÉCORATIF, et le défaut était mesuré : un
+          courriel réel du 26 octobre contenait un mot sans point de coupure —
+          une adresse, un identifiant de commande — et le bloc débordait son
+          cadre de 88 px en 375 px de large, poussant TOUTE la page à 426 px.
+          Un texte qui vient d'un inconnu ne contient pas que des mots
+          français. */}
+      <blockquote className="mt-3 break-words rounded-lg border-l-4 border-marque-300 bg-ardoise-50 px-3 py-2 text-sm leading-relaxed text-ardoise-800">
         {ticket.question}
       </blockquote>
 
@@ -627,10 +668,10 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
         )}
       </div>
 
-      {/* Historique, pour les dossiers déjà instruits */}
+      {/* Historique, pour les dossiers déjà traités */}
       {ticket.traiteLe && (
         <p className="mt-3 text-xs text-ardoise-500">
-          Instruit le {dateHeure(ticket.traiteLe)}
+          Traité le {dateHeure(ticket.traiteLe)}
           {ticket.traitePar?.pseudo && ` par @${ticket.traitePar.pseudo}`}
         </p>
       )}
@@ -668,7 +709,7 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
         </div>
       )}
 
-      {/* Action, uniquement sur les dossiers remontés et non instruits */}
+      {/* Action, uniquement sur les dossiers remontés et non traités */}
       {ticket.statut === 'escalade' && (
         <div className="mt-4 space-y-3 border-t border-ardoise-100 pt-4">
           {/*
@@ -686,6 +727,31 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
                 </p>
               )}
             </div>
+
+            {/*
+              D'OÙ VIENT LE TEXTE QUI EST DANS LE CHAMP.
+              ──────────────────────────────────────────────────────────────
+              Un brouillon proposé par un modèle de langage et un brouillon
+              qu'on a écrit soi-même ont exactement la même apparence. Le jour
+              où l'on revient sur un dossier ouvert la veille, plus rien ne dit
+              si ces mots sont les siens — et le texte part tel quel.
+
+              L'AVERTISSEMENT DISPARAÎT DÈS LE PREMIER ENREGISTREMENT, parce
+              qu'à ce moment l'exploitant a relu. Le laisser ensuite ferait de
+              lui un ornement, qu'on cesserait de voir.
+            */}
+            {ticket.brouillonParAgent && enregistre.length > 0 && (
+              <p
+                className="flex items-start gap-1.5 rounded-lg bg-marque-50 px-2.5 py-2 text-xs font-medium text-marque-700"
+                data-test="provenance-brouillon"
+              >
+                <span aria-hidden="true">✎</span>
+                <span>
+                  Texte proposé par l’agent, à relire. Rien n’a encore été vérifié par un
+                  humain.
+                </span>
+              </p>
+            )}
 
             <Textarea
               libelle="Brouillon"
@@ -777,7 +843,7 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
 
           {/*
             UN SEUL BOUTON ICI, « CLORE ». L'API accepte aussi « resolu », mais
-            pour un dossier remonté, instruire revient à le clore avec une
+            pour un dossier remonté, le traiter revient à le clore avec une
             décision : deux boutons feraient choisir à l'administrateur entre
             deux statuts dont la nuance ne le concerne pas.
           */}
@@ -790,6 +856,54 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, enCours }) 
           >
             Clore sans courriel
           </Button>
+        </div>
+      )}
+
+      {/*
+        SUPPRIMER — SEULEMENT CE QUI EST TRAITÉ OU RÉPONDU.
+        ────────────────────────────────────────────────────────────────────
+        Les onglets « Traiter » et « Non escaladés » s'allongent
+        indéfiniment sans qu'aucun de leurs dossiers n'appelle plus d'action.
+
+        LA CONDITION PORTE SUR LE STATUT DU DOSSIER, pas sur l'onglet affiché.
+        Les deux coïncident aujourd'hui, mais l'onglet est une vue et le statut
+        est le fait : un dossier rouvert par un envoi en échec change de
+        statut sans changer d'onglet tant que la liste n'est pas rechargée.
+
+        ET LE SERVEUR REFUSE DE TOUTE FAÇON. Cette condition évite de proposer
+        un bouton qui échouerait ; elle ne garantit rien par elle-même.
+      */}
+      {(ticket.statut === 'clos' || ticket.statut === 'resolu') && (
+        <div className="mt-4 flex justify-end border-t border-ardoise-100 pt-3">
+          {confirmeSuppression ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-medium text-erreur">
+                Supprimer définitivement ce dossier ? La réponse déjà envoyée n’est pas
+                effacée.
+              </p>
+              <Button
+                variante="danger"
+                taille="sm"
+                chargement={enCours === `suppression:${ticket._id}`}
+                onClick={() => onSupprimer(ticket._id)}
+                data-test="confirmer-suppression"
+              >
+                Supprimer
+              </Button>
+              <Button variante="fantome" taille="sm" onClick={() => setConfirmeSuppression(false)}>
+                Annuler
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variante="fantome"
+              taille="sm"
+              onClick={() => setConfirmeSuppression(true)}
+              data-test="supprimer-dossier"
+            >
+              Supprimer ce dossier
+            </Button>
+          )}
         </div>
       )}
     </li>
@@ -818,7 +932,32 @@ export default function Moderation() {
    * demande — sinon c'est le chargement qui s'affiche.
    */
   const [dossiers, setDossiers] = useState({ cle: null, elements: [] });
-  const cleCourante = `${famille}:${onglet}`;
+
+  /*
+   * LA PAGE FAIT PARTIE DE LA CLÉ, et c'est la même raison que la famille.
+   * Sans elle, passer de la page 2 à la page 3 afficherait un instant les
+   * dossiers de la page 2 sous le numéro 3 — le même défaut, à une
+   * granularité près.
+   */
+  const [page, setPage] = useState(1);
+  const [ordre, setOrdre] = useState('recent');
+  const [pagination, setPagination] = useState(null);
+  const cleCourante = `${famille}:${onglet}:${page}:${ordre}`;
+
+  /*
+   * TOUT CHANGEMENT DE PÉRIMÈTRE RAMÈNE À LA PAGE 1.
+   *
+   * Rester sur la page 4 en changeant d'onglet demanderait au serveur une page
+   * qui n'existe probablement pas dans la nouvelle liste : il rendrait un
+   * tableau vide, et l'écran afficherait « aucun dossier dans cette
+   * catégorie » sur une catégorie qui en contient. L'erreur serait d'autant
+   * plus trompeuse que le message est, lui, parfaitement crédible.
+   */
+  const changerPerimetre = (appliquer) => {
+    appliquer();
+    setPage(1);
+    setMessage(null);
+  };
 
   /*
    * UNE RÉPONSE DÉPASSÉE EST IGNORÉE. Deux clics rapides lancent deux appels,
@@ -829,17 +968,18 @@ export default function Moderation() {
 
   const charger = useCallback(async () => {
     const numero = ++derniereRequete.current;
-    const cle = `${famille}:${onglet}`;
+    const cle = `${famille}:${onglet}:${page}:${ordre}`;
     setChargement(true);
     try {
       // Les trois appels sont independants : en parallele.
       const [reponseDossiers, reponseStats, reponseSupport] = await Promise.all([
-        CHARGEURS[famille](onglet),
+        CHARGEURS[famille](onglet, { page, ordre }),
         adminApi.stats(),
         adminApi.statsSupport(),
       ]);
       if (numero !== derniereRequete.current) return;
       setDossiers({ cle, elements: reponseDossiers.data.elements });
+      setPagination(reponseDossiers.data.pagination ?? null);
       setStats(reponseStats.data.stats);
       setEnAttenteSupport(reponseSupport.data.enAttente ?? 0);
     } catch (erreur) {
@@ -848,7 +988,7 @@ export default function Moderation() {
     } finally {
       if (numero === derniereRequete.current) setChargement(false);
     }
-  }, [famille, onglet]);
+  }, [famille, onglet, page, ordre]);
 
   const listeAJour = dossiers.cle === cleCourante;
 
@@ -882,7 +1022,7 @@ export default function Moderation() {
   /**
    * Instruction d'un ticket de support.
    *
-   * UN 409 RECHARGE LA FILE. Il signifie qu'un autre administrateur a instruit
+   * UN 409 RECHARGE LA FILE. Il signifie qu'un autre administrateur a traité
    * ce dossier entre l'affichage et le clic : la carte à l'écran est périmée,
    * et la laisser en place inviterait à recommencer. Le serveur a refusé
    * d'écraser sa décision ; l'écran doit maintenant la montrer.
@@ -933,7 +1073,7 @@ export default function Moderation() {
    * Validation : le brouillon en base part, et le dossier se clôt.
    *
    * LA FILE EST RECHARGÉE ICI, elle. Le dossier quitte « À traiter » pour
-   * « Instruits » : le laisser à l'écran inviterait à le traiter deux fois.
+   * « Traiter » : le laisser à l'écran inviterait à le traiter deux fois.
    */
   const envoyerReponse = async (idTicket) => {
     setEnCours(`envoi:${idTicket}`);
@@ -951,6 +1091,42 @@ export default function Moderation() {
     } catch (erreur) {
       setMessage({ variante: 'erreur', texte: erreur.message });
       if (erreur.statut === 409) await charger();
+    } finally {
+      setEnCours(null);
+    }
+  };
+
+  /**
+   * Suppression définitive d'un dossier clos ou répondu.
+   *
+   * LA CONFIRMATION EST DANS LA CARTE, pas ici : un `confirm()` du navigateur
+   * ne dit pas de QUEL dossier il parle, et c'est précisément ce qu'il faut
+   * savoir avant d'effacer. La carte demande donc un second clic sur un bouton
+   * qui a changé de libellé, à côté du dossier concerné.
+   *
+   * SI LA PAGE SE VIDE, ON REMONTE D'UNE PAGE. Supprimer le dernier dossier
+   * d'une page laisserait l'écran sur une page devenue inexistante, avec le
+   * message « aucun dossier dans cette catégorie » alors que les précédentes
+   * en contiennent. Le serveur ne peut pas le deviner : il rend honnêtement
+   * une page vide pour un numéro hors bornes.
+   */
+  const supprimerTicket = async (idTicket) => {
+    setEnCours(`suppression:${idTicket}`);
+    setMessage(null);
+    try {
+      const reponse = await adminApi.supprimerTicket(idTicket);
+      setMessage({ variante: 'succes', texte: reponse.data.message });
+
+      if (dossiers.elements.length === 1 && page > 1) setPage((p) => p - 1);
+      else await charger();
+    } catch (erreur) {
+      setMessage({ variante: 'erreur', texte: erreur.message });
+      /*
+       * 409 : le dossier n'est plus supprimable — il a été rouvert parce qu'un
+       * envoi a échoué. 404 : un autre administrateur l'a supprimé avant. Dans
+       * les deux cas la carte à l'écran est périmée.
+       */
+      if (erreur.statut === 409 || erreur.statut === 404) await charger();
     } finally {
       setEnCours(null);
     }
@@ -1009,11 +1185,10 @@ export default function Moderation() {
         {FAMILLES.map((f) => (
           <button
             key={f.cle}
-            onClick={() => {
+            onClick={() => changerPerimetre(() => {
               setFamille(f.cle);
               setOnglet(ONGLETS[f.cle][0].cle);
-              setMessage(null);
-            }}
+            })}
             aria-pressed={famille === f.cle}
             data-test={`famille-${f.cle}`}
             className={`-mb-px cursor-pointer border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${
@@ -1045,8 +1220,9 @@ export default function Moderation() {
         {ONGLETS[famille].map((o) => (
           <button
             key={o.cle}
-            onClick={() => setOnglet(o.cle)}
+            onClick={() => changerPerimetre(() => setOnglet(o.cle))}
             aria-pressed={onglet === o.cle}
+            data-test={`onglet-${o.cle}`}
             className={`flex-1 cursor-pointer rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
               onglet === o.cle
                 ? 'bg-marque-500 text-white'
@@ -1057,6 +1233,46 @@ export default function Moderation() {
           </button>
         ))}
       </div>
+
+      {/* ---------- Ordre de tri, et nombre de dossiers ---------- */}
+      {/*
+        LE TRI N'EST PROPOSÉ QUE SUR LE SUPPORT, parce que c'est la seule des
+        trois routes qui l'accepte. Afficher la commande sur les deux autres
+        familles offrirait un réglage sans effet — pire qu'un réglage absent.
+      */}
+      {(famille === 'support' || pagination) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          {famille === 'support' ? (
+            <div className="flex items-center gap-1" role="group" aria-label="Ordre de tri">
+              <span className="mr-1 text-xs font-medium text-ardoise-500">Trier :</span>
+              {ORDRES.map((o) => (
+                <button
+                  key={o.cle}
+                  onClick={() => changerPerimetre(() => setOrdre(o.cle))}
+                  aria-pressed={ordre === o.cle}
+                  data-test={`ordre-${o.cle}`}
+                  className={`cursor-pointer rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                    ordre === o.cle
+                      ? 'border-marque-500 bg-marque-50 text-marque-700'
+                      : 'border-ardoise-200 text-ardoise-500 hover:bg-ardoise-50'
+                  }`}
+                >
+                  {o.libelle}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span />
+          )}
+
+          {pagination && pagination.total > 0 && (
+            <p className="text-xs text-ardoise-500" data-test="total-dossiers">
+              {pagination.total} dossier{pagination.total > 1 ? 's' : ''}
+              {pagination.pages > 1 && ` — page ${pagination.page} sur ${pagination.pages}`}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ---------- Dossiers ---------- */}
       {chargement || !listeAJour ? (
@@ -1104,11 +1320,49 @@ export default function Moderation() {
                 onDecision={trancherTicket}
                 onBrouillon={enregistrerBrouillon}
                 onEnvoyer={envoyerReponse}
+                onSupprimer={supprimerTicket}
                 enCours={enCours}
               />
             );
           })}
         </ul>
+      )}
+
+      {/* ---------- Pagination ---------- */}
+      {/*
+        AFFICHÉE SEULEMENT S'IL Y A PLUS D'UNE PAGE. Deux boutons inertes sous
+        une liste de trois dossiers donneraient à croire qu'il existe une suite.
+
+        LES BOUTONS SONT DÉSACTIVÉS PENDANT LE CHARGEMENT, et pas seulement aux
+        bornes : deux clics rapides sur « Suivante » sauteraient une page, et le
+        compteur de requêtes n'empêche que l'affichage désordonné, pas le saut.
+      */}
+      {pagination && pagination.pages > 1 && (
+        <nav className="flex items-center justify-center gap-3" aria-label="Pagination">
+          <Button
+            variante="secondaire"
+            taille="sm"
+            disabled={page <= 1 || chargement}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            data-test="page-precedente"
+          >
+            Précédente
+          </Button>
+
+          <span className="text-sm font-medium text-ardoise-600" data-test="page-courante">
+            {pagination.page} / {pagination.pages}
+          </span>
+
+          <Button
+            variante="secondaire"
+            taille="sm"
+            disabled={!pagination.aSuivante || chargement}
+            onClick={() => setPage((p) => p + 1)}
+            data-test="page-suivante"
+          >
+            Suivante
+          </Button>
+        </nav>
       )}
     </div>
   );

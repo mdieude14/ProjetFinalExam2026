@@ -171,6 +171,115 @@ ok('l’outil appelé est tracé', enBase?.outils?.[0]?.outil === 'GET /users/me
 ok('**mais pas ce qu’il a renvoyé**',
   enBase?.outils?.[0]?.reponse === undefined && enBase?.outils?.[0]?.contenu === undefined);
 
+/* ================================================================== *
+ *  LE BROUILLON PROPOSÉ PAR L'AGENT, À L'ESCALADE
+ *
+ *  Ajouté le 26 octobre. Le widget escaladait sans rien proposer : le
+ *  back-office affichait un textarea vide, et l'exploitant écrivait tout.
+ *  L'agent rédige désormais un brouillon quand le dossier escalade.
+ *
+ *  TROIS CONDITIONS, ET CHACUNE PROTÈGE D'UN ABUS DIFFÉRENT. Sans la clé
+ *  d'agent, l'appelant détient le même jeton que n8n : il pourrait se
+ *  préparer un brouillon flatteur et le présenter comme la proposition de
+ *  l'agent. Sur un dossier résolu, un brouillon ferait apparaître dans
+ *  l'onglet d'audit un texte que personne n'est censé envoyer. Et sous dix
+ *  signes, ce n'est pas un brouillon : mieux vaut un champ franchement vide.
+ * ================================================================== */
+
+const ObjectIdTest = requireServeur('mongodb').ObjectId;
+/* `relireDossier` et non `dossier` : ce dernier nom est déjà pris plus bas. */
+const relireDossier = async (id) =>
+  bdd.collection('tickets').findOne({ _id: new ObjectIdTest(String(id)) });
+
+const BROUILLON = 'Bonjour, votre demande est bien arrivée et nous l’examinons. L’équipe CoachConnect.';
+
+/*
+ * UN COMPTE DÉDIÉ, ET C'EST UNE LEÇON PAYÉE. Ces quatre dossiers avaient
+ * d'abord été créés au nom d'Alice : son décompte est passé de deux à six, et
+ * l'assertion de cloisonnement « Alice voit ses deux tickets » est tombée. Elle
+ * avait raison de tomber. Une épreuve qui modifie le jeu de données d'une autre
+ * ne teste plus ce qu'elle croit : elle teste l'ordre d'exécution.
+ */
+const daphne = await inscrire(`daphne${S}`, 'Daphné');
+
+/* --- avec la clé d'agent, et le dossier escalade : le brouillon est gardé --- */
+const avecBrouillon = await appel('/support/tickets', {
+  methode: 'POST',
+  token: daphne.token,
+  cleAgent: CLE_AGENT,
+  corps: {
+    question: 'Je veux le remboursement de mon abonnement premium.',
+    intention: 'decision',
+    reponse: 'Votre demande est transmise.',
+    brouillonReponse: BROUILLON,
+  },
+});
+ok('dossier escaladé créé', avecBrouillon.statut === 201, `statut ${avecBrouillon.statut}`);
+ok('une intention « decision » escalade toujours',
+  avecBrouillon.json?.ticket?.statut === 'escalade', avecBrouillon.json?.ticket?.statut);
+
+const dEscalade = await relireDossier(avecBrouillon.json?.ticket?._id);
+ok('**le brouillon de l’agent est enregistré**', dEscalade?.brouillonReponse === BROUILLON,
+  `${String(dEscalade?.brouillonReponse ?? '').length} signes`);
+ok('la date du brouillon est posée', dEscalade?.brouillonLe instanceof Date);
+/*
+ * `traitePar` DOIT RESTER VIDE. Le renseigner attribuerait le texte à un
+ * administrateur qui ne l'a pas écrit — c'est l'agent qui a rédigé. Le canal
+ * courriel suit la même règle depuis le 18 octobre.
+ */
+ok('**`traitePar` reste vide — aucun humain n’a rédigé**',
+  dEscalade?.traitePar === undefined || dEscalade?.traitePar === null,
+  String(dEscalade?.traitePar));
+
+/* --- sans la clé d'agent : le brouillon est ignoré --- */
+const sansCleAgent = await appel('/support/tickets', {
+  methode: 'POST',
+  token: daphne.token,
+  corps: {
+    question: 'Je demande un remboursement immédiat.',
+    brouillonReponse: 'L’équipe vous accorde le remboursement. L’équipe CoachConnect.',
+  },
+});
+ok('dossier créé sans clé d’agent', sansCleAgent.statut === 201, `statut ${sansCleAgent.statut}`);
+const dSansCle = await relireDossier(sansCleAgent.json?.ticket?._id);
+ok('**sans clé d’agent, le brouillon est IGNORÉ** — sinon on se rédige sa propre promesse',
+  !dSansCle?.brouillonReponse, `${String(dSansCle?.brouillonReponse ?? '').length} signes`);
+
+/* --- dossier résolu : le brouillon est ignoré --- */
+const surResolu = await appel('/support/tickets', {
+  methode: 'POST',
+  token: daphne.token,
+  cleAgent: CLE_AGENT,
+  corps: {
+    question: 'Où vois-je mes abonnements ?',
+    intention: 'usage',
+    reponse: 'Depuis le menu de votre compte, « Mes abonnements ».',
+    brouillonReponse: BROUILLON,
+  },
+});
+const dResolu = await relireDossier(surResolu.json?.ticket?._id);
+ok('le dossier est bien résolu', dResolu?.statut === 'resolu', dResolu?.statut);
+ok('**sur un dossier résolu, le brouillon est IGNORÉ** — personne ne doit l’envoyer',
+  !dResolu?.brouillonReponse, `${String(dResolu?.brouillonReponse ?? '').length} signes`);
+
+/* --- sous dix signes : ignoré --- */
+const tropCourt = await appel('/support/tickets', {
+  methode: 'POST',
+  token: daphne.token,
+  cleAgent: CLE_AGENT,
+  corps: {
+    question: 'Je conteste un prélèvement.',
+    intention: 'decision',
+    reponse: 'Transmis.',
+    brouillonReponse: 'Bonjour.',
+  },
+});
+const dCourt = await relireDossier(tropCourt.json?.ticket?._id);
+ok('**un brouillon de moins de dix signes est IGNORÉ** — un champ vide est plus honnête',
+  !dCourt?.brouillonReponse, `« ${String(dCourt?.brouillonReponse ?? '')} »`);
+ok('mais le dossier existe quand même — la question n’est jamais perdue',
+  dCourt?.statut === 'escalade', dCourt?.statut);
+
 section('Escalade décidée par le serveur');
 
 const escalade = await appel('/support/tickets', {
@@ -708,6 +817,98 @@ ok('deux clés différentes : démarrage normal',
   differentes.status === 0 && differentes.stdout.includes('CONFIG CHARGEE'),
   `code ${differentes.status}`);
 
+/* ------------------------------------------------------------------ *
+ *  L'ADRESSE PUBLIQUE, DISTINCTE DES ORIGINES CORS
+ * ------------------------------------------------------------------ */
+
+/*
+ * POURQUOI CES VÉRIFICATIONS EXISTENT.
+ *
+ * `CLIENT_URL` servait deux choses : qui a le droit d'ENTRER (CORS, toute la
+ * liste) et l'adresse publique pour tout ce qui SORT (Stripe, liens des
+ * courriels — la PREMIÈRE seulement).
+ *
+ * Le piège, mesuré le 27 octobre : `CLIENT_URL` contenait déjà deux origines
+ * locales. Ajouter le domaine de production À LA FIN — le geste naturel,
+ * puisqu'il s'agit d'autoriser une origine de plus — aurait renvoyé les
+ * acheteurs sur `localhost` après paiement et fait partir de VRAIS courriels
+ * de réinitialisation avec un lien mort. Sans qu'aucune erreur ne remonte.
+ */
+const lireUrlPublique = (cles) => spawnSync(
+  process.execPath,
+  ['--input-type=module', '-e',
+   "const { config } = await import('./src/config/env.js'); console.log('URL=' + config.urlPublique);"],
+  {
+    cwd: new URL('..', import.meta.url),
+    env: { ...process.env, NODE_ENV: 'development', ...cles },
+    encoding: 'utf8',
+    timeout: 20000,
+  }
+);
+
+const valeurUrl = (r) => (String(r.stdout ?? '').match(/URL=(\S+)/) ?? [])[1] ?? '';
+
+const urlSansPublic = lireUrlPublique({
+  CLIENT_URL: 'http://localhost:5173,http://localhost:4173',
+  PUBLIC_URL: '',
+});
+ok('**sans `PUBLIC_URL`, le comportement d’avant est conservé** — la première origine',
+  valeurUrl(urlSansPublic) === 'http://localhost:5173', valeurUrl(urlSansPublic));
+
+const urlDepuisPublic = lireUrlPublique({
+  CLIENT_URL: 'http://localhost:5173,http://localhost:4173',
+  PUBLIC_URL: 'https://coachconnect.example',
+});
+ok('`PUBLIC_URL` prend le dessus quand elle est renseignée',
+  valeurUrl(urlDepuisPublic) === 'https://coachconnect.example', valeurUrl(urlDepuisPublic));
+
+/*
+ * LE CAS QUI COMPTE : le domaine de production ajouté EN DERNIER dans
+ * `CLIENT_URL`, sans `PUBLIC_URL`. C'est exactement le geste qu'on ferait pour
+ * autoriser une origine de plus — et il laissait l'adresse publique sur
+ * `localhost`.
+ */
+const domaineEnDernier = lireUrlPublique({
+  CLIENT_URL: 'http://localhost:5173,https://coachconnect.example',
+  PUBLIC_URL: '',
+});
+ok('**le domaine ajouté en dernier ne devient PAS l’adresse publique** — le piège est réel',
+  valeurUrl(domaineEnDernier) === 'http://localhost:5173', valeurUrl(domaineEnDernier));
+
+/*
+ * ET C'EST POURQUOI LA PRODUCTION REFUSE DE DÉMARRER SUR UNE ADRESSE LOCALE.
+ *
+ * Même raisonnement que les secrets JWT trop faibles : un serveur qui démarre à
+ * moitié configuré est plus dur à diagnostiquer qu'un serveur qui refuse en
+ * disant quoi corriger. Ici la panne serait pire que silencieuse — elle serait
+ * invisible DEPUIS LE SERVEUR, puisque c'est l'utilisateur qui reçoit le lien
+ * mort.
+ */
+const urlEnProduction = spawnSync(
+  process.execPath,
+  ['--input-type=module', '-e', "await import('./src/config/env.js'); console.log('CONFIG CHARGEE');"],
+  {
+    cwd: new URL('..', import.meta.url),
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      CLIENT_URL: 'http://localhost:5173,https://coachconnect.example',
+      PUBLIC_URL: '',
+      JWT_ACCESS_SECRET: 'x'.repeat(40),
+      JWT_REFRESH_SECRET: 'y'.repeat(40),
+    },
+    encoding: 'utf8',
+    timeout: 20000,
+  }
+);
+
+ok('**en production, une adresse publique locale empêche le démarrage**',
+  urlEnProduction.status === 1 && !String(urlEnProduction.stdout).includes('CONFIG CHARGEE'),
+  `code ${urlEnProduction.status}`);
+
+ok('et le message nomme les deux variables à corriger',
+  /PUBLIC_URL/.test(urlEnProduction.stderr) && /CLIENT_URL/.test(urlEnProduction.stderr));
+
 /* ================================================================== *
  *  BASE DE CONNAISSANCES
  * ================================================================== */
@@ -864,6 +1065,249 @@ const temoin = mesurer(BANC_TEMOIN);
 ok('**banc témoin : dans les trois premières au moins 14 fois sur 15**', temoin.trois >= 14,
   `${temoin.trois}/${BANC_TEMOIN.length} (en tête : ${temoin.tete})` +
     (temoin.manques.length ? ` — manquées : ${temoin.manques.join(' | ')}` : ''));
+
+/* ================================================================== *
+ *  7 — LE BACK-OFFICE : TRI, PAGINATION, SUPPRESSION, PROVENANCE
+ * ================================================================== */
+
+/*
+ * UN COMPTE DÉDIÉ, ET C'EST UNE LEÇON PAYÉE.
+ *
+ * Un jeu de données ajouté au compte d'Alice a cassé, le 25 octobre, une
+ * assertion de cloisonnement qui comptait SES dossiers — et elle avait raison
+ * de tomber. Une épreuve qui modifie le jeu de données d'une autre teste
+ * l'ordre d'exécution, pas le code.
+ */
+const elias = await inscrire(`elias${S}`, 'Elias');
+
+section('Back-office — ordre de tri');
+
+/*
+ * TROIS DOSSIERS, CRÉÉS DANS UN ORDRE CONNU. On attend entre chacun : Mongo
+ * horodate à la milliseconde, et trois créations d'affilée peuvent partager
+ * le même instant — le tri serait alors indéterminé, et l'épreuve mesurerait
+ * la vitesse de la machine.
+ */
+const dossiersTri = [];
+for (const rang of ['premier', 'deuxieme', 'troisieme']) {
+  const r = await appel('/support/tickets', {
+    methode: 'POST',
+    token: elias.token,
+    cleAgent: CLE_AGENT,
+    corps: {
+      question: `Question ${rang} pour le tri du back-office`,
+      intention: 'decision',
+      reponse: 'Un conseiller prend le relais.',
+      brouillonReponse: `Bonjour Elias, nous reprenons votre demande ${rang}.`,
+    },
+  });
+  if (r.statut !== 201) throw new Error(`tri ${rang} : ${r.statut} ${r.texte.slice(0, 160)}`);
+  dossiersTri.push(r.json.ticket._id);
+  // 5 ms suffisent à séparer deux horodatages, sans allonger la suite.
+  await new Promise((r2) => setTimeout(r2, 5));
+}
+
+const mesDossiers = (liste) =>
+  (liste ?? []).map((t) => t._id).filter((id) => dossiersTri.includes(id));
+
+const ordreDefaut = await appel('/admin/support/tickets?statut=escalade&limite=50', { token: jetonAdmin });
+ok('file de l’exploitant -> 200', ordreDefaut.statut === 200);
+
+/*
+ * LE DÉFAUT A CHANGÉ LE 26 OCTOBRE : du plus récent au plus ancien.
+ *
+ * Le code triait du plus ancien au plus récent, avec un raisonnement juste
+ * pour « À traiter » — une file se traite dans l'ordre d'arrivée. Mais les
+ * onglets « Traiter » et « Non escaladés » sont des ARCHIVES, où l'on vient
+ * voir ce que l'agent vient de faire. D'où un paramètre, et ce défaut.
+ */
+ok('**le plus récent arrive en tête par défaut**',
+  mesDossiers(ordreDefaut.json?.elements)[0] === dossiersTri[2],
+  `attendu ${dossiersTri[2]?.slice(-6)}, reçu ${mesDossiers(ordreDefaut.json?.elements)[0]?.slice(-6)}`);
+
+const ordreAncien = await appel('/admin/support/tickets?statut=escalade&limite=50&ordre=ancien', { token: jetonAdmin });
+
+ok('**`ordre=ancien` rend l’ordre d’arrivée** — « À traiter » reste une file pour qui le veut',
+  ordreAncien.statut === 200 &&
+  mesDossiers(ordreAncien.json?.elements)[0] === dossiersTri[0],
+  `attendu ${dossiersTri[0]?.slice(-6)}, reçu ${mesDossiers(ordreAncien.json?.elements)[0]?.slice(-6)}`);
+
+ok('les deux ordres rendent les mêmes dossiers, dans l’ordre inverse',
+  JSON.stringify(mesDossiers(ordreDefaut.json?.elements)) ===
+  JSON.stringify([...mesDossiers(ordreAncien.json?.elements)].reverse()));
+
+/*
+ * UN ORDRE INVENTÉ EST REFUSÉ À L'ENTRÉE, et c'est le point de cette
+ * vérification : la valeur vient de l'URL. Sans liste fermée, un tri sur un
+ * champ non indexé suffirait à faire ramper la file, et un tri sur un champ
+ * inexistant rendrait un ordre arbitraire sans le dire.
+ */
+const ordreInvalide = await appel('/admin/support/tickets?ordre=par-couleur', { token: jetonAdmin });
+ok('**un ordre hors liste -> 400**, jamais un tri silencieux',
+  ordreInvalide.statut === 400, `statut ${ordreInvalide.statut}`);
+
+section('Back-office — pagination');
+
+const pageUn = await appel('/admin/support/tickets?statut=escalade&limite=2&page=1', { token: jetonAdmin });
+const pageDeux = await appel('/admin/support/tickets?statut=escalade&limite=2&page=2', { token: jetonAdmin });
+
+ok('la pagination est annoncée par le serveur',
+  pageUn.statut === 200 &&
+  pageUn.json?.pagination?.limite === 2 &&
+  typeof pageUn.json?.pagination?.pages === 'number',
+  JSON.stringify(pageUn.json?.pagination));
+
+ok('une page rend au plus `limite` dossiers',
+  (pageUn.json?.elements ?? []).length <= 2,
+  `${(pageUn.json?.elements ?? []).length} dossier(s)`);
+
+ok('**deux pages ne partagent aucun dossier** — sinon l’exploitant traiterait deux fois le même',
+  pageDeux.statut === 200 &&
+  (pageUn.json?.elements ?? []).every(
+    (a) => !(pageDeux.json?.elements ?? []).some((b) => b._id === a._id)
+  ));
+
+ok('`aSuivante` dit la vérité sur la dernière page',
+  pageUn.json?.pagination?.aSuivante ===
+  (pageUn.json.pagination.page * pageUn.json.pagination.limite < pageUn.json.pagination.total));
+
+section('Back-office — provenance du brouillon');
+
+/*
+ * `ecritParAgent` NE RÉPOND PAS À LA QUESTION : il dit qui a écrit la réponse
+ * automatique, au moment de la création, et ne change jamais. Un brouillon, lui,
+ * se réécrit. Sans `brouillonParAgent`, un texte proposé par le modèle et un
+ * texte écrit par l'exploitant ont la même apparence dans le champ — et le
+ * texte part tel quel.
+ */
+const provenance = await relireDossier(dossiersTri[0]);
+
+ok('**un brouillon déposé par l’agent est marqué comme tel**',
+  provenance?.brouillonParAgent === true && (provenance?.brouillonReponse ?? '').length >= 10);
+
+const apresClavier = await appel(`/admin/support/tickets/${dossiersTri[0]}/brouillon`, {
+  methode: 'PATCH',
+  token: jetonAdmin,
+  corps: { texte: 'Bonjour Elias, voici la réponse relue et corrigée par un humain.' },
+});
+
+ok('réécriture du brouillon au clavier -> 200', apresClavier.statut === 200);
+
+/*
+ * LE TEXTE N'EST PLUS CELUI DE L'AGENT, même si l'exploitant n'a changé qu'un
+ * mot. On ne peut pas savoir ce qu'il a conservé, et prétendre « proposé par
+ * l'agent » sur un texte relu serait faux dans le seul sens qui compte : il
+ * l'a validé des yeux.
+ */
+ok('**la marque tombe dès que l’exploitant écrit** — l’avertissement ne devient pas un ornement',
+  apresClavier.json?.dossier?.brouillonParAgent === false,
+  String(apresClavier.json?.dossier?.brouillonParAgent));
+
+section('Back-office — suppression d’un dossier');
+
+/*
+ * UN DOSSIER « resolu » : l'agent a répondu seul, sans escalade. C'est le
+ * second cas que le porteur du projet a demandé de pouvoir supprimer — les
+ * échanges auxquels l'IA a répondu automatiquement.
+ */
+const repondu = await appel('/support/tickets', {
+  methode: 'POST',
+  token: elias.token,
+  cleAgent: CLE_AGENT,
+  corps: {
+    question: 'Comment je publie une story ?',
+    intention: 'usage',
+    reponse: 'Depuis le fil, le bouton « + » ouvre le compositeur.',
+  },
+});
+ok('un dossier répondu par l’agent est créé en « resolu »',
+  repondu.statut === 201 && repondu.json?.ticket?.statut === 'resolu',
+  repondu.json?.ticket?.statut);
+
+const suppressionSansAdmin = await appel(`/admin/support/tickets/${repondu.json?.ticket?._id}`, {
+  methode: 'DELETE',
+  token: elias.token,
+});
+ok('**supprimer sans être administrateur -> 403**', suppressionSansAdmin.statut === 403,
+  `statut ${suppressionSansAdmin.statut}`);
+
+const suppressionSansJeton = await appel(`/admin/support/tickets/${repondu.json?.ticket?._id}`, {
+  methode: 'DELETE',
+});
+ok('**et sans jeton du tout -> 401**', suppressionSansJeton.statut === 401,
+  `statut ${suppressionSansJeton.statut}`);
+
+/*
+ * LA CLÉ DE SERVICE N'OUVRE PAS CETTE ROUTE, et c'est le même invariant que
+ * pour l'instruction d'un dossier. Un agent qui pourrait effacer ses propres
+ * dossiers effacerait la trace de ce qu'il a répondu — c'est-à-dire exactement
+ * ce que l'onglet « Non escaladés » sert à relire.
+ */
+const suppressionParAgent = await appel(`/admin/support/tickets/${repondu.json?.ticket?._id}`, {
+  methode: 'DELETE',
+  cleService: CLE_SERVICE,
+});
+ok('**la clé de service ne supprime rien** — l’agent ne peut pas effacer sa propre trace',
+  suppressionParAgent.statut === 401, `statut ${suppressionParAgent.statut}`);
+
+const suppression = await appel(`/admin/support/tickets/${repondu.json?.ticket?._id}`, {
+  methode: 'DELETE',
+  token: jetonAdmin,
+});
+ok('suppression d’un dossier répondu -> 200', suppression.statut === 200,
+  suppression.json?.message ?? `statut ${suppression.statut}`);
+
+ok('**le dossier a réellement disparu de la base**',
+  (await relireDossier(repondu.json?.ticket?._id)) === null);
+
+/*
+ * LE CAS QUI COMPTE VRAIMENT : un dossier en attente n'est PAS supprimable.
+ *
+ * Un dossier `escalade` est une demande à laquelle personne n'a encore
+ * répondu. Le supprimer ferait disparaître la question de quelqu'un sans que
+ * quelqu'un l'ait lue — c'est le seul cas qu'un back-office ne doit jamais
+ * permettre d'un clic.
+ */
+const suppressionEscalade = await appel(`/admin/support/tickets/${dossiersTri[1]}`, {
+  methode: 'DELETE',
+  token: jetonAdmin,
+});
+ok('**un dossier en attente de réponse -> 409**, et le motif le dit',
+  suppressionEscalade.statut === 409 &&
+  /attend/.test(suppressionEscalade.json?.message ?? ''),
+  suppressionEscalade.json?.message ?? `statut ${suppressionEscalade.statut}`);
+
+ok('**et il est toujours là** — un refus ne doit rien avoir effacé en chemin',
+  (await relireDossier(dossiersTri[1])) !== null);
+
+/* Un dossier instruit : l'autre cas supprimable. */
+const clotureAvantSuppression = await appel(`/admin/support/tickets/${dossiersTri[2]}`, {
+  methode: 'PATCH',
+  token: jetonAdmin,
+  corps: { decision: 'Dossier traité, remboursement accordé.' },
+});
+ok('traitement du dossier avant suppression -> 200', clotureAvantSuppression.statut === 200);
+
+const suppressionClos = await appel(`/admin/support/tickets/${dossiersTri[2]}`, {
+  methode: 'DELETE',
+  token: jetonAdmin,
+});
+ok('suppression d’un dossier traité -> 200', suppressionClos.statut === 200,
+  suppressionClos.json?.message ?? `statut ${suppressionClos.statut}`);
+
+const suppressionInconnue = await appel(`/admin/support/tickets/${dossiersTri[2]}`, {
+  methode: 'DELETE',
+  token: jetonAdmin,
+});
+ok('**un second appel -> 404**, et non 200 ni 409 — « introuvable » n’est pas « pas supprimable »',
+  suppressionInconnue.statut === 404, `statut ${suppressionInconnue.statut}`);
+
+const suppressionMalFormee = await appel('/admin/support/tickets/pas-un-identifiant', {
+  methode: 'DELETE',
+  token: jetonAdmin,
+});
+ok('un identifiant mal formé -> 400, à l’entrée', suppressionMalFormee.statut === 400,
+  `statut ${suppressionMalFormee.statut}`);
 
 /* ------------------------------ Fin ------------------------------ */
 
