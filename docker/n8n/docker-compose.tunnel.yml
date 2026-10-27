@@ -37,7 +37,16 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:2025.8.1
     container_name: coachconnect-tunnel
-    restart: unless-stopped
+
+    # AUCUN REDÉMARRAGE AUTOMATIQUE, ET C'EST LE POINT IMPORTANT. Avec
+    # `unless-stopped`, le tunnel se rouvrait seul à chaque démarrage de la
+    # machine : personne ne l'avait demandé, et l'adresse tirée était NEUVE
+    # alors que n8n gardait l'ancienne. On obtenait le pire des deux mondes —
+    # n8n exposé sur Internet, et le bot malgré tout muet, puisque Telegram
+    # pousse toujours vers l'adresse de la veille. Le tunnel ne doit s'ouvrir
+    # que sur ordre explicite, par `ouvrir-tunnel.mjs`, comme l'annonce déjà
+    # l'en-tête de ce fichier. Constaté au redémarrage du 19 octobre.
+    restart: "no"
 
     # `--url` crée un tunnel « rapide » : sans compte, sans domaine, avec une
     # adresse en *.trycloudflare.com tirée au hasard à chaque démarrage.
