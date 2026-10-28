@@ -119,10 +119,10 @@ export function delaiDepuis(valeur) {
   if (!valeur) return null;
 
   const millisecondes = new Date() - new Date(valeur);
-  if (millisecondes < 0) return 'a l’instant';
+  if (millisecondes < 0) return 'à l’instant';
 
   const minutes = Math.floor(millisecondes / 60000);
-  if (minutes < 1) return 'a l’instant';
+  if (minutes < 1) return 'à l’instant';
   if (minutes < 60) return `${minutes} min`;
 
   const heures = Math.floor(minutes / 60);
