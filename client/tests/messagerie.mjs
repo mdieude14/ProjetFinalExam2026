@@ -281,7 +281,8 @@ await pageBob.waitForTimeout(800);
 await pageAlice.waitForTimeout(800);
 
 const champ = pageAlice.getByLabel('Votre message');
-ok('le champ de saisie est accessible', (await champ.count()) === 1);
+ok('le champ de saisie est accessible',
+  (await rendu(champ)) && (await champ.count()) === 1);
 
 const TEXTE = `bonjour en direct ${S}`;
 await champ.fill(TEXTE);
@@ -335,17 +336,37 @@ ok('**et une seule fois chez Alice** (ajout local + socket ne doivent pas double
 
 /* ---------------------- Cloisonnement des fils ---------------------- */
 
-await pageBob.waitForTimeout(500);
+/*
+ * UNE ABSENCE NE CONCLUT RIEN SUR UN ÉCRAN VIDE.
+ * Celle-ci garde le CLOISONNEMENT DES CONVERSATIONS : si la page de Bob
+ * n'est pas rendue, « fil de Carol » n'y figure pas, et l'assertion passe au
+ * vert en ayant mesuré le néant. C'est la pire place possible pour un faux
+ * vert — on y perdrait la preuve qu'un tiers ne voit pas les fils d'autrui.
+ *
+ * Elle avait survécu au balayage du 28 octobre parce que le recenseur
+ * cherchait une comparaison à zéro DANS la ligne de lecture, et non une
+ * comparaison portant sur une VARIABLE, une ligne plus bas.
+ * L'outil a été corrigé en même temps que l'assertion.
+ */
+const filBobRendu = await rendu(pageBob.getByTestId('fil-messages'));
 const filCarolChezBob = await pageBob.getByText('fil de Carol').count();
-ok('**le fil de Carol n’apparaît pas chez Bob**', filCarolChezBob === 0);
+ok('**le fil de Carol n’apparaît pas chez Bob**',
+  filBobRendu && filCarolChezBob === 0,
+  filBobRendu ? '' : 'FIL NON RENDU : une absence ne conclut rien sur un écran vide');
 
 /* --------------------------- Double coche --------------------------- */
 
-// Bob a la conversation ouverte : sa lecture doit remonter à Alice.
-await pageAlice.waitForTimeout(2500);
+/*
+ * Bob a la conversation ouverte : sa lecture doit remonter à Alice.
+ * ELLE REMONTE PAR UN SOCKET, donc à une date qu'aucun délai ne connaît.
+ * On attend la coche elle-même ; la lecture du HTML qui suit ne sert plus
+ * qu'à nommer ce qu'on a trouvé.
+ */
+const cocheVue = await rendu(pageAlice.getByText('✓✓').first(), 20000);
 const contenuAlice = await pageAlice.content();
 ok('**la double coche remonte à Alice en direct**',
-  contenuAlice.includes('✓✓'), 'lecture signalée');
+  cocheVue && contenuAlice.includes('✓✓'),
+  cocheVue ? 'lecture signalée' : 'COCHE JAMAIS VUE en 20 s');
 
 await pageAlice.screenshot({ path: DOSSIER_CAPTURES + '/messagerie-alice.png' });
 await pageBob.screenshot({ path: DOSSIER_CAPTURES + '/messagerie-bob.png' });
@@ -353,6 +374,30 @@ await pageBob.screenshot({ path: DOSSIER_CAPTURES + '/messagerie-bob.png' });
 /* -------------------------- Indicateur de saisie -------------------------- */
 
 section('Indicateur de saisie');
+
+/*
+ * ATTENDRE QUE LA SÉRIE DE FRAPPE PRÉCÉDENTE SOIT CLOSE, et ce délai fixe
+ * est ASSUMÉ — il porte une précondition du produit, pas une espérance.
+ *
+ * `signalerSaisie()` n'émet `saisie:debut` qu'au DÉBUT d'une série : tant que
+ * son minuteur de deux secondes court, chaque frappe ne fait que le repousser.
+ * Alice vient d'écrire le message précédent ; si l'on enchaîne sans laisser ce
+ * minuteur expirer, AUCUN `saisie:debut` ne part, et Bob ne voit jamais
+ * « Alice écrit… » — alors que le produit fonctionne parfaitement.
+ *
+ * ET IL N'Y A RIEN À ATTENDRE DANS LE DOM : la fermeture de la série est un
+ * minuteur côté client, invisible de dehors. Une attente conditionnelle ne
+ * peut pas remplacer ce délai ; seul le temps le referme.
+ *
+ * MESURÉ LE 28 OCTOBRE 2026 : ce délai existait, sans explication, dans la
+ * section précédente. Pris pour une attente de socket, il a été remplacé par
+ * une attente conditionnelle — et l'assertion est tombée de façon
+ * REPRODUCTIBLE, deux campagnes de suite à 25/26.
+ *
+ *   LEÇON : un délai fixe qui porte une précondition doit la DIRE. Sinon le
+ *   prochain passage le prend pour de la négligence et le retire.
+ */
+await pageAlice.waitForTimeout(2500);
 
 await champ.fill('');
 await champ.pressSequentially('je reponds', { delay: 60 });
@@ -454,8 +499,10 @@ await seConnecter(pageDave, dave.pseudo);
 await pageDave.goto(BASE + `/messages?c=${idDave}`, { waitUntil: 'domcontentloaded' });
 await pageDave.waitForTimeout(2000);
 
+const bandeauRendu = await rendu(pageDave.getByText('souhaite vous écrire'));
 ok('**le bandeau de demande s’affiche chez la cible**',
-  (await pageDave.getByText('souhaite vous écrire').count()) === 1);
+  bandeauRendu && (await pageDave.getByText('souhaite vous écrire').count()) === 1,
+  bandeauRendu ? '' : 'BANDEAU NON RENDU en 15 s');
 ok('la conséquence du refus est annoncée avant le clic',
   (await pageDave.getByText(/empêchera définitivement/).count()) === 1);
 ok('les deux boutons sont proposés',
@@ -482,11 +529,13 @@ await pageDave.getByRole('button', { name: 'Accepter' }).click();
 await pageDave.waitForTimeout(2500);
 
 ok('après acceptation, Dave peut écrire',
-  (await pageDave.getByLabel('Votre message').count()) === 1);
+  (await rendu(pageDave.getByLabel('Votre message'))) &&
+    (await pageDave.getByLabel('Votre message').count()) === 1);
 
 await pageAlice.waitForTimeout(2500);
 ok('**et Alice retrouve son champ de saisie, en direct**',
-  (await pageAlice.getByLabel('Votre message').count()) === 1);
+  (await rendu(pageAlice.getByLabel('Votre message'), 20000)) &&
+    (await pageAlice.getByLabel('Votre message').count()) === 1);
 
 await pageDave.screenshot({ path: DOSSIER_CAPTURES + '/messagerie-demande.png' });
 
