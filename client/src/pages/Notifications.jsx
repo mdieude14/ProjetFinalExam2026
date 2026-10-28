@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 import notificationApi from '@/api/notification.api';
 import useSocket from '@/hooks/useSocket';
@@ -42,16 +42,47 @@ export default function Notifications() {
 
   /* --------------------------- Chargement --------------------------- */
 
+  /*
+   * GARDE CONTRE UNE RÉPONSE PÉRIMÉE.
+   *
+   * `charger()` REMPLACE la liste entière par ce que rend le serveur. Or les
+   * trois actions plus bas la modifient LOCALEMENT, avant confirmation du
+   * serveur — c'est l'optimisme assumé qui rend l'interface vive. Si un
+   * chargement est déjà en vol quand l'une d'elles se produit, sa réponse
+   * arrive après et RESSUSCITE ce qu'on venait de retirer.
+   *
+   * Le défaut est intermittent par construction : sur une machine au repos, la
+   * réponse revient avant le clic et personne ne voit rien. Mesuré le
+   * 28 octobre 2026 à 0,73 Go de mémoire libre — la ligne supprimée restait
+   * affichée, et un rechargement de la page donnait le bon compte. C'est ce
+   * dernier point qui désignait l'AFFICHAGE et non le serveur : la suppression
+   * avait bien eu lieu en base.
+   *
+   * POURQUOI UN COMPTEUR ET NON UN `AbortController`. L'annulation est
+   * l'idiome du projet (voir `BarreRecherche`), mais elle demande de faire
+   * descendre un `signal` jusqu'à `notificationApi.liste`, qui n'en prend pas.
+   * Un compteur de génération vit dans ce composant et couvre les trois
+   * actions d'un coup, sans toucher à la couche d'API.
+   */
+  const generation = useRef(0);
+
   const charger = useCallback(async () => {
+    const mienne = generation.current;
     setChargement(true);
     try {
       const reponse = await notificationApi.liste({
         nonLues: onglet === 'non-lues',
         limite: 50,
       });
+
+      // Une action locale a eu lieu pendant le trajet : cette réponse décrit
+      // un état déjà dépassé, et l'appliquer reviendrait en arrière.
+      if (generation.current !== mienne) return;
+
       setNotifications(reponse.data.elements || []);
       setErreur(null);
     } catch (e) {
+      if (generation.current !== mienne) return;
       setErreur(e.message);
     } finally {
       setChargement(false);
@@ -74,7 +105,12 @@ export default function Notifications() {
        * Le dédoublonnage protège du regroupement côté serveur : une
        * notification regroupée revient avec le MÊME identifiant, et doit
        * remonter en tête plutôt que s'afficher deux fois.
+       *
+       * ET L'ON INCRÉMENTE LA GÉNÉRATION, comme les trois actions plus bas :
+       * un chargement parti AVANT cette arrivée ne la contient pas, et sa
+       * réponse ferait disparaître la notification à peine affichée.
        */
+      generation.current += 1;
       setNotifications((precedentes) => [
         notification,
         ...precedentes.filter((n) => n._id !== notification._id),
@@ -91,6 +127,7 @@ export default function Notifications() {
 
     // Optimisme assumé : la ligne change d'état tout de suite. La requête
     // part en parallèle, et un échec se corrige au prochain chargement.
+    generation.current += 1;
     setNotifications((precedentes) =>
       precedentes.map((n) => (n._id === notification._id ? { ...n, lu: true } : n))
     );
@@ -107,6 +144,7 @@ export default function Notifications() {
     setEnCours(true);
     try {
       await notificationApi.toutMarquerLu();
+      generation.current += 1;
       setNotifications((precedentes) => precedentes.map((n) => ({ ...n, lu: true })));
       remettreAZero();
 
@@ -121,6 +159,7 @@ export default function Notifications() {
   };
 
   const supprimer = async (notification) => {
+    generation.current += 1;
     setNotifications((precedentes) =>
       precedentes.filter((n) => n._id !== notification._id)
     );

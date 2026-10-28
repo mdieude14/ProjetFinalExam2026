@@ -1,4 +1,4 @@
-import { createContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 import notificationApi from '@/api/notification.api';
 import useAuth from '@/hooks/useAuth';
@@ -36,6 +36,25 @@ export function NotificationProvider({ children }) {
 
   const [nonLues, setNonLues] = useState(0);
 
+  /*
+   * GARDE CONTRE UNE RELECTURE PÉRIMÉE.
+   *
+   * `rafraichir()` écrase le compteur par la valeur du serveur. Or
+   * `decrementer()`, `remettreAZero()` et l'arrivée par socket le modifient
+   * LOCALEMENT, sans attendre le serveur — c'est voulu, et le commentaire de
+   * `decrementer` l'explique. Mais si une relecture est en vol au moment où
+   * l'une d'elles agit, sa réponse arrive après et REMET la valeur d'avant.
+   *
+   * Symptôme mesuré le 28 octobre 2026 : « la pastille redescend à 1 » rendait
+   * « pastille « 2 » » deux séries sur cinq, sur un code inchangé. Le
+   * marquage avait bien eu lieu — seule la pastille revenait en arrière.
+   *
+   * Même défaut, même remède qu'à la liste de `Notifications.jsx` : un
+   * compteur de génération, parce que `notificationApi.nonLues()` ne prend pas
+   * de `signal` à annuler.
+   */
+  const generation = useRef(0);
+
   /** Relit le compteur depuis le serveur — la seule source qui fasse foi. */
   const rafraichir = useCallback(async () => {
     if (!estConnecte) {
@@ -43,8 +62,15 @@ export function NotificationProvider({ children }) {
       return;
     }
 
+    const mienne = generation.current;
+
     try {
       const reponse = await notificationApi.nonLues();
+
+      // Une modification locale a eu lieu pendant le trajet : cette valeur
+      // décrit un état dépassé, et l'appliquer reviendrait en arrière.
+      if (generation.current !== mienne) return;
+
       setNonLues(reponse.data.nombre || 0);
     } catch {
       // Sans conséquence : on n'affiche simplement pas de pastille. Une
@@ -71,6 +97,7 @@ export function NotificationProvider({ children }) {
        * réel devait éviter. Le compteur peut dériver de la valeur exacte ;
        * la prochaine navigation le remet d'aplomb.
        */
+      generation.current += 1;
       setNonLues((n) => n + 1);
     });
 
@@ -85,10 +112,14 @@ export function NotificationProvider({ children }) {
    * ajouterait un aller-retour pour une information qu'elle possède déjà.
    */
   const decrementer = useCallback((combien = 1) => {
+    generation.current += 1;
     setNonLues((n) => Math.max(0, n - combien));
   }, []);
 
-  const remettreAZero = useCallback(() => setNonLues(0), []);
+  const remettreAZero = useCallback(() => {
+    generation.current += 1;
+    setNonLues(0);
+  }, []);
 
   const valeur = useMemo(
     () => ({ nonLues, rafraichir, decrementer, remettreAZero }),
