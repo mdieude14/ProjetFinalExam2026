@@ -349,16 +349,22 @@ await champ.fill('');
 await champ.pressSequentially('mar', { delay: 60 });
 await page.waitForTimeout(900);
 
+const suggestionPrefixe = listeSuggestions
+  .getByRole('option')
+  .filter({ hasText: coach.pseudo });
 ok('**un préfixe de trois lettres suffit** (ce que $text ne sait pas faire)',
-  (await listeSuggestions.getByRole('option').filter({ hasText: coach.pseudo }).count()) === 1);
+  (await rendu(suggestionPrefixe)) && (await suggestionPrefixe.count()) === 1);
 
 // Accents : « elo » doit trouver « Éloïse ».
 await champ.fill('');
 await champ.pressSequentially('elo', { delay: 60 });
 await page.waitForTimeout(900);
 
+const suggestionAccent = listeSuggestions
+  .getByRole('option')
+  .filter({ hasText: coach.pseudo });
 ok('**« elo » trouve « Éloïse » — accents ignorés à l’écran aussi**',
-  (await listeSuggestions.getByRole('option').filter({ hasText: coach.pseudo }).count()) === 1);
+  (await rendu(suggestionAccent)) && (await suggestionAccent.count()) === 1);
 
 await page.screenshot({ path: DOSSIER_CAPTURES + '/recherche-suggestions.png' });
 
@@ -437,8 +443,10 @@ section('Page de résultats');
 await page.goto(BASE + `/recherche?q=${MOT}`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(1800);
 
+const champRendu = await rendu(champ);
 ok('**le terme vient de l’URL** — la recherche est partageable',
-  (await champ.inputValue()) === MOT, await champ.inputValue());
+  champRendu && (await champ.inputValue()) === MOT,
+  champRendu ? await champ.inputValue() : 'CHAMP NON RENDU en 15 s');
 
 /*
  * LE HTML EST LU APRÈS QUE LES RÉSULTATS SONT LÀ. Le capturer après un simple

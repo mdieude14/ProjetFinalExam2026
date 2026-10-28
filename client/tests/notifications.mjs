@@ -441,9 +441,12 @@ ok('**la pastille redescend à 1**', apresUneLecture === '1',
 await pageAlice.getByRole('button', { name: 'Non lues', exact: true }).click();
 await pageAlice.waitForTimeout(2000);
 
-const restantes = await pageAlice.getByTestId('liste-notifications').locator('li').count();
-ok('**l’onglet « non lues » ne montre que ce qui reste**', restantes === 1,
-  `${restantes} ligne(s)`);
+const listeRestante = pageAlice.getByTestId('liste-notifications').locator('li');
+const listeNonLuesRendue = await rendu(listeRestante);
+const restantes = await listeRestante.count();
+ok('**l’onglet « non lues » ne montre que ce qui reste**',
+  listeNonLuesRendue && restantes === 1,
+  listeNonLuesRendue ? `${restantes} ligne(s)` : 'LISTE NON RENDUE en 15 s');
 
 await pageAlice.getByRole('button', { name: 'Toutes', exact: true }).click();
 await pageAlice.waitForTimeout(1800);
@@ -451,7 +454,7 @@ await pageAlice.waitForTimeout(1800);
 /* ------------------------ Tout marquer comme lu ------------------------ */
 
 const toutLire = pageAlice.getByRole('button', { name: 'Tout marquer comme lu' });
-ok('le bouton « tout marquer comme lu » est proposé', (await toutLire.count()) === 1);
+ok('le bouton « tout marquer comme lu » est proposé', await rendu(toutLire));
 
 /*
  * ARRIVER SUR LA PAGE NE VAUT PAS LECTURE, et c'est un choix.

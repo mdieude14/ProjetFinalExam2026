@@ -30,6 +30,31 @@ import { readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const BASE = process.env.CLIENT_URL || 'http://localhost:5173';
+
+/*
+ * ATTENDRE QU'UNE CHOSE SOIT RENDUE, PLUTÔT QUE DE L'ESPÉRER.
+ *
+ * Une lecture instantanée — count(), textContent(), inputValue() — ne réessaie
+ * JAMAIS. Placée après un délai fixe, elle mesure le DOM à un instant
+ * arbitraire : trop tôt sur une machine chargée, et l'assertion tombe sans que
+ * le produit ait le moindre défaut.
+ *
+ * Relever un délai fixe se paie à CHAQUE passage, même quand tout va vite.
+ * Relever une attente conditionnelle ne coûte rien : elle sort dès que la
+ * condition cède. C'est pourquoi le plafond est généreux.
+ *
+ * L'explication complète, et la mesure qui l'a établie, sont dans
+ * `tests/evenements.mjs`.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const API = 'http://localhost:5000/api';
 const DOM = '@cartetest.local';
 const MDP = 'MotDePasse123';
@@ -442,7 +467,7 @@ await marqueurVera.first().click({ timeout: 15000 });
 await page.waitForTimeout(900);
 
 const fiche = page.locator('[data-testid="fiche-coach"]');
-ok('**fiche du coach ouverte au clic sur son point**', await fiche.count() > 0);
+ok('**fiche du coach ouverte au clic sur son point**', await rendu(fiche));
 
 const contenuFiche = (await fiche.first().innerText().catch(() => '')) || '';
 
@@ -485,14 +510,17 @@ await page.keyboard.press('Escape').catch(() => {});
 await page.waitForTimeout(500);
 
 /* La liste doit refléter la carte. */
-const listeContient = await page.getByText(`@${pseudoVisible}`).count();
-ok('le coach figure aussi dans la liste', listeContient > 0);
+const coachDansLaListe = page.getByText(`@${pseudoVisible}`);
+const listeRendue = await rendu(coachDansLaListe);
+const listeContient = await coachDansLaListe.count();
+ok('le coach figure aussi dans la liste', listeRendue && listeContient > 0,
+  listeRendue ? '' : 'LISTE NON RENDUE en 15 s');
 
 /* Filtre : un sport non proposé doit vider les résultats. */
 await page.selectOption('select >> nth=0', '5000');
 await page.waitForTimeout(1500);
 ok('changement de rayon pris en compte',
-  await page.getByText(/dans un rayon de 5 km/).count() > 0);
+  await rendu(page.getByText(/dans un rayon de 5 km/)));
 
 /* Responsive */
 for (const largeur of [375, 768]) {
@@ -523,9 +551,15 @@ await pageRefus.goto(BASE + '/carte', { waitUntil: 'domcontentloaded' });
 await pageRefus.getByRole('button', { name: 'Me localiser' }).click().catch(() => {});
 await pageRefus.waitForTimeout(3000);
 
+/*
+ * LE REPLI PEUT PRENDRE DEUX FORMES : la liste des villes, ou le message
+ * expliquant le refus. On attend l'une OU l'autre, puis la lecture qui suit
+ * — la carte — ne porte plus sur un écran peut-être vide.
+ */
 ok('**refus de géolocalisation : repli par villes proposé**',
-  (await pageRefus.getByText(/Villes où des coachs sont présents/).count()) > 0 ||
-    (await pageRefus.getByText(/refusé le partage/).count()) > 0);
+  await rendu(
+    pageRefus.getByText(/Villes où des coachs sont présents|refusé le partage/)
+  ));
 
 ok('la carte reste affichée malgré le refus',
   (await pageRefus.locator('.leaflet-container').count()) > 0);

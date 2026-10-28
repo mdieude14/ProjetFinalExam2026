@@ -46,6 +46,31 @@ import { fileURLToPath } from 'node:url';
 selectors.setTestIdAttribute('data-test');
 
 const BASE = process.env.CLIENT_URL || 'http://localhost:5173';
+
+/*
+ * ATTENDRE QU'UNE CHOSE SOIT RENDUE, PLUTÔT QUE DE L'ESPÉRER.
+ *
+ * Une lecture instantanée — count(), textContent(), inputValue() — ne réessaie
+ * JAMAIS. Placée après un délai fixe, elle mesure le DOM à un instant
+ * arbitraire : trop tôt sur une machine chargée, et l'assertion tombe sans que
+ * le produit ait le moindre défaut.
+ *
+ * Relever un délai fixe se paie à CHAQUE passage, même quand tout va vite.
+ * Relever une attente conditionnelle ne coûte rien : elle sort dès que la
+ * condition cède. C'est pourquoi le plafond est généreux.
+ *
+ * L'explication complète, et la mesure qui l'a établie, sont dans
+ * `tests/evenements.mjs`.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const API = 'http://localhost:5000/api';
 const DOM = '@supportfront.local';
 const MDP = 'MotDePasse123';
@@ -270,10 +295,22 @@ try {
   await seConnecter(pageAlice, alice.pseudo);
   await pageAlice.waitForTimeout(800);
 
-  const boutonsWidget = await pageAlice.getByTestId('widget-support-bouton').count();
+  /*
+   * DEUX VERDICTS OPPOSÉS SELON LA CONFIGURATION, DONC DEUX ANCRES.
+   * Avec une URL d'agent on attend le bouton : c'est une PRÉSENCE. Sans elle
+   * on affirme une ABSENCE, et une absence ne conclut rien sur un écran vide
+   * — il faut donc prouver d'abord que la page est rendue, en attendant la
+   * barre de navigation, qui elle est là dans les deux cas.
+   */
+  const boutonWidget = pageAlice.getByTestId('widget-support-bouton');
+  const widgetOuEcranRendu = urlAgent
+    ? await rendu(boutonWidget)
+    : await rendu(pageAlice.locator('nav[aria-label="Navigation principale"]'));
+  const boutonsWidget = await boutonWidget.count();
   if (urlAgent) {
-    ok('URL d’agent configurée : le widget est proposé', boutonsWidget === 1,
-      `${boutonsWidget} bouton(s)`);
+    ok('URL d’agent configurée : le widget est proposé',
+      widgetOuEcranRendu && boutonsWidget === 1,
+      widgetOuEcranRendu ? `${boutonsWidget} bouton(s)` : 'BOUTON JAMAIS RENDU en 15 s');
 
     section('Le widget interroge l’agent — navigateur, n8n et API');
 

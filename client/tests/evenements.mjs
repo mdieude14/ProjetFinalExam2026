@@ -335,7 +335,7 @@ await page.getByRole('button', { name: 'Je participe' }).click();
 await page.waitForTimeout(2000);
 
 ok('**inscription confirmée à l’écran**',
-  (await page.getByText('Vous êtes inscrit à cet événement').count()) > 0);
+  await rendu(page.getByText('Vous êtes inscrit à cet événement')));
 ok('le compteur passe à 1 / 4', (await page.getByText('1 / 4').count()) > 0);
 
 await page.screenshot({ path: DOSSIER_CAPTURES + '/evenement-inscrit.png' });
@@ -347,7 +347,7 @@ await page.getByRole('button', { name: 'Mes inscriptions' }).click();
 await page.waitForTimeout(1800);
 
 ok('l’événement figure dans « mes inscriptions »',
-  (await page.getByText(`Sortie course ${S}`).count()) > 0);
+  await rendu(page.getByText(`Sortie course ${S}`)));
 
 /* -------------------------- Désinscription -------------------------- */
 
@@ -356,7 +356,7 @@ await page.waitForTimeout(1200);
 await page.getByRole('button', { name: 'Me désinscrire' }).click();
 await page.waitForTimeout(2000);
 
-ok('**la place est rendue**', (await page.getByText('Votre place a été libérée').count()) > 0);
+ok('**la place est rendue**', await rendu(page.getByText('Votre place a été libérée')));
 ok('le compteur revient à 0 / 4', (await page.getByText('0 / 4').count()) > 0);
 
 /* ================================================================== *
@@ -405,7 +405,7 @@ await page.waitForTimeout(800);
 await page.getByRole('button', { name: 'Me localiser' }).click().catch(() => {});
 await page.waitForTimeout(3500);
 
-ok('la carte est rendue', (await page.locator('.leaflet-container').count()) > 0);
+ok('la carte est rendue', await rendu(page.locator('.leaflet-container')));
 
 /*
  * LE FOND DE PLAN DÉPEND D'UN SERVEUR EXTERNE (tile.openstreetmap.org).
@@ -510,7 +510,7 @@ await pageCoach.waitForURL('**/evenements/**', { timeout: 20000 });
 await pageCoach.waitForTimeout(1500);
 
 ok('la création mène à la fiche du nouvel événement',
-  (await pageCoach.getByRole('heading', { name: titreCree }).count()) > 0);
+  await rendu(pageCoach.getByRole('heading', { name: titreCree })));
 
 ok('**l’organisateur voit la liste de ses participants**',
   (await pageCoach.getByRole('heading', { name: /^Participants/ }).count()) > 0);
@@ -529,7 +529,7 @@ await modaleEdition.getByRole('button', { name: 'Enregistrer' }).click();
 await pageCoach.waitForTimeout(2000);
 
 ok('la modification est prise en compte',
-  (await pageCoach.getByRole('heading', { name: `${titreCree} — corrigé` }).count()) > 0);
+  await rendu(pageCoach.getByRole('heading', { name: `${titreCree} — corrigé` })));
 
 /* ----------------------------- Annulation ----------------------------- */
 
@@ -546,10 +546,10 @@ await pageCoach.waitForTimeout(2500);
  * son motif. Le faire disparaître laisserait les inscrits avec une date
  * bloquée et aucune explication.
  */
+const statutAnnule = await rendu(pageCoach.getByText('Annulé', { exact: true }));
 ok('**l’événement existe toujours après annulation**',
   (await pageCoach.getByRole('heading', { name: `${titreCree} — corrigé` }).count()) > 0);
-ok('le statut « annulé » est affiché',
-  (await pageCoach.getByText('Annulé', { exact: true }).count()) > 0);
+ok('le statut « annulé » est affiché', statutAnnule);
 ok('le motif est visible', (await pageCoach.getByText('Météo défavorable').count()) > 0);
 
 await pageCoach.screenshot({ path: DOSSIER_CAPTURES + '/evenement-annule.png' });

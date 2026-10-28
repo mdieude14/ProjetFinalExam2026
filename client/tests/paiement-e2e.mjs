@@ -42,6 +42,30 @@ const MDP = 'MotDePasse123';
 const DOM = '@paiementtest.local';
 const S = Date.now();
 
+/*
+ * ATTENDRE QU'UNE CHOSE SOIT RENDUE, PLUTÔT QUE DE L'ESPÉRER.
+ *
+ * Une lecture instantanée — count(), textContent(), inputValue() — ne réessaie
+ * JAMAIS. Placée après un délai fixe, elle mesure le DOM à un instant
+ * arbitraire : trop tôt sur une machine chargée, et l'assertion tombe sans que
+ * le produit ait le moindre défaut.
+ *
+ * Relever un délai fixe se paie à CHAQUE passage, même quand tout va vite.
+ * Relever une attente conditionnelle ne coûte rien : elle sort dès que la
+ * condition cède. C'est pourquoi le plafond est généreux.
+ *
+ * L'explication complète, et la mesure qui l'a établie, sont dans
+ * `tests/evenements.mjs`.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const resultats = [];
 const ok = (l, c, d = '') => resultats.push(`${c ? 'OK   ' : 'ECHEC'} ${l}${d ? '  -> ' + d : ''}`);
 
@@ -261,7 +285,7 @@ await page
   });
 await page.waitForTimeout(3500);
 ok('moyen de paiement « Carte » sélectionné',
-  (await page.locator('#cardNumber').count()) > 0);
+  await rendu(page.locator('#cardNumber')));
 
 const remplir = async (selecteurs, valeur) => {
   for (const s of selecteurs) {

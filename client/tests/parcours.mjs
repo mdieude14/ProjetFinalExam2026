@@ -28,6 +28,31 @@ import { readFileSync } from 'node:fs';
 import zlib from 'node:zlib';
 
 const BASE = process.env.CLIENT_URL || 'http://localhost:5173';
+
+/*
+ * ATTENDRE QU'UNE CHOSE SOIT RENDUE, PLUTÔT QUE DE L'ESPÉRER.
+ *
+ * Une lecture instantanée — count(), textContent(), inputValue() — ne réessaie
+ * JAMAIS. Placée après un délai fixe, elle mesure le DOM à un instant
+ * arbitraire : trop tôt sur une machine chargée, et l'assertion tombe sans que
+ * le produit ait le moindre défaut.
+ *
+ * Relever un délai fixe se paie à CHAQUE passage, même quand tout va vite.
+ * Relever une attente conditionnelle ne coûte rien : elle sort dès que la
+ * condition cède. C'est pourquoi le plafond est généreux.
+ *
+ * L'explication complète, et la mesure qui l'a établie, sont dans
+ * `tests/evenements.mjs`.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const DOMAINE = '@regression.local';
 const S = Date.now();
 const MDP = 'MotDePasse123';
@@ -225,8 +250,13 @@ await coach.getByRole('button', { name: /partagez votre séance/i }).click();
 await coach.waitForTimeout(300);
 await coach.locator('#choix-medias').setInputFiles([fichier('a.png'), fichier('b.png')]);
 await coach.waitForTimeout(400);
+/*
+ * DEUX APERÇUS ATTENDUS, donc on attend LE SECOND. Attendre le premier ne
+ * dirait rien du nombre : la lecture tomberait encore entre les deux rendus.
+ */
+const deuxApercus = await rendu(coach.locator('ul.grid img').nth(1));
 ok('aperçus affichés avant envoi',
-  (await coach.locator('ul.grid img').count()) === 2);
+  deuxApercus && (await coach.locator('ul.grid img').count()) === 2);
 
 await coach.getByLabel('Titre (facultatif)').fill('Séance de régression');
 await coach.getByLabel('Description').fill('Publication créée par la suite de tests');

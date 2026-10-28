@@ -36,6 +36,31 @@ import { readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const BASE = process.env.CLIENT_URL || 'http://localhost:5173';
+
+/*
+ * ATTENDRE QU'UNE CHOSE SOIT RENDUE, PLUTÔT QUE DE L'ESPÉRER.
+ *
+ * Une lecture instantanée — count(), textContent(), inputValue() — ne réessaie
+ * JAMAIS. Placée après un délai fixe, elle mesure le DOM à un instant
+ * arbitraire : trop tôt sur une machine chargée, et l'assertion tombe sans que
+ * le produit ait le moindre défaut.
+ *
+ * Relever un délai fixe se paie à CHAQUE passage, même quand tout va vite.
+ * Relever une attente conditionnelle ne coûte rien : elle sort dès que la
+ * condition cède. C'est pourquoi le plafond est généreux.
+ *
+ * L'explication complète, et la mesure qui l'a établie, sont dans
+ * `tests/evenements.mjs`.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const API = 'http://localhost:5000/api';
 const DOM = '@relfront.local';
 const MDP = 'MotDePasse123';
@@ -231,7 +256,8 @@ await page.goto(BASE + `/profile/${vedette.pseudo}`, { waitUntil: 'domcontentloa
 await page.waitForTimeout(2000);
 
 const statAbonnes = page.getByRole('button').filter({ hasText: 'Abonnés' }).first();
-ok('le profil affiche une statistique « Abonnés »', (await statAbonnes.count()) === 1);
+ok('le profil affiche une statistique « Abonnés »',
+  (await rendu(statAbonnes)) && (await statAbonnes.count()) === 1);
 
 const compteurAvant = ((await statAbonnes.textContent()) || '').replace(/[^\d]/g, '');
 ok('il annonce encore 25 (valeur périmée)', compteurAvant === '25', compteurAvant);
@@ -241,11 +267,18 @@ await statAbonnes.click();
 await page.waitForTimeout(2500);
 
 const modale = page.getByRole('dialog');
-ok('la fenêtre des relations s’ouvre', (await modale.count()) === 1);
+ok('la fenêtre des relations s’ouvre', await rendu(modale));
 
 const lignes = modale.locator('ul > li');
+/*
+ * VINGT LIGNES ATTENDUES, donc on attend LA VINGTIÈME. S'arrêter à la
+ * première ne dirait rien du nombre : la lecture tomberait au milieu du
+ * rendu de la liste, et annoncerait un défaut de pagination inexistant.
+ */
+const vingtLignes = await rendu(lignes.nth(19));
 const nbLignes = await lignes.count();
-ok('**la liste ne montre que les 20 premiers actifs**', nbLignes === 20, `${nbLignes} lignes`);
+ok('**la liste ne montre que les 20 premiers actifs**',
+  vingtLignes && nbLignes === 20, `${nbLignes} lignes`);
 
 await page.screenshot({ path: DOSSIER_CAPTURES + '/relations-liste.png' });
 
@@ -281,10 +314,15 @@ const pseudoPremierAbonne = (await lignes.first().textContent()) || '';
 await modale.getByRole('button', { name: 'Abonnements' }).click();
 
 /*
- * ON REGARDE IMMÉDIATEMENT, PENDANT LE CHARGEMENT.
+ * mesure-instantanee : ON REGARDE IMMÉDIATEMENT, PENDANT LE CHARGEMENT.
  * C'est le seul instant où le défaut était visible : la liste précédente
  * restait affichée, l'indicateur d'attente ne se montrant que sur une liste
  * vide. Attendre la fin du chargement le masquerait complètement.
+ *
+ * L'INSTANT DE LECTURE EST DONC LE SUJET DU TEST, et le délai fixe est ici la
+ * bonne réponse, pas un oubli. Le marqueur ci-dessus le dit au recenseur
+ * (`scripts/recenser-attentes.mjs`) pour qu'il cesse de la compter comme une
+ * dette : une absence délibérée se déclare, elle ne se devine pas.
  */
 await page.waitForTimeout(120);
 const pendantChargement = (await modale.textContent()) || '';
@@ -296,9 +334,10 @@ ok('**la liste précédente disparaît pendant le chargement**',
 
 await page.waitForTimeout(2500);
 
+const troisAbonnements = await rendu(modale.locator('ul > li').nth(2));
 const lignesAbonnements = await modale.locator('ul > li').count();
-ok('l’onglet « Abonnements » montre les 3 abonnements', lignesAbonnements === 3,
-  `${lignesAbonnements} lignes`);
+ok('l’onglet « Abonnements » montre les 3 abonnements',
+  troisAbonnements && lignesAbonnements === 3, `${lignesAbonnements} lignes`);
 
 const compteurAbonnements = ((
   await page.getByRole('button').filter({ hasText: 'Abonnements' }).first().textContent()
@@ -318,14 +357,17 @@ await modale.getByRole('button', { name: 'Abonnés' }).click();
 await page.waitForTimeout(2500);
 
 const voirPlus = modale.getByRole('button', { name: 'Voir plus' });
-ok('un bouton « Voir plus » est proposé', (await voirPlus.count()) === 1);
+ok('un bouton « Voir plus » est proposé',
+  (await rendu(voirPlus)) && (await voirPlus.count()) === 1);
 
 await voirPlus.click();
 await page.waitForTimeout(2500);
 
+/* Vingt-deux lignes attendues : on attend la vingt-deuxième. */
+const listeCompletee = await rendu(modale.locator('ul > li').nth(21));
 const apresVoirPlus = await modale.locator('ul > li').count();
-ok('**« Voir plus » complète la liste sans l’effacer**', apresVoirPlus === 22,
-  `${apresVoirPlus} lignes`);
+ok('**« Voir plus » complète la liste sans l’effacer**',
+  listeCompletee && apresVoirPlus === 22, `${apresVoirPlus} lignes`);
 ok('le bouton disparaît une fois tout chargé',
   (await modale.getByRole('button', { name: 'Voir plus' }).count()) === 0);
 
@@ -340,9 +382,19 @@ ok('sur son propre profil, chaque abonné peut être retiré',
   (await boutonsRetirer.count()) > 0, `${await boutonsRetirer.count()} boutons`);
 
 await boutonsRetirer.first().click();
-await page.waitForTimeout(2500);
 
-const apresRetrait = await modale.locator('ul > li').count();
+/*
+ * ICI LE NOMBRE DIMINUE, et aucun localisateur ne sait attendre qu'une ligne
+ * s'en aille par le compte. On scrute donc : la boucle sort au premier essai
+ * sur une machine au repos, et tient jusqu'à vingt secondes sur une machine
+ * chargée. C'est toute la différence avec un délai fixe, qui se paie en
+ * entier à chaque passage, même quand tout va vite.
+ */
+let apresRetrait = await modale.locator('ul > li').count();
+for (let essai = 0; essai < 40 && apresRetrait !== 21; essai += 1) {
+  await page.waitForTimeout(500);
+  apresRetrait = await modale.locator('ul > li').count();
+}
 ok('la ligne disparaît', apresRetrait === 21, `${apresRetrait} lignes`);
 
 const compteurApresRetrait = ((await statAbonnes.textContent()) || '').replace(/[^\d]/g, '');
@@ -354,6 +406,7 @@ ok('**et le compteur du profil suit immédiatement** (22 → 21)',
 await page.reload({ waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(2500);
 
+await rendu(page.getByRole('button').filter({ hasText: 'Abonnés' }).first());
 const compteurRecharge = ((
   await page.getByRole('button').filter({ hasText: 'Abonnés' }).first().textContent()
 ) || '').replace(/[^\d]/g, '');

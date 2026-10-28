@@ -277,8 +277,7 @@ await page.getByRole('button', { name: 'Personnes', exact: true }).click();
 await page.waitForTimeout(1800);
 
 const lienProfil = page.locator(`a[href="/profile/${cible.pseudo}"]`).first();
-ok('**l’onglet Personnes liste bien la personne**',
-  (await lienProfil.count()) >= 1);
+ok('**l’onglet Personnes liste bien la personne**', await rendu(lienProfil));
 
 ok('aucun message « aucun résultat » ne s’affiche',
   (await page.getByText(/Aucune personne pour/).count()) === 0);
@@ -349,7 +348,8 @@ await page.waitForTimeout(2500);
 ok('**la conversation s’ouvre au clic**', page.url().includes('/messages?c='));
 
 const zoneSaisie = page.getByLabel('Votre message');
-ok('**le champ de saisie est présent**', (await zoneSaisie.count()) === 1);
+ok('**le champ de saisie est présent**',
+  (await rendu(zoneSaisie)) && (await zoneSaisie.count()) === 1);
 
 const boutonEnvoyer = page.getByRole('button', { name: 'Envoyer' });
 ok('le bouton « Envoyer » est présent', (await boutonEnvoyer.count()) === 1);
@@ -403,8 +403,9 @@ await zoneSaisie.fill(TEXTE2);
 await zoneSaisie.press('Enter');
 await page.waitForTimeout(2500);
 
+const second = fil.getByText(TEXTE2, { exact: false });
 ok('**Entrée envoie aussi le message**',
-  (await fil.getByText(TEXTE2, { exact: false }).count()) === 1);
+  (await rendu(second)) && (await second.count()) === 1);
 
 const total = await bdd.collection('messages').countDocuments({
   conversation: enregistre.conversation,
@@ -437,15 +438,18 @@ await page.waitForTimeout(2500);
 
 const saisieInconnu = page.getByLabel('Votre message');
 ok('le champ de saisie est proposé pour le premier message',
-  (await saisieInconnu.count()) === 1);
+  (await rendu(saisieInconnu)) && (await saisieInconnu.count()) === 1);
 
 const PREMIER = `Bonjour, je me presente ${S}`;
 await saisieInconnu.fill(PREMIER);
 await page.getByRole('button', { name: 'Envoyer' }).click();
 await page.waitForTimeout(3000);
 
+const premierDansLeFil = page
+  .getByTestId('fil-messages')
+  .getByText(PREMIER, { exact: false });
 ok('**le premier message part bien**',
-  (await page.getByTestId('fil-messages').getByText(PREMIER, { exact: false }).count()) === 1);
+  (await rendu(premierDansLeFil)) && (await premierDansLeFil.count()) === 1);
 
 ok('**puis le champ disparaît** — un seul message tant que la demande attend',
   (await page.getByLabel('Votre message').count()) === 0);

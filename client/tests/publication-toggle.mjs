@@ -36,6 +36,31 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 
 const BASE = process.env.CLIENT_URL || 'http://localhost:5173';
+
+/*
+ * ATTENDRE QU'UNE CHOSE SOIT RENDUE, PLUTÔT QUE DE L'ESPÉRER.
+ *
+ * Une lecture instantanée — count(), textContent(), inputValue() — ne réessaie
+ * JAMAIS. Placée après un délai fixe, elle mesure le DOM à un instant
+ * arbitraire : trop tôt sur une machine chargée, et l'assertion tombe sans que
+ * le produit ait le moindre défaut.
+ *
+ * Relever un délai fixe se paie à CHAQUE passage, même quand tout va vite.
+ * Relever une attente conditionnelle ne coûte rien : elle sort dès que la
+ * condition cède. C'est pourquoi le plafond est généreux.
+ *
+ * L'explication complète, et la mesure qui l'a établie, sont dans
+ * `tests/evenements.mjs`.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const API = 'http://localhost:5000/api';
 const DOM = '@toggle.local';
 const MDP = 'MotDePasse123';
@@ -191,6 +216,14 @@ section('Le piège — la saisie ne doit pas refermer');
 const texte = page.locator('#formulaire-publication textarea').first();
 await texte.click();
 await texte.type('Séance de fractionné 10x400m');
+/*
+ * mesure-instantanee : CE TEST VÉRIFIE QU'UNE CHOSE N'A PAS CHANGÉ.
+ * Le formulaire doit rester ouvert et la saisie rester en place après la
+ * durée de l'animation. Il n'y a donc RIEN À ATTENDRE : une attente
+ * conditionnelle suppose un événement à venir, et ici c'est précisément
+ * l'absence d'événement qui est le sujet. Le délai couvre l'animation, et
+ * la lecture qui suit mesure la stabilité à sa sortie.
+ */
 await page.waitForTimeout(300);
 
 ok('**cliquer et écrire dans le formulaire ne le referme pas**',
@@ -207,6 +240,11 @@ ok('cliquer sur le titre du formulaire ne le referme pas', (await hauteur()) > 2
 section('Fermeture');
 
 await bascule.click();
+/*
+ * mesure-instantanee : le repli est une ANIMATION de durée connue, et ce
+ * qu'on mesure est son état FINAL — hauteur nulle, libellé revenu. Rien
+ * n'apparaît à l'écran qu'on pourrait attendre ; c'est une disparition.
+ */
 await page.waitForTimeout(500);
 
 ok('le second clic replie le formulaire', (await hauteur()) === 0, `${await hauteur()} px`);
@@ -216,6 +254,11 @@ ok('le bouton retrouve son libellé d’invitation',
 ok('le bloc redevient `inert`', await zone.evaluate((n) => n.hasAttribute('inert')));
 
 await bascule.click();
+/*
+ * mesure-instantanee : même raison. On vérifie que le brouillon a SURVÉCU à
+ * la fermeture, c'est-à-dire qu'il n'a rien fait. On ne peut pas attendre
+ * un non-événement.
+ */
 await page.waitForTimeout(500);
 ok('le brouillon survit à une fermeture accidentelle',
   (await texte.inputValue()).includes('fractionné'));
