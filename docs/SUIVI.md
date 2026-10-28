@@ -12031,13 +12031,20 @@ documenté.*
 | `test:support` | **137/137** |
 
 - [x] **Nouveau balayage après correction : `ABSENCE — faux VERT possible : 0`.**
+
+      > ⚠️ **CE ZÉRO ÉTAIT FAUX, et la section 15.64 le corrige.** Une dixième assertion
+      > d'absence existait, que l'outil rangeait en « présence » faute de savoir lire une
+      > comparaison à zéro portant sur une variable. Elle gardait le cloisonnement des
+      > conversations. Trouvée le soir même, en relisant à la main ce que l'outil déclarait
+      > sans danger. *Le chiffre venait de l'outil ; la confiance, de nulle part.*
+
 - [x] **L'outil de recensement est VERSIONNÉ**, à `scripts/recenser-attentes.mjs`. Je venais
       d'écrire « à reconstruire si besoin, il n'est pas versionné » : c'était exactement la
       faute du script du pare-feu, une consigne qui pointe vers un fichier condamné avec la
-      session. Il rend `ABSENCE : 0` et liste les 45 restantes, nommées et situées.
-- [ ] **Les 45 assertions de PRÉSENCE restent à convertir**, un jour où ce sera le sujet. Elles
-      ne mentent pas ; elles coûtent des relances. `node scripts/recenser-attentes.mjs` dit
-      où en est le chantier à tout moment, sans qu'on ait à s'en souvenir.
+      session. Il liste les restantes, nommées et situées.
+- [x] **Les 45 assertions de PRÉSENCE sont traitées** — voir **15.64**. Trois n'étaient pas ce
+      que l'outil croyait, et le recenseur a été corrigé de trois angles morts avant d'être
+      cru. `node scripts/recenser-attentes.mjs` rend aujourd'hui `à traiter : 0`.
 
 ---
 
@@ -12108,3 +12115,156 @@ d'attribution**, vérifié par `grep` sur les huit messages.
 - **Cette commande reste donc celle du porteur du projet.** Tout le reste est prêt : le script
       enchaîne les trois étapes dans le bon ordre, et la marche à suivre complète — y compris
       comment répondre au bon dossier et les trois pièges — est en section **15.61**.
+---
+
+## 15.64 — Les 45 assertions de présence, le faux vert que mon outil cachait, et un délai porteur  `RÉSOLU`
+
+Le chantier était annoncé comme du confort : quarante-cinq assertions qui, lues trop tôt,
+**échouent** au lieu de mentir. Du faux rouge, coûteux en relances, jamais trompeur. En les
+relisant une à une, sept d'entre elles se sont révélées être autre chose.
+
+### Ce que la relecture a trouvé, et que le recensement déclarait sans danger
+
+- [x] **`messagerie.mjs:339` était une assertion d'ABSENCE, classée en présence.** Elle garde
+      le **cloisonnement des conversations** — « le fil de Carol n'apparaît pas chez Bob ».
+      Sur une page de Bob non rendue, « fil de Carol » n'y figure pas : l'assertion passait au
+      **vert en ayant mesuré le néant**.
+
+      ```js
+      const filCarolChezBob = await pageBob.getByText('fil de Carol').count();
+      ok('le fil de Carol n’apparaît pas chez Bob', filCarolChezBob === 0);
+      ```
+
+      Le recenseur cherchait la comparaison à zéro **dans la ligne de lecture**. Ici la lecture
+      est sur une ligne, le verdict sur la suivante, et la comparaison porte sur un **nom de
+      variable**. Angle mort parfait. Désormais ancrée sur la présence du fil de Bob.
+
+- **LA LEÇON, plus grave que le défaut.** Un outil de recensement qui se trompe de classement
+  est **pire qu'une absence d'outil**, parce qu'il délivre un certificat de bonne santé. Le 28
+  octobre au matin, `ABSENCE : 0` a été annoncé comme un acquis. C'était faux, et rien ne
+  pouvait le signaler : l'outil ne sait pas qu'il ne sait pas.
+  *Ce qu'un outil range dans les cases sûres doit être relu au moins une fois à la main.*
+
+- [x] **Deux des quarante-cinq étaient déjà justes.** `messagerie.mjs` (pastille) et
+      `notifications.mjs` (suppression d'une ligne) placent leur délai **dans une boucle de
+      scrutation** : c'est une attente conditionnelle écrite à la main, donc exactement le
+      motif qu'on cherche à obtenir. L'outil les comptait comme une dette.
+
+- [x] **Quatre sont volontairement instantanées, et le resteront.** `relations.mjs:328` mesure
+      **pendant** le chargement — « la liste précédente disparaît » — et c'est le seul instant
+      où le défaut était visible. Les trois de `publication-toggle.mjs` vérifient qu'une chose
+      **n'a pas** changé. *On ne peut pas attendre un non-événement.* Elles portent désormais
+      un marqueur `mesure-instantanee :` que le recenseur reconnaît et cesse de compter.
+
+### Les trois angles morts du recenseur, corrigés
+
+| | Ce qu'il ratait | Conséquence |
+|---|---|---|
+| 1 | la comparaison à zéro portant sur une **variable**, une ligne plus bas | un faux vert déclaré sain |
+| 2 | il **s'arrêtait à la première lecture** du bloc | les absences qui suivaient une présence étaient invisibles |
+| 3 | il ignorait `rendu()`, l'**attente conditionnelle maison** | il déclarait fautif le travail déjà corrigé |
+
+Deux catégories ont été ajoutées, parce qu'un inventaire qui ne distingue pas le sûr du
+douteux ne sert à rien : **GARDÉE** (lecture précédée d'une attente) et **ANCRÉE** (absence
+précédée d'une présence). Et une frontière de fonction arrête le balayage : un délai suivi
+d'une fonction définie juste après se voyait attribuer une lecture qui s'exécute ailleurs —
+`paiement-e2e.mjs` en donnait l'exemple avec un sondeur de sélecteurs.
+
+### Le choix de méthode : ancrer sans déplacer
+
+- **Les délais fixes ont été CONSERVÉS**, et une attente conditionnelle insérée devant chaque
+  lecture. Les retirer aurait changé la chronologie d'assertions voisines qui, elles, mesurent
+  des compteurs d'appels réseau ou des états transitoires. Ancrer ne peut que rendre la suite
+  plus sûre ; déplacer, non.
+- **Conséquence assumée** : ce chantier achète de la **fiabilité**, pas de la vitesse. Le gain
+  de temps n'arrivera que le jour où une suite aurait échoué et aurait dû être relancée.
+- Trois exceptions, où l'ancre remplace vraiment le délai : `relations.mjs` sur le retrait d'un
+  abonné (le nombre **diminue**, aucun localisateur ne sait attendre cela — une boucle de
+  scrutation remplace 2,5 s d'attente sèche), et les listes de 20 et 22 lignes, où l'on attend
+  **la vingtième** et **la vingt-deuxième** ligne. Attendre « une ligne » ne dit rien du
+  nombre : elle était déjà là avant le clic.
+
+### LE DÉLAI QUI PORTAIT UNE PRÉCONDITION, ET QUE J'AI RETIRÉ
+
+La quatrième exception a coûté une campagne rouge, et c'est la trouvaille la plus utile du lot.
+
+- [x] **`Bob voit « Alice écrit… » pendant la frappe` est tombée, de façon REPRODUCTIBLE**
+      (25/26, deux fois de suite). Ce test n'était **pas** dans les quarante-cinq : il utilise
+      déjà une attente conditionnelle de 6 s. Il passait la veille.
+
+      La cause est un délai de 2,5 s que j'avais remplacé **dans la section précédente**, le
+      prenant pour une attente de socket.
+
+      ```js
+      const signalerSaisie = useCallback(() => {
+        if (!minuteurSaisie.current) {
+          emettre('saisie:debut', { conversation: idConversation });  // UNE SEULE FOIS
+        } else {
+          clearTimeout(minuteurSaisie.current);                       // sinon on repousse
+        }
+        minuteurSaisie.current = setTimeout(() => { … }, 2000);
+      }, [emettre, idConversation]);
+      ```
+
+      `signalerSaisie()` n'émet `saisie:debut` **qu'au début d'une série**. Tant que son
+      minuteur de deux secondes court, chaque frappe ne fait que le repousser. Alice venait
+      d'écrire le message précédent : sans les 2,5 s, le minuteur n'avait pas expiré, **aucun
+      `saisie:debut` ne partait**, et Bob ne voyait jamais rien. *Le produit, lui, fonctionne
+      parfaitement.*
+
+- **CE DÉLAI N'EST PAS REMPLAÇABLE PAR UNE ATTENTE CONDITIONNELLE.** La fermeture de la série
+  est un minuteur côté client, invisible du dehors : il n'y a rien dans le DOM à attendre.
+  Seul le temps la referme. Il est restauré, au bon endroit cette fois — au début de la section
+  de l'indicateur de saisie — et il porte désormais son explication.
+
+  > **LEÇON : un délai fixe qui porte une précondition doit la DIRE.** Sinon le prochain
+  > passage le prend pour de la négligence et le retire. C'est exactement ce que j'ai fait.
+
+- **Et cela valide la règle conservatrice** énoncée plus haut : garder les délais, ajouter les
+  ancres. Je l'ai enfreinte une seule fois, et c'était précisément l'endroit où elle comptait.
+
+### Le garde-fou maison, maintenant dans onze suites
+
+`rendu()` a été ajouté à `carte.mjs`, `parcours.mjs`, `publication-toggle.mjs`,
+`relations.mjs`, `support.mjs` et `paiement-e2e.mjs`. Il existait déjà dans `evenements.mjs`,
+`messagerie.mjs`, `notifications.mjs`, `parcours-10-11.mjs` et `recherche.mjs`.
+
+- [x] **Un nom déjà pris**, attrapé par `node --check` : `support.mjs` déclarait déjà un
+      `ecranAliceRendu` quatre cents lignes plus bas. Renommé en `widgetOuEcranRendu`.
+      *Le contrôle de syntaxe a servi, cette fois — mais il n'avait rien vu du `MongoClient`
+      manquant la veille. Il attrape les fautes de forme, pas d'exécution.*
+- [x] **`support.mjs` porte deux verdicts opposés selon la configuration**, donc deux ancres :
+      avec une URL d'agent on attend le bouton du widget (présence) ; sans elle on affirme son
+      absence, et il faut alors prouver que l'écran est rendu — on attend la barre de
+      navigation, présente dans les deux cas.
+- [x] **Les six sélecteurs introduits ont été vérifiés dans l'application** avant de lancer
+      quoi que ce soit : `fil-messages`, `liste-notifications`, `widget-support-bouton`,
+      `fiche-coach`, `Navigation principale`, et les deux textes du repli de géolocalisation.
+      *Une ancre qui pointe vers un sélecteur inexistant échoue toujours, et pour une raison
+      qui n'a rien à voir avec le test.*
+
+### État du recensement
+
+```
+ABSENCE  — faux VERT possible      : 0
+PRESENCE — faux ROUGE possible     : 0
+GARDÉE   — lecture après attente   : 20
+ANCRÉE   — absence après présence  : 3
+BOUCLE   — scrutation à la main    : 3
+DÉCLARÉE — l’instant est le sujet  : 4
+
+à traiter : 0     sans danger : 30
+```
+
+- **Et l'outil le dit lui-même désormais** : « un zéro ici ne vaut rien sans une campagne
+  verte : cet outil lit le texte, pas le navigateur. La preuve est dans `npm test`. »
+
+### La campagne, et une condition de machine qui n'a pas été corrigée
+
+- [x] **Campagne menée à 0,82 Go de mémoire libre**, délibérément : si les corrections valent
+      quelque chose, les suites doivent tenir dans de mauvaises conditions. Elles ont tenu —
+      la seule chute était la mienne, et elle était déterministe, pas fragile.
+- [ ] **Chrome est revenu : 20 processus, 1 503 Mo.** C'est la cause mesurée du passage de 10
+      à 24 minutes le 28 octobre. **Le fermer m'a été refusé** par la politique de l'agent
+      (« Interfere With Workloads ») ; le geste revient au porteur du projet. Aucun
+      contournement tenté.

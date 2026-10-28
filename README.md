@@ -284,9 +284,33 @@ contrôles d'autorisation et l'absence de l'adresse d'un événement privé dans
 le HTML. **Toute assertion d'absence doit donc s'ancrer sur une présence**, et
 dire en clair qu'elle ne conclut rien quand cet ancrage manque.
 
+Et l'outil qui les recense peut se tromper de camp. Une dixième assertion
+d'absence s'écrivait sur deux lignes — lecture rangée dans une variable,
+comparaison à zéro juste après — et se faisait compter comme une présence
+inoffensive. Elle gardait le cloisonnement des conversations privées.
+**Un recenseur qui se trompe de classement est pire que pas de recenseur**,
+parce qu'il délivre un certificat de bonne santé : ce qu'il range dans les
+cases sûres doit être relu au moins une fois à la main.
+
 Enfin, un compteur alimenté par un **événement socket** ne s'attend pas en
 sondant : l'événement émis avant la connexion est perdu pour de bon. On attend
 `page.waitForEvent('websocket')`, posé **avant** la navigation.
+
+**La règle a une exception, et elle se déclare.** Certains délais ne sont pas
+de la négligence : ils portent une **précondition qui n'a aucun signal dans le
+DOM**. L'indicateur « Alice écrit… » n'est émis qu'au début d'une série de
+frappe ; un minuteur de deux secondes referme la série, côté client, invisible
+du dehors. Le test doit donc laisser passer ces deux secondes — **seul le temps
+les referme**, et aucune attente conditionnelle ne peut les remplacer. Pris
+pour une attente de socket, ce délai a été retiré le 28 octobre 2026, et
+l'assertion est tombée de façon reproductible alors que le produit allait bien.
+
+> Un délai fixe qui porte une précondition doit la **dire**, sinon le prochain
+> passage le prend pour un oubli et le supprime. Même chose pour une lecture
+> volontairement instantanée — mesurer un état transitoire, « la liste
+> précédente disparaît pendant le chargement », **exige** un délai fixe. Ces
+> cas portent un marqueur `mesure-instantanee :` que
+> `scripts/recenser-attentes.mjs` reconnaît et cesse de compter comme une dette.
 
 **La mémoire libre est un prérequis annoncé**, au même titre que `stripe
 listen` : sous 2 Go, `npm test` avertit avant de lancer quoi que ce soit. Le
