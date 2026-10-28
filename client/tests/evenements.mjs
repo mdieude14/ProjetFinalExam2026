@@ -47,6 +47,45 @@ const section = (nom) => { sectionCourante = nom; };
 const ok = (libelle, condition, detail = '') =>
   resultats.push({ section: sectionCourante, libelle, ok: Boolean(condition), detail });
 
+/**
+ * ATTENDRE QUE LA PAGE AIT RENDU, PUIS SEULEMENT MESURER.
+ *
+ * `count()` est un INSTANTANÉ : il ne réessaie jamais, contrairement à un clic
+ * ou à `waitForURL`, qui attendent d'eux-mêmes. Un `waitForTimeout` suivi d'un
+ * `count()` lit donc le DOM à un instant arbitraire — vert sur une machine au
+ * repos, rouge sur une machine chargée, pour un code identique. C'est ce qui
+ * explique que seules les vérifications placées juste après un `goto`
+ * tombaient, et jamais celles qui suivent une action.
+ *
+ * ET CE N'ÉTAIT PAS QU'UNE QUESTION DE LENTEUR. Une assertion d'ABSENCE
+ * (`=== 0`) passe pour la mauvaise raison sur un écran vide : rien ne s'y
+ * trouve, donc le bouton interdit n'y est pas non plus. Les quatre contrôles
+ * de sécurité de cette suite — « un sportif ne se voit pas proposer de créer »,
+ * « la liste des participants n'est pas servie à un visiteur », « aucun bouton
+ * trompeur », « pas de création sans diplôme vérifié » — étaient comptés VERTS
+ * pendant que leurs voisines positives tombaient. Idem pour l'absence de
+ * l'adresse dans le HTML, que le commentaire du bas appelle « la vérification
+ * qui compte ».
+ *
+ * D'où une fonction qui REND un booléen au lieu de simplement attendre : il
+ * sert d'abord de vérification positive, puis de condition préalable aux
+ * assertions d'absence, qui ne peuvent plus conclure sur du vide.
+ *
+ * Le remède était déjà prouvé dans ce fichier, à la section « Autour de moi » —
+ * seul endroit qui attendait une condition, seul endroit qui passait en entier.
+ * Constaté le 28 octobre 2026 : 30/38 de façon reproductible à 0,7 Go de
+ * mémoire libre, sur du code que la substitution de la version d'origine avait
+ * déjà innocenté.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 function afficher(interrompu) {
   let derniere = null;
   for (const r of resultats) {
@@ -268,29 +307,29 @@ ok('entrée « Événements » dans la navigation',
   (await page.getByRole('link', { name: /Événements/ }).count()) > 0);
 
 await page.goto(BASE + '/evenements', { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(1500);
+const listeRendue = await rendu(page.getByText(`Sortie course ${S}`));
 
 ok('la page des événements s’ouvre', page.url().endsWith('/evenements'), page.url());
-ok('l’événement public figure dans la liste',
-  (await page.getByText(`Sortie course ${S}`).count()) > 0);
+ok('l’événement public figure dans la liste', listeRendue);
 ok('les places restantes sont annoncées',
   (await page.getByText(/place[s]? sur 4/).count()) > 0);
 
 ok('**un sportif ne se voit pas proposer de créer un événement**',
-  (await page.getByRole('button', { name: 'Créer un événement' }).count()) === 0);
+  listeRendue && (await page.getByRole('button', { name: 'Créer un événement' }).count()) === 0,
+  listeRendue ? '' : 'LISTE NON RENDUE : une absence ne conclut rien sur un écran vide');
 
 /* ---------------------- Fiche et inscription ---------------------- */
 
 await page.goto(BASE + `/evenements/${idPublic}`, { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(1200);
+const ficheRendue = await rendu(page.getByRole('heading', { name: `Sortie course ${S}` }));
 
-ok('la fiche affiche le titre',
-  (await page.getByRole('heading', { name: `Sortie course ${S}` }).count()) > 0);
+ok('la fiche affiche le titre', ficheRendue);
 ok('l’adresse d’un événement public est visible',
   (await page.getByText('Place Bellecour').count()) > 0);
 
 ok('**la liste des participants n’est pas servie à un simple visiteur**',
-  (await page.getByRole('heading', { name: /^Participants/ }).count()) === 0);
+  ficheRendue && (await page.getByRole('heading', { name: /^Participants/ }).count()) === 0,
+  ficheRendue ? '' : 'FICHE NON RENDUE : une absence ne conclut rien sur un écran vide');
 
 await page.getByRole('button', { name: 'Je participe' }).click();
 await page.waitForTimeout(2000);
@@ -327,8 +366,13 @@ ok('le compteur revient à 0 / 4', (await page.getByText('0 / 4').count()) > 0);
 section('Événement privé');
 
 await page.goto(BASE + `/evenements/${idPrive}`, { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(1200);
+const fichePrivee = await rendu(page.getByRole('heading', { name: `Stage privé ${S}` }));
 
+/*
+ * LE HTML EST LU APRÈS L'ATTENTE, jamais après un simple délai. Une page
+ * encore vide ne contient pas l'adresse : la vérification ci-dessous
+ * passerait pour la mauvaise raison, et c'est la plus importante de la suite.
+ */
 const html = await page.content();
 
 /*
@@ -338,15 +382,16 @@ const html = await page.content();
  * que l'on mesure ici.
  */
 ok('**l’adresse exacte est absente du HTML pour un non-abonné**',
-  !html.includes('Confidentielle'));
+  fichePrivee && !html.includes('Confidentielle'),
+  fichePrivee ? '' : 'FICHE NON RENDUE : une absence ne conclut rien sur un écran vide');
 
 ok('la ville reste visible', (await page.getByText('Lyon').count()) > 0);
-ok('le titre reste visible',
-  (await page.getByRole('heading', { name: `Stage privé ${S}` }).count()) > 0);
+ok('le titre reste visible', fichePrivee);
 ok('le verrouillage est expliqué, pas subi',
-  (await page.getByText(/réservé aux abonnés premium/i).count()) > 0);
+  await rendu(page.getByText(/réservé aux abonnés premium/i), 5000));
 ok('aucun bouton « Je participe » trompeur',
-  (await page.getByRole('button', { name: 'Je participe' }).count()) === 0);
+  fichePrivee && (await page.getByRole('button', { name: 'Je participe' }).count()) === 0,
+  fichePrivee ? '' : 'FICHE NON RENDUE : une absence ne conclut rien sur un écran vide');
 
 /* ================================================================== *
  *  AUTOUR DE MOI
@@ -437,10 +482,9 @@ pageCoach.on('console', (m) => { if (m.type() === 'error') erreursJs.push(m.text
 
 await seConnecter(pageCoach, pseudoCoach);
 await pageCoach.goto(BASE + '/evenements', { waitUntil: 'domcontentloaded' });
-await pageCoach.waitForTimeout(1200);
 
 ok('**un coach certifié peut créer un événement**',
-  (await pageCoach.getByRole('button', { name: 'Créer un événement' }).count()) > 0);
+  await rendu(pageCoach.getByRole('button', { name: 'Créer un événement' })));
 
 await pageCoach.getByRole('button', { name: 'Créer un événement' }).click();
 await pageCoach.waitForTimeout(600);
@@ -522,15 +566,25 @@ pageNovice.on('pageerror', (e) => erreursJs.push(e.message));
 
 await seConnecter(pageNovice, pseudoNovice);
 await pageNovice.goto(BASE + '/evenements', { waitUntil: 'domcontentloaded' });
-await pageNovice.waitForTimeout(1200);
+
+/*
+ * ON PROUVE D'ABORD QUE LA LISTE EST LÀ. Sans cet ancrage, l'absence du
+ * bouton serait constatée sur une page encore vide : la vérification
+ * passerait sans rien avoir mesuré. On s'accroche au filtre « Mes
+ * inscriptions », présent pour tout compte connecté, et non à un événement
+ * dont ce compte-ci n'a aucun.
+ */
+const listeNovice = await rendu(pageNovice.getByRole('button', { name: 'Mes inscriptions' }));
 
 /*
  * Le serveur refuserait de toute façon. Ne pas afficher le bouton évite de
  * promettre une action vouée au refus — la meilleure façon de faire croire
  * à une panne.
  */
+ok('la liste s’affiche pour un coach non certifié', listeNovice);
 ok('**pas de bouton de création pour un diplôme non vérifié**',
-  (await pageNovice.getByRole('button', { name: 'Créer un événement' }).count()) === 0);
+  listeNovice && (await pageNovice.getByRole('button', { name: 'Créer un événement' }).count()) === 0,
+  listeNovice ? '' : 'LISTE NON RENDUE : une absence ne conclut rien sur un écran vide');
 
 await navigateur.close();
 

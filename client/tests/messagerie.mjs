@@ -46,6 +46,28 @@ const section = (nom) => { sectionCourante = nom; };
 const ok = (libelle, condition, detail = '') =>
   resultats.push({ section: sectionCourante, libelle, ok: Boolean(condition), detail });
 
+/**
+ * ATTENDRE UNE CONDITION, PAS UNE DURÉE — et dire si la page a rendu.
+ *
+ * `count()` est un INSTANTANÉ : il ne réessaie jamais. Lu après un
+ * `waitForTimeout`, il mesure le DOM à un moment arbitraire, ce qui rend la
+ * suite verte au repos et rouge sous charge pour un code identique. Et une
+ * assertion d'ABSENCE passe alors pour la mauvaise raison, puisqu'une page
+ * vide ne contient rien — d'où le booléen rendu ici, qui sert de condition
+ * préalable à ces assertions.
+ *
+ * L'explication complète, et la mesure qui l'a établie, sont dans
+ * `tests/evenements.mjs`.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 function afficher(interrompu) {
   let derniere = null;
   for (const r of resultats) {
@@ -212,13 +234,11 @@ ok('**entrée « Messages » active dans la navigation**', (await lienMessages.c
 
 await lienMessages.click();
 await pageAlice.waitForURL('**/messages', { timeout: 15000 });
-await pageAlice.waitForTimeout(1500);
 
 ok('la page des messages s’affiche', pageAlice.url().includes('/messages'));
 
-const nomBob = `${'Bob'} Front`;
 ok('la conversation avec Bob figure dans la liste',
-  (await pageAlice.getByRole('button').filter({ hasText: 'Bob' }).count()) >= 1);
+  await rendu(pageAlice.getByRole('button').filter({ hasText: 'Bob' })));
 
 /* ================================================================== *
  *  TEMPS RÉEL À DEUX
@@ -380,14 +400,35 @@ ok('**la pastille apparaît chez Bob depuis une autre page**', pastilleVue);
 
 // Bob ouvre la conversation : la pastille doit retomber.
 await pageBob.goto(BASE + `/messages?c=${idBob}`, { waitUntil: 'domcontentloaded' });
-await pageBob.waitForTimeout(3000);
 
-const restePastille = await pageBob
-  .locator('nav[aria-label="Navigation principale"] a[href="/messages"]')
-  .textContent();
+/*
+ * ON ATTEND QUE LA PASTILLE RETOMBE, au lieu de parier sur 3 secondes.
+ *
+ * Deux raisons de ne pas lire après un délai fixe. La première : la remise à
+ * zéro passe par un appel au serveur, et sous charge trois secondes ne
+ * suffisaient pas — l'échec accusait le code pendant que la pastille
+ * retombait une seconde plus tard. La seconde, plus sournoise : lue trop
+ * tôt, la barre de navigation peut n'être pas encore rendue, et « aucun
+ * chiffre » serait alors vrai sur du vide. On exige donc d'abord que la
+ * conversation soit ouverte.
+ */
+const conversationOuverte = await rendu(pageBob.getByLabel('Votre message'));
+const pastilleBob = pageBob.locator('nav[aria-label="Navigation principale"] a[href="/messages"]');
+await pageBob
+  .waitForFunction(
+    () => {
+      const lien = document.querySelector('nav[aria-label="Navigation principale"] a[href="/messages"]');
+      return lien && !/\d/.test(lien.textContent || '');
+    },
+    null,
+    { timeout: 10000 }
+  )
+  .catch(() => {});
+
+const restePastille = await pastilleBob.textContent().catch(() => '');
 ok('**et retombe une fois la conversation ouverte**',
-  !/\d/.test((restePastille || '').replace(/[^\d]/g, '')),
-  restePastille?.trim());
+  conversationOuverte && !/\d/.test((restePastille || '').replace(/[^\d]/g, '')),
+  conversationOuverte ? restePastille?.trim() : 'CONVERSATION NON OUVERTE : rien de concluant');
 
 /* ================================================================== *
  *  DEMANDE DE CHAT
@@ -423,11 +464,19 @@ ok('les deux boutons sont proposés',
 
 // Côté Alice, la demande est en attente : elle ne peut plus écrire.
 await pageAlice.goto(BASE + `/messages?c=${idDave}`, { waitUntil: 'domcontentloaded' });
-await pageAlice.waitForTimeout(2000);
+
+/*
+ * L'EXPLICATION SERT D'ANCRAGE À L'INTERDICTION. On attend qu'elle paraisse,
+ * puis seulement on constate que la zone de saisie n'est pas là : sur un
+ * écran encore vide, son absence ne prouverait rien du tout.
+ */
+const attenteExpliquee = await rendu(
+  pageAlice.getByText(/lorsque votre demande aura été acceptée/)
+);
+ok('et l’interface le dit', attenteExpliquee);
 ok('**le demandeur ne peut plus écrire tant que la demande attend**',
-  (await pageAlice.getByLabel('Votre message').count()) === 0);
-ok('et l’interface le dit',
-  (await pageAlice.getByText(/lorsque votre demande aura été acceptée/).count()) === 1);
+  attenteExpliquee && (await pageAlice.getByLabel('Votre message').count()) === 0,
+  attenteExpliquee ? '' : 'ÉCRAN NON RENDU : une absence ne conclut rien');
 
 await pageDave.getByRole('button', { name: 'Accepter' }).click();
 await pageDave.waitForTimeout(2500);
@@ -458,10 +507,15 @@ for (const largeur of [375, 768]) {
 
 await pageAlice.setViewportSize({ width: 375, height: 900 });
 await pageAlice.goto(BASE + `/messages?c=${idBob}`, { waitUntil: 'domcontentloaded' });
-await pageAlice.waitForTimeout(1800);
 
+/*
+ * ON ATTEND LE BOUTON, PAS 1,8 SECONDE. Dernière occurrence du motif dans
+ * cette suite, et elle a tenu jusqu'à la campagne du 28 octobre 2026 : un
+ * `count()` lu trop tôt rendait 0, et l'échec laissait croire que le retour
+ * mobile avait disparu de l'interface.
+ */
 ok('**en mobile, un retour vers la liste est proposé**',
-  (await pageAlice.getByLabel('Retour aux conversations').count()) === 1);
+  await rendu(pageAlice.getByLabel('Retour aux conversations')));
 
 await pageAlice.screenshot({ path: DOSSIER_CAPTURES + '/messagerie-mobile.png' });
 

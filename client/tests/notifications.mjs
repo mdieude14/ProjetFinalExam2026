@@ -122,7 +122,7 @@ async function seConnecter(page, pseudo) {
  *
  * ON LIT LE LIBELLÉ ACCESSIBLE, PAS LES CHIFFRES DU LIEN.
  * Le lien contient DEUX fois le nombre : une fois dans la pastille visible,
- * une fois dans le texte réservé aux lecteurs d'écran (« — 1 non lu »).
+ * une fois dans le texte réservé aux lecteurs d'écran (« , 1 non lu », depuis le retrait des cadratins le 28 octobre 2026).
  * Retirer les non-chiffres de tout le lien concaténait les deux et rendait
  * « 11 » pour une seule notification — un échec qui accusait le compteur
  * alors que seul le banc d'essai comptait mal.
@@ -140,6 +140,76 @@ async function pastilleDe(page, chemin) {
 
   return correspondance ? correspondance[1] : '';
 }
+
+/**
+ * ATTENDRE LA BARRE DE NAVIGATION, AVANT TOUTE LECTURE DE PASTILLE.
+ *
+ * `pastilleDe()` rend la chaîne vide dans DEUX cas qui n'ont rien à voir :
+ * aucune notification non lue, ou barre de navigation pas encore rendue. Cette
+ * ambiguïté coûtait deux fois.
+ *
+ * D'abord un FAUX VERT : « aucune pastille au départ » était satisfaite par
+ * une page qui n'avait rien affiché du tout.
+ *
+ * Ensuite de FAUX ÉCHECS : les boucles de sondage dépensaient leur budget de
+ * huit secondes à attendre le chargement de la page, et non l'arrivée de la
+ * notification. Sous charge, la campagne rendait « pastille «  » » pour un
+ * code qui fonctionnait — vérifié en rejouant la suite seule.
+ *
+ * Le sondage reste nécessaire ensuite : la pastille monte sur un événement
+ * réseau, et aucune condition DOM ne peut être attendue avant qu'il arrive.
+ */
+const navRendue = async (page, delai = 15000) => {
+  try {
+    await page
+      .locator('nav[aria-label="Navigation principale"]')
+      .first()
+      .waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Attendre une condition et non une durée. Explication : `tests/evenements.mjs`. */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * SONDER LA PASTILLE JUSQU'À LA VALEUR ATTENDUE, puis rendre ce qu'on a lu.
+ *
+ * La pastille change au retour d'un appel au serveur : la lire après un délai
+ * fixe revient à parier sur la latence du moment, et le pari se perd dès que
+ * la machine travaille. On sonde donc jusqu'à la valeur espérée, et on rend la
+ * DERNIÈRE valeur lue — ainsi un vrai défaut échoue en affichant le chiffre
+ * réellement présent, ce qui reste diagnosticable, au lieu d'une chaîne vide.
+ */
+const pastilleAttendue = async (page, chemin, attendue, delai = 20000) => {
+  /*
+   * LA BARRE D'ABORD, LE COMPTEUR ENSUITE.
+   *
+   * Sans ce contrôle, un échec rend « pastille «  » » — une valeur vide qui
+   * peut vouloir dire deux choses sans rapport : le compteur est à zéro, ou la
+   * barre n'est pas rendue. On a déjà levé cette ambiguïté pour l'état de
+   * départ ; elle revenait ici par la porte du sondage. Un libellé explicite
+   * vaut mieux qu'un vide à interpréter.
+   */
+  if (!(await navRendue(page, delai))) return 'NAVIGATION NON RENDUE';
+
+  const limite = Date.now() + delai;
+  let vue = await pastilleDe(page, chemin);
+  while (vue !== attendue && Date.now() < limite) {
+    await page.waitForTimeout(300);
+    vue = await pastilleDe(page, chemin);
+  }
+  return vue;
+};
 
 /* ------------------------- Accès direct à la base ------------------------ */
 
@@ -239,15 +309,17 @@ const lienNotifs = pageAlice.locator(
 ok('**entrée « Notifications » présente dans la navigation**',
   (await lienNotifs.count()) === 1);
 
-ok('aucune pastille au départ', (await pastilleDe(pageAlice, '/notifications')) === '');
+const navDepart = await navRendue(pageAlice);
+ok('aucune pastille au départ',
+  navDepart && (await pastilleDe(pageAlice, '/notifications')) === '',
+  navDepart ? '' : 'NAVIGATION NON RENDUE : une pastille vide ne prouve rien');
 
 await lienNotifs.click();
 await pageAlice.waitForURL('**/notifications', { timeout: 15000 });
-await pageAlice.waitForTimeout(1800);
 
 ok('la page s’ouvre', pageAlice.url().includes('/notifications'));
 ok('**une liste vide explique à quoi sert l’écran**',
-  (await pageAlice.getByText(/Aucune notification pour le moment/).count()) === 1);
+  await rendu(pageAlice.getByText(/Aucune notification pour le moment/)));
 ok('les deux onglets sont proposés',
   (await pageAlice.getByRole('button', { name: 'Toutes', exact: true }).count()) === 1 &&
     (await pageAlice.getByRole('button', { name: 'Non lues', exact: true }).count()) === 1);
@@ -258,9 +330,38 @@ ok('les deux onglets sont proposés',
 
 section('Réception en direct');
 
+/*
+ * ON ATTEND QUE LE SOCKET SOIT ÉTABLI AVANT DE PROVOQUER L'ÉVÉNEMENT.
+ *
+ * La pastille ne monte pas sur une relecture périodique : elle monte sur un
+ * événement `notification:nouvelle` reçu par socket, et le compteur
+ * s'incrémente localement. Un événement émis AVANT que le socket d'Alice soit
+ * connecté est donc perdu POUR DE BON — la pastille ne monte pas « plus
+ * tard », elle ne monte jamais. Sonder plus longtemps n'y changeait rien, ce
+ * qui explique l'alternance entre « pastille «  » » et le vert d'une série à
+ * l'autre, pour un code identique.
+ *
+ * Ce n'est pas un défaut du produit : `NotificationContext` assume cette
+ * dérive, et la navigation suivante remet le compteur d'aplomb. C'est une
+ * synchronisation qui manquait au TEST.
+ *
+ * L'écoute est posée AVANT la navigation : `waitForEvent` ne voit que les
+ * sockets ouverts après son appel, et c'est le chargement de la page qui en
+ * crée un. On attend ensuite une trame REÇUE, qui prouve que la poignée de
+ * main a abouti dans les deux sens — l'ouverture seule ne le prouve pas.
+ */
+const socketOuvert = pageAlice.waitForEvent('websocket', { timeout: 20000 }).catch(() => null);
+
 // Alice reste sur une AUTRE page : la pastille doit monter là aussi.
 await pageAlice.goto(BASE + '/home', { waitUntil: 'domcontentloaded' });
-await pageAlice.waitForTimeout(1500);
+
+// La barre doit être là AVANT qu'on commence à sonder, sans quoi le budget de
+// sondage sert à attendre la page et non la notification.
+ok('la barre de navigation est rendue sur l’autre page', await navRendue(pageAlice));
+
+const socket = await socketOuvert;
+if (socket) await socket.waitForEvent('framereceived', { timeout: 15000 }).catch(() => null);
+ok('**le socket temps réel est établi avant qu’on provoque l’événement**', Boolean(socket));
 
 // Bob aime la publication d'Alice, depuis l'API — le geste importe peu, c'est
 // l'arrivée côté Alice qu'on observe.
@@ -330,11 +431,10 @@ ok('chaque non lue propose « marquer comme lue »',
   (await boutonsLire.count()) === 2, `${await boutonsLire.count()}`);
 
 await boutonsLire.first().click();
-await pageAlice.waitForTimeout(2000);
 
-ok('**la pastille redescend à 1**',
-  (await pastilleDe(pageAlice, '/notifications')) === '1',
-  await pastilleDe(pageAlice, '/notifications'));
+const apresUneLecture = await pastilleAttendue(pageAlice, '/notifications', '1');
+ok('**la pastille redescend à 1**', apresUneLecture === '1',
+  `pastille « ${apresUneLecture} »`);
 
 /* ------------------------ Onglet « non lues » ------------------------ */
 
@@ -359,17 +459,27 @@ ok('le bouton « tout marquer comme lu » est proposé', (await toutLire.count()
  * a l'arrivee ferait disparaitre le repere de ce qui restait a voir. Le
  * bouton est explicite, et c'est l'utilisateur qui decide.
  */
+const avantToutLire = await pastilleAttendue(pageAlice, '/notifications', '1');
 ok('**arriver sur la page n’a pas tout marqué lu tout seul**',
-  (await pastilleDe(pageAlice, '/notifications')) === '1');
+  avantToutLire === '1', `pastille « ${avantToutLire} »`);
 
 await toutLire.click();
-await pageAlice.waitForTimeout(2500);
 
-ok('**la pastille disparaît**', (await pastilleDe(pageAlice, '/notifications')) === '',
-  await pastilleDe(pageAlice, '/notifications'));
+/*
+ * LA PASTILLE VIDE SERT D'ANCRAGE À L'ABSENCE DU BOUTON.
+ *
+ * Lues après 2,5 s, les deux vérifications pouvaient passer ensemble pour la
+ * mauvaise raison : barre non rendue, donc aucune pastille ET aucun bouton.
+ * `pastilleAttendue` exige la barre d'abord, puis attend la valeur espérée ;
+ * l'absence du bouton n'est examinée qu'ensuite.
+ */
+const pastilleVidee = await pastilleAttendue(pageAlice, '/notifications', '');
+ok('**la pastille disparaît**', pastilleVidee === '', `pastille « ${pastilleVidee} »`);
 
 ok('le bouton disparaît lui aussi, n’ayant plus d’objet',
-  (await pageAlice.getByRole('button', { name: 'Tout marquer comme lu' }).count()) === 0);
+  pastilleVidee === '' &&
+    (await pageAlice.getByRole('button', { name: 'Tout marquer comme lu' }).count()) === 0,
+  pastilleVidee === '' ? '' : 'PASTILLE NON VIDÉE : une absence ne conclut rien');
 
 /* ================================================================== *
  *  LE LIEN MÈNE QUELQUE PART
@@ -386,14 +496,24 @@ await appel(`/messages/conversations/${conv.json.conversation._id}/messages`, {
 });
 
 await pageAlice.goto(BASE + '/notifications', { waitUntil: 'domcontentloaded' });
-await pageAlice.waitForTimeout(2500);
 
+/*
+ * LA NOTIFICATION ARRIVE PAR LA LISTE, DONC ON L'ATTEND.
+ *
+ * Un `count()` après 2,5 s rendait 0 sous charge, et l'échec accusait le
+ * LIBELLÉ — « et non vous a envoyé un message » — alors que rien n'était
+ * encore affiché. Le détail du message d'échec pointait donc vers une
+ * mauvaise piste, ce qui est le pire des cas.
+ */
+const demandeAnnoncee = await rendu(pageAlice.getByText('souhaite vous écrire'));
 ok('**la demande de conversation est annoncée comme telle**',
-  (await pageAlice.getByText('souhaite vous écrire').count()) === 1,
-  'et non « vous a envoyé un message »');
+  demandeAnnoncee,
+  demandeAnnoncee ? 'et non « vous a envoyé un message »' : 'LISTE NON RENDUE');
 
 const lienMessagerie = pageAlice.locator('a[href^="/messages?c="]').first();
-ok('elle porte un lien vers la conversation', (await lienMessagerie.count()) === 1);
+ok('elle porte un lien vers la conversation',
+  demandeAnnoncee && (await lienMessagerie.count()) === 1,
+  demandeAnnoncee ? '' : 'LISTE NON RENDUE : rien de concluant');
 
 await lienMessagerie.click();
 await pageAlice.waitForURL('**/messages**', { timeout: 15000 });
@@ -402,8 +522,15 @@ await pageAlice.waitForTimeout(2000);
 ok('**le clic mène directement à la bonne conversation**',
   pageAlice.url().includes('/messages?c='), pageAlice.url().split('?')[1]);
 
+/*
+ * `pastilleAttendue` ET NON `pastilleDe`, pour la même raison qu'ailleurs : une
+ * pastille vide lue trop tôt ne distingue pas « marquée lue » de « barre pas
+ * encore rendue ». Attendre la valeur espérée lève l'ambiguïté, et un libellé
+ * explicite remplace le vide en cas d'échec.
+ */
+const pastilleApresClic = await pastilleAttendue(pageAlice, '/notifications', '');
 ok('et la notification a été marquée lue au passage',
-  (await pastilleDe(pageAlice, '/notifications')) === '');
+  pastilleApresClic === '', `pastille « ${pastilleApresClic} »`);
 
 /* ================================================================== *
  *  SUPPRESSION
@@ -438,8 +565,16 @@ await pageAlice.getByRole('button', { name: 'Supprimer cette notification' }).fi
  * suppression ne marche pas, la boucle expire et la vérification échoue — ce
  * qui est le résultat voulu, pour la bonne raison cette fois.
  */
+/*
+ * VINGT SECONDES, comme le `waitFor` ci-dessus, et non dix. Allonger le budget
+ * d'une attente CONDITIONNELLE ne coûte rien quand la condition arrive tôt :
+ * la boucle sort au premier essai sur une machine au repos. C'est toute la
+ * différence avec un délai fixe, qui se paie à chaque passage. À 0,73 Go de
+ * mémoire libre, dix secondes ne suffisaient pas à l'aller-retour serveur plus
+ * le rendu — mesuré le 28 octobre 2026.
+ */
 let apres = avant;
-for (let essai = 0; essai < 20 && apres >= avant; essai += 1) {
+for (let essai = 0; essai < 40 && apres >= avant; essai += 1) {
   await pageAlice.waitForTimeout(500);
   apres = await lignes.count();
 }
@@ -447,11 +582,31 @@ for (let essai = 0; essai < 20 && apres >= avant; essai += 1) {
 ok('**supprimer retire la ligne**', apres === avant - 1, `${avant} → ${apres}`);
 
 await pageAlice.reload({ waitUntil: 'domcontentloaded' });
-await pageAlice.waitForTimeout(2000);
-const apresRechargement = await pageAlice
-  .getByTestId('liste-notifications')
-  .locator('li')
-  .count();
+
+/*
+ * ON ATTEND QUE LA LISTE SOIT REVENUE, PAS DEUX SECONDES.
+ *
+ * Un `count()` lu après un délai fixe rend **0** sur une page qui n'a pas fini
+ * de charger. Et 0 est le pire des résultats ici : il ressemble à « la ligne
+ * supprimée a disparu, et toutes les autres avec elle », donc à une régression
+ * grave du code mesuré. La campagne du 28 octobre 2026 a rendu exactement cela,
+ * `-> 0` au lieu de 2, sur un code qui fonctionnait.
+ *
+ * On attend donc le compte espéré. S'il n'arrive jamais, l'attente expire et
+ * l'on compte quand même : l'assertion échoue alors sur le nombre RÉEL, et le
+ * diagnostic reste possible.
+ */
+const listeApres = pageAlice.getByTestId('liste-notifications');
+await pageAlice
+  .waitForFunction(
+    (attendu) =>
+      document.querySelectorAll('[data-testid="liste-notifications"] li').length === attendu,
+    apres,
+    { timeout: 15000 }
+  )
+  .catch(() => {});
+
+const apresRechargement = await listeApres.locator('li').count();
 ok('**et elle ne revient pas au rechargement**', apresRechargement === apres,
   `${apresRechargement}`);
 
@@ -462,13 +617,26 @@ ok('**et elle ne revient pas au rechargement**', apresRechargement === apres,
 section('Cloisonnement');
 
 await pageBob.goto(BASE + '/notifications', { waitUntil: 'domcontentloaded' });
-await pageBob.waitForTimeout(2000);
+
+/*
+ * L'ÉTAT VIDE SERT D'ANCRAGE AU CLOISONNEMENT.
+ *
+ * « Bob ne voit pas les notifications d'Alice » se lisait dans un HTML capturé
+ * après deux secondes : sur une page encore blanche, l'affirmation était vraie
+ * sans rien prouver. C'est le pire endroit où laisser un faux vert — ce
+ * contrôle est là pour garantir qu'un compte ne lit pas les notifications d'un
+ * autre.
+ *
+ * On attend donc d'abord le message d'état vide, qui prouve DEUX choses à la
+ * fois : la page a rendu, et la liste de Bob est effectivement vide.
+ */
+const videChezBob = await rendu(pageBob.getByText(/Aucune notification pour le moment/));
+ok('sa liste à lui est vide', videChezBob);
 
 const contenuBob = await pageBob.content();
 ok('**Bob ne voit pas les notifications d’Alice**',
-  !contenuBob.includes('a aimé votre publication'));
-ok('sa liste à lui est vide',
-  (await pageBob.getByText(/Aucune notification pour le moment/).count()) === 1);
+  videChezBob && !contenuBob.includes('a aimé votre publication'),
+  videChezBob ? '' : 'PAGE NON RENDUE : une absence ne conclut rien sur un écran vide');
 
 /* ================================================================== *
  *  RESPONSIVE ET CONSOLE

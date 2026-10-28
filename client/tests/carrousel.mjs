@@ -43,6 +43,28 @@ const section = (nom) => { sectionCourante = nom; };
 const ok = (libelle, condition, detail = '') =>
   resultats.push({ section: sectionCourante, libelle, ok: Boolean(condition), detail });
 
+/**
+ * ATTENDRE QU'UN ÉLÉMENT PORTE UN TEXTE, au lieu de parier sur une durée.
+ *
+ * `innerText()` est un INSTANTANÉ : il ne réessaie pas. Lu après un
+ * `waitForTimeout`, il mesure le DOM à un moment arbitraire — et l'absence
+ * qui suit passe alors pour la mauvaise raison, puisqu'un carrousel qui n'a
+ * pas fini de glisser n'affiche aucune flèche. L'attente est PORTÉE sur le
+ * localisateur reçu, et non sur un `document.querySelector` global : plusieurs
+ * cartes de la page ont un carrousel, et viser la première serait un faux.
+ *
+ * L'explication complète du motif est dans `tests/evenements.mjs`.
+ */
+const attendreTexte = async (localisateur, attendu, delai = 10000) => {
+  const limite = Date.now() + delai;
+  while (Date.now() < limite) {
+    const vu = ((await localisateur.innerText().catch(() => '')) || '').trim();
+    if (vu === attendu) return true;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return false;
+};
+
 function afficher(interrompu) {
   let derniere = null;
   for (const r of resultats) {
@@ -228,10 +250,20 @@ try {
     Math.abs(deplacement + largeur) < 2, `${Math.round(deplacement)} px pour ${Math.round(largeur)} px`);
 
   await carteMulti.getByTestId('carrousel-suivant').click();
-  await page.waitForTimeout(400);
-  ok('on atteint le dernier média', (await compteur.innerText()) === '3/3');
+
+  /*
+   * ON ATTEND LE COMPTEUR, ET IL SERT D'ANCRAGE À L'ABSENCE QUI SUIT.
+   *
+   * Lue après 400 ms, l'absence de la flèche passait pour la mauvaise raison
+   * dès que le carrousel n'avait pas fini de glisser : rien n'était là, donc
+   * la flèche non plus. On exige d'abord « 3/3 ».
+   */
+  const auDernier = await attendreTexte(compteur, '3/3');
+
+  ok('on atteint le dernier média', auDernier, await compteur.innerText());
   ok('**et la flèche « suivant » disparaît — pas de bouclage**',
-    (await carteMulti.getByTestId('carrousel-suivant').count()) === 0);
+    auDernier && (await carteMulti.getByTestId('carrousel-suivant').count()) === 0,
+    auDernier ? '' : 'CARROUSEL PAS AU BOUT : une absence ne conclut rien');
 
   section('La hauteur ne bouge pas');
 

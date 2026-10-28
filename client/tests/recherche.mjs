@@ -51,6 +51,28 @@ const section = (nom) => { sectionCourante = nom; };
 const ok = (libelle, condition, detail = '') =>
   resultats.push({ section: sectionCourante, libelle, ok: Boolean(condition), detail });
 
+/**
+ * ATTENDRE UNE CONDITION, PAS UNE DURÉE — et dire si la page a rendu.
+ *
+ * `count()` et `content()` sont des INSTANTANÉS : ils ne réessaient jamais.
+ * Lus après un `waitForTimeout`, ils mesurent le DOM à un moment arbitraire,
+ * ce qui rend la suite verte au repos et rouge sous charge pour un code
+ * identique. Et une assertion d'ABSENCE passe alors pour la mauvaise raison,
+ * puisqu'une page vide ne contient rien — d'où le booléen rendu ici, qui sert
+ * de condition préalable à ces assertions.
+ *
+ * L'explication complète, et la mesure qui l'a établie, sont dans
+ * `tests/evenements.mjs`.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 function afficher(interrompu) {
   let derniere = null;
   for (const r of resultats) {
@@ -360,9 +382,22 @@ await champ.press('ArrowUp');
 ok('la flèche haut relâche le surlignage',
   (await premiereOption.getAttribute('aria-selected')) === 'false');
 
+/*
+ * ON CONSTATE QUE LA LISTE ÉTAIT LÀ AVANT D'ÉCHAP.
+ *
+ * « Échap ferme la liste » se vérifiait par une absence après 400 ms : si la
+ * liste n'avait jamais paru, l'assertion passait sans rien éprouver. On la
+ * mesure donc avant, puis l'on attend sa disparition au lieu de parier sur
+ * une durée.
+ */
+const listeEtaitLa = (await listeSuggestions.count()) === 1;
+
 await champ.press('Escape');
-await page.waitForTimeout(400);
-ok('Échap ferme la liste', (await listeSuggestions.count()) === 0);
+await listeSuggestions.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+
+ok('Échap ferme la liste',
+  listeEtaitLa && (await listeSuggestions.count()) === 0,
+  listeEtaitLa ? '' : 'LISTE JAMAIS OUVERTE : sa fermeture ne prouve rien');
 
 /*
  * ET ÉCHAP NE DOIT PAS VIDER LE CHAMP — la vérification qui a débusqué un
@@ -405,6 +440,12 @@ await page.waitForTimeout(1800);
 ok('**le terme vient de l’URL** — la recherche est partageable',
   (await champ.inputValue()) === MOT, await champ.inputValue());
 
+/*
+ * LE HTML EST LU APRÈS QUE LES RÉSULTATS SONT LÀ. Le capturer après un simple
+ * délai donnait, sous charge, un document encore vide : les trois
+ * vérifications positives tombaient, et celle d'absence passait — sur du vide.
+ */
+const resultatsRendus = await rendu(page.getByText(`Seance ${MOT}`));
 const contenu = await page.content();
 
 ok('la publication gratuite figure dans les résultats', contenu.includes(`Seance ${MOT}`));
@@ -412,8 +453,10 @@ ok('la publication premium figure dans les résultats', contenu.includes(`Progra
 ok('l’événement figure dans les résultats', contenu.includes(`Stage ${MOT}`));
 
 ok('**la description premium est absente du HTML lui-même**',
-  !contenu.includes(SECRET),
-  'masquer en CSS ne protégerait personne');
+  resultatsRendus && !contenu.includes(SECRET),
+  resultatsRendus
+    ? 'masquer en CSS ne protégerait personne'
+    : 'RÉSULTATS NON RENDUS : une absence ne conclut rien sur un écran vide');
 
 for (const onglet of ['Personnes', 'Publications', 'Événements']) {
   ok(`onglet « ${onglet} » présent`,
@@ -465,14 +508,12 @@ await page.screenshot({ path: DOSSIER_CAPTURES + '/recherche-resultats.png' });
 section('Cas limites');
 
 await page.goto(BASE + '/recherche?q=xyzintrouvable' + S, { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(1500);
 ok('**une recherche sans résultat explique, plutôt que d’afficher un vide**',
-  (await page.getByText('Aucun résultat pour').count()) === 1);
+  await rendu(page.getByText('Aucun résultat pour')));
 
 await page.goto(BASE + '/recherche?q=a', { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(800);
 ok('un terme d’une lettre n’envoie rien au serveur et invite à préciser',
-  (await page.getByText('Saisissez au moins deux caractères').count()) === 1);
+  await rendu(page.getByText('Saisissez au moins deux caractères')));
 
 /*
  * L'ORDRE D'ARRIVÉE DES RÉPONSES.
@@ -481,16 +522,24 @@ ok('un terme d’une lettre n’envoie rien au serveur et invite à préciser',
  * au terme abandonné écraserait celle du terme courant.
  */
 await page.goto(BASE + '/recherche', { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(500);
+await champ.waitFor({ state: 'visible', timeout: 15000 });
 await champ.click();
 await champ.pressSequentially('mart', { delay: 30 });
 await champ.fill('');
 await champ.pressSequentially('elo', { delay: 30 });
-await page.waitForTimeout(1200);
+
+/*
+ * ON ATTEND QUE LA LISTE VIENNE, au lieu de parier sur 1,2 s. La réponse au
+ * second terme doit être arrivée pour qu'on puisse juger de son contenu ;
+ * sous charge, le pari se perdait et l'échec accusait l'annulation de requête
+ * alors qu'elle fonctionnait.
+ */
+const suggestionsVenues = await rendu(listeSuggestions.getByRole('option'), 10000);
+const terme = await champ.inputValue();
 
 ok('**la liste correspond au dernier terme saisi, pas à un terme abandonné**',
-  (await champ.inputValue()) === 'elo' &&
-    (await listeSuggestions.getByRole('option').count()) >= 1);
+  terme === 'elo' && suggestionsVenues,
+  `champ « ${terme} », ${await listeSuggestions.getByRole('option').count()} suggestion(s)`);
 
 /* --------------------------- Responsive --------------------------- */
 

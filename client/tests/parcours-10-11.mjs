@@ -49,6 +49,23 @@ const section = (nom) => { sectionCourante = nom; };
 const ok = (libelle, condition, detail = '') =>
   resultats.push({ section: sectionCourante, libelle, ok: Boolean(condition), detail });
 
+/**
+ * ATTENDRE UNE CONDITION, PAS UNE DURÉE.
+ *
+ * `count()` et `content()` sont des INSTANTANÉS : ils ne réessaient jamais.
+ * Lus après un `waitForTimeout`, ils mesurent le DOM à un moment arbitraire,
+ * ce qui rend la suite verte au repos et rouge sous charge pour un code
+ * identique. L'explication complète est dans `tests/evenements.mjs`.
+ */
+const rendu = async (localisateur, delai = 15000) => {
+  try {
+    await localisateur.first().waitFor({ state: 'visible', timeout: delai });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 function afficher(interrompu) {
   let derniere = null;
   for (const r of resultats) {
@@ -240,7 +257,14 @@ await champ.press('Escape');
 await page.goto(BASE + `/recherche?q=${encodeURIComponent(NOM)}`, {
   waitUntil: 'domcontentloaded',
 });
-await page.waitForTimeout(2000);
+
+/*
+ * LE HTML N'EST LU QUE QUAND LE RÉSULTAT EST LÀ. Capturé après deux
+ * secondes, il arrivait vide sous charge, et l'échec désignait le pseudo
+ * cherché — donnant l'impression que la recherche rendait le mauvais compte
+ * alors qu'elle n'avait simplement pas fini.
+ */
+await rendu(page.getByText(cible.pseudo));
 
 const contenu = await page.content();
 ok('**la recherche validée affiche un résultat**', contenu.includes(cible.pseudo), NOM);

@@ -19,6 +19,21 @@
  *     réunie à chaque exécution et non plus par accident ;
  *   - une décision prise par un autre administrateur entre l'affichage et le
  *     clic n'est pas écrasée, et l'écran se remet à jour.
+ *
+ * TOUTES LES ATTENTES SONT À 30 SECONDES, ET LE CHIFFRE N'EST PAS ARBITRAIRE.
+ *
+ * Elles étaient à 15. Le 28 octobre 2026, cette suite a été INTERROMPUE en
+ * trente-sixième position d'une campagne, sur
+ * `waiting for getByTestId('liste-support') to be visible` doublé de
+ * `waiting for navigation to finish` — l'écran `/admin/moderation` est le plus
+ * lourd de l'application, et quinze secondes n'ont pas suffi à l'ouvrir sur un
+ * poste à 0,9 Go de mémoire libre. Relancée seule : 137/137.
+ *
+ * Ce sont toutes des attentes CONDITIONNELLES, et c'est ce qui rend
+ * l'allongement gratuit : elles rendent la main dès que la condition est
+ * remplie, donc elles ne coûtent rien de plus sur une machine au repos. Un
+ * délai fixe, lui, se paie à chaque passage — la distinction vaut d'être
+ * retenue avant de toucher à un budget d'attente.
  * ===========================================================================
  */
 
@@ -100,7 +115,7 @@ async function seConnecter(page, pseudo) {
   await page.getByLabel('Mot de passe').fill(MDP);
   await page.getByRole('button', { name: 'Se connecter' }).click();
   await page.waitForURL('**/home', { timeout: 25000 });
-  await page.waitForSelector('nav[aria-label="Navigation principale"] a', { timeout: 15000 });
+  await page.waitForSelector('nav[aria-label="Navigation principale"] a', { timeout: 30000 });
 }
 
 /* ------------------------- Accès direct à la base ------------------------ */
@@ -348,6 +363,352 @@ try {
     await pageAlice.getByTestId('widget-support-bouton').waitFor({ state: 'visible', timeout: 20000 });
     ok('1280 px, messagerie : le widget reste proposé',
       await pageAlice.getByTestId('widget-support-bouton').isVisible());
+
+    /* =================================================================== *
+     *  PRÉSENTATION, PARCOURS, ET CE QUI PART RÉELLEMENT À L'AGENT
+     * =================================================================== */
+    section('Le widget : présentation et parcours');
+
+    /*
+     * L'AGENT EST SIMULÉ DANS CE QUI SUIT, ET C'EST TOUT LE POINT.
+     *
+     * Ce qu'on vérifie ici n'est pas la réponse du modèle — la section « Le
+     * widget interroge l'agent » l'a fait pour de vrai, une fois — mais CE QUE
+     * LE WIDGET ENVOIE : le parcours annoncé, l'objet dans son propre champ, et
+     * une question qui reste le message seul. Lire le corps de la requête est
+     * la seule preuve possible, et l'interception la rend déterministe ET
+     * gratuite : huit envois sans un centime de modèle.
+     */
+    const corpsRecus = [];
+    const ENTETES_CORS = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': '*',
+      'Access-Control-Allow-Methods': '*',
+    };
+
+    const simulerAgent = (page) =>
+      page.route(urlAgent, async (route) => {
+        /*
+         * LA PRÉ-VÉRIFICATION CORS N'EST PAS UNE REQUÊTE MÉTIER : on y répond
+         * sans la compter, sinon chaque envoi apparaîtrait deux fois et les
+         * contrôles liraient le mauvais corps.
+         */
+        if (route.request().method() === 'OPTIONS') {
+          return route.fulfill({ status: 204, headers: ENTETES_CORS });
+        }
+        corpsRecus.push(JSON.parse(route.request().postData() || '{}'));
+        return route.fulfill({
+          status: 200,
+          headers: ENTETES_CORS,
+          body: JSON.stringify({ reponse: 'Bien reçu, je regarde votre dossier.' }),
+        });
+      });
+
+    /*
+     * ON ATTEND UN ENVOI DE PLUS, PAS UN DÉLAI. Une attente fixe mesure la
+     * machine et non le code — la leçon de la suite « notifications ».
+     */
+    const attendreEnvoi = async (page, avant) => {
+      for (let essai = 0; essai < 100 && corpsRecus.length <= avant; essai += 1) {
+        await page.waitForTimeout(100);
+      }
+      return corpsRecus.length > avant ? corpsRecus[corpsRecus.length - 1] : null;
+    };
+
+    const ouvrirWidget = async (page) => {
+      await page.getByTestId('widget-support-bouton').click();
+      await page.getByTestId('widget-support-panneau').waitFor({ state: 'visible', timeout: 20000 });
+    };
+
+    /*
+     * PRÉSENT N'EST PAS VISIBLE, ET C'EST EXACTEMENT LE DÉFAUT TROUVÉ ICI.
+     *
+     * Première version : les options étaient posées SOUS la présentation, dans
+     * le fil. Elles existaient dans le DOM, un `count()` les trouvait, la suite
+     * passait au vert — et elles commençaient à 397 px d'un fil qui en montre
+     * 294. Personne ne les voyait. On compare donc leur rectangle à celui du
+     * panneau, seule mesure qui distingue « rendu » de « atteignable ».
+     */
+    const optionDansLeCadre = (page, cle) =>
+      page.getByTestId(`support-option-${cle}`).evaluate((bouton) => {
+        const p = bouton.closest('[data-test="widget-support-panneau"]').getBoundingClientRect();
+        const b = bouton.getBoundingClientRect();
+        return b.top >= p.top - 1 && b.bottom <= p.bottom + 1;
+      });
+
+    const contexteParcours = await navigateur.newContext({ viewport: { width: 1280, height: 900 } });
+    const pageParcours = await contexteParcours.newPage();
+    await simulerAgent(pageParcours);
+    await seConnecter(pageParcours, alice.pseudo);
+    await ouvrirWidget(pageParcours);
+
+    const presentation = pageParcours.getByTestId('support-presentation');
+    await presentation.waitFor({ state: 'visible', timeout: 20000 });
+    const textePresentationSportif = await presentation.innerText();
+
+    ok('**la présentation salue la personne par son prénom**',
+      textePresentationSportif.includes('Bonjour Alice'),
+      textePresentationSportif.split('\n')[0]);
+    ok('elle annonce ce qui concerne un sportif',
+      textePresentationSportif.includes('Abonnements premium')
+        && textePresentationSportif.includes('contenu exclusif'));
+    ok('**et jamais ce qui ne le concerne pas** — ni diplôme, ni versements',
+      !/diplôme|versements/i.test(textePresentationSportif));
+    ok('elle dit que l’assistant consulte le compte',
+      textePresentationSportif.includes('consulte votre compte'));
+    ok('**et qu’une décision humaine repart par e-mail** — sinon le silence de l’agent passe pour une panne',
+      textePresentationSportif.includes('répond par e-mail'));
+
+    /*
+     * LE CADRATIN EST PROSCRIT DANS CE QUE LIT L'UTILISATEUR, et cette règle
+     * du projet ne datait pas de ce widget : les deux flux n8n la font déjà
+     * respecter au modèle par un `sansCadratin()` qui NETTOIE sa sortie.
+     *
+     * CE QUI AVAIT ÉTÉ MANQUÉ : la règle portait sur le texte PRODUIT par
+     * l'agent, et personne ne l'avait appliquée aux textes ÉCRITS EN DUR dans
+     * le widget. La présentation en employait trois — un séparateur entre
+     * chaque capacité, deux encadrant l'incise de la phrase de transparence.
+     * Le même caractère était donc filtré d'un côté de la fenêtre et affiché
+     * de l'autre.
+     *
+     * LE CONTRÔLE PORTE SUR LE TEXTE RENDU, pas sur le fichier source : c'est
+     * ce que la personne voit qui compte, et un détail ajouté demain dans
+     * `PRESENTATION` passera par ici. Le demi-cadratin est surveillé avec le
+     * cadratin, comme dans `sansCadratin()` : ils se ressemblent à l'écran.
+     */
+    ok('**aucun tiret cadratin dans la présentation** — la règle du projet vaut aussi pour les textes du widget',
+      !/[—–]/.test(textePresentationSportif),
+      (textePresentationSportif.match(/.{0,20}[—–].{0,20}/g) ?? []).join(' | '));
+    ok('les deux options de parcours sont proposées',
+      (await pageParcours.getByTestId('support-option-support').count()) === 1
+        && (await pageParcours.getByTestId('support-option-usage').count()) === 1);
+    ok('**et elles sont VISIBLES dans le panneau, pas seulement présentes**',
+      (await optionDansLeCadre(pageParcours, 'support'))
+        && (await optionDansLeCadre(pageParcours, 'usage')));
+
+    await pageParcours.screenshot({ path: `${DOSSIER_CAPTURES}support-presentation-sportif.png` });
+
+    /* Le même panneau, vu par un coach : ce n'est pas le même texte. */
+    const contexteCoach = await navigateur.newContext({ viewport: { width: 1280, height: 900 } });
+    const pageCoach = await contexteCoach.newPage();
+    await seConnecter(pageCoach, coach.pseudo);
+    await ouvrirWidget(pageCoach);
+    await pageCoach.getByTestId('support-presentation').waitFor({ state: 'visible', timeout: 20000 });
+    const textePresentationCoach = await pageCoach.getByTestId('support-presentation').innerText();
+
+    ok('**la présentation d’un coach n’est pas celle d’un sportif**',
+      textePresentationCoach !== textePresentationSportif);
+    ok('elle parle de diplôme, de versements et d’abonnés premium',
+      /diplôme/i.test(textePresentationCoach)
+        && /versements/i.test(textePresentationCoach)
+        && /abonnés premium/i.test(textePresentationCoach));
+    ok('et jamais de souscrire un abonnement — un coach n’en souscrit pas',
+      !/souscrire/i.test(textePresentationCoach));
+    ok('**le texte du coach est net de cadratin lui aussi** — deux textes, une seule règle',
+      !/[—–]/.test(textePresentationCoach),
+      (textePresentationCoach.match(/.{0,20}[—–].{0,20}/g) ?? []).join(' | '));
+
+    await pageCoach.screenshot({ path: `${DOSSIER_CAPTURES}support-presentation-coach.png` });
+    await contexteCoach.close();
+
+    section('Le formulaire support : l’objet part à côté, pas dans la question');
+
+    await pageParcours.getByTestId('support-option-support').click();
+    await pageParcours.getByTestId('support-formulaire').waitFor({ state: 'visible', timeout: 30000 });
+
+    ok('**l’option « support » remplace la zone libre par un formulaire**',
+      (await pageParcours.getByTestId('support-saisie').count()) === 0);
+    ok('et referme les options : la pastille en tient lieu',
+      (await pageParcours.getByTestId('support-option-usage').count()) === 0);
+    ok('le focus arrive sur l’objet, sans tabulation à l’aveugle',
+      await pageParcours.getByTestId('support-objet')
+        .evaluate((el) => el === document.activeElement));
+    ok('une pastille rappelle le mode choisi',
+      (await pageParcours.getByTestId('support-pastille-parcours').innerText())
+        .includes('Support client'));
+
+    const OBJET_SUPPORT = `Prélèvement en double ${S}`;
+    const MESSAGE_SUPPORT = `J’ai été débité deux fois ce mois-ci, pouvez-vous vérifier ? ${S}`;
+
+    const envoisAvantBlocage = corpsRecus.length;
+    await pageParcours.getByTestId('support-message').fill(MESSAGE_SUPPORT);
+    ok('**objet vide : le bouton d’envoi reste fermé**',
+      await pageParcours.getByTestId('support-envoyer-formulaire').isDisabled());
+
+    await pageParcours.getByTestId('support-objet').fill('ab');
+    await pageParcours.getByTestId('support-message').click();
+    await pageParcours.getByTestId('support-erreur-objet')
+      .waitFor({ state: 'visible', timeout: 30000 });
+    ok('un objet trop court est expliqué SOUS le champ, pas deviné',
+      (await pageParcours.getByTestId('support-erreur-objet').innerText()).includes('3 caractères'));
+    ok('et rien n’est encore parti à l’agent', corpsRecus.length === envoisAvantBlocage,
+      `${corpsRecus.length - envoisAvantBlocage} envoi(s)`);
+
+    await pageParcours.getByTestId('support-objet').fill(OBJET_SUPPORT);
+
+    let ouvrable = false;
+    for (let essai = 0; essai < 30 && !ouvrable; essai += 1) {
+      ouvrable = await pageParcours.getByTestId('support-envoyer-formulaire').isEnabled();
+      if (!ouvrable) await pageParcours.waitForTimeout(100);
+    }
+    ok('objet et message valides : l’envoi s’ouvre', ouvrable);
+
+    const avantSupport = corpsRecus.length;
+    await pageParcours.getByTestId('support-envoyer-formulaire').click();
+    const corpsSupport = await attendreEnvoi(pageParcours, avantSupport);
+
+    ok('**le parcours « support » part avec la demande**', corpsSupport?.parcours === 'support',
+      `parcours « ${corpsSupport?.parcours} »`);
+    ok('**l’objet part dans SON champ**', corpsSupport?.objet === OBJET_SUPPORT,
+      String(corpsSupport?.objet).slice(0, 60));
+    ok('**et la question reste le message SEUL** — rien n’est concaténé, la borne des 2000 tient',
+      corpsSupport?.question === MESSAGE_SUPPORT);
+    ok('l’écran d’origine est toujours transmis', corpsSupport?.origine === '/home',
+      String(corpsSupport?.origine));
+
+    const bulleSupport = pageParcours.getByTestId('support-moi').last();
+    await bulleSupport.waitFor({ state: 'visible', timeout: 30000 });
+    ok('**l’objet s’affiche en tête de la bulle envoyée**',
+      (await bulleSupport.innerText()).startsWith(OBJET_SUPPORT));
+    ok('présentation et options quittent le fil au premier envoi',
+      (await pageParcours.getByTestId('support-presentation').count()) === 0
+        && (await pageParcours.getByTestId('support-option-support').count()) === 0);
+    ok('le parcours reste mémorisé pour la suite de la conversation',
+      (await pageParcours.getByTestId('support-formulaire').count()) === 1);
+
+    section('Les deux autres parcours : « usage », et aucun choix du tout');
+
+    await pageParcours.reload({ waitUntil: 'domcontentloaded' });
+    await ouvrirWidget(pageParcours);
+    await pageParcours.getByTestId('support-option-usage').click();
+    await pageParcours.getByTestId('support-pastille-parcours')
+      .waitFor({ state: 'visible', timeout: 30000 });
+
+    ok('**l’option « usage » garde la zone de saisie libre**',
+      (await pageParcours.getByTestId('support-saisie').count()) === 1
+        && (await pageParcours.getByTestId('support-formulaire').count()) === 0);
+    ok('son invite change, pour dire ce qu’on attend',
+      (await pageParcours.getByTestId('support-saisie').getAttribute('placeholder'))
+        === 'Décrivez ce que vous voulez faire…');
+    ok('et le focus y est posé',
+      await pageParcours.getByTestId('support-saisie')
+        .evaluate((el) => el === document.activeElement));
+
+    const avantUsage = corpsRecus.length;
+    await pageParcours.getByTestId('support-saisie')
+      .fill(`Comment me désinscrire d’un événement ? ${S}`);
+    await pageParcours.getByTestId('support-envoyer').click();
+    const corpsUsage = await attendreEnvoi(pageParcours, avantUsage);
+
+    ok('**le parcours « usage » part avec la question**', corpsUsage?.parcours === 'usage',
+      `parcours « ${corpsUsage?.parcours} »`);
+    ok('et l’objet part à null, puisqu’il n’y en a pas', corpsUsage?.objet === null,
+      String(corpsUsage?.objet));
+
+    await pageParcours.reload({ waitUntil: 'domcontentloaded' });
+    await ouvrirWidget(pageParcours);
+    const avantDirect = corpsRecus.length;
+    await pageParcours.getByTestId('support-saisie').fill(`Où voir mes notifications ? ${S}`);
+    await pageParcours.getByTestId('support-envoyer').click();
+    const corpsDirect = await attendreEnvoi(pageParcours, avantDirect);
+
+    ok('**sans aucun choix, la zone libre fonctionne comme avant**',
+      typeof corpsDirect?.question === 'string' && corpsDirect.question.includes('notifications'));
+    ok('**et le parcours part à null** — les options ne sont pas un passage obligé',
+      corpsDirect?.parcours === null, String(corpsDirect?.parcours));
+
+    section('« Changer » ramène aux options, et la fermeture aussi');
+
+    await pageParcours.reload({ waitUntil: 'domcontentloaded' });
+    await ouvrirWidget(pageParcours);
+    await pageParcours.getByTestId('support-option-support').click();
+    await pageParcours.getByTestId('support-formulaire').waitFor({ state: 'visible', timeout: 30000 });
+    await pageParcours.getByTestId('support-objet').fill('Un objet qui sera abandonné');
+    await pageParcours.getByTestId('support-changer-parcours').click();
+    await pageParcours.getByTestId('support-option-support')
+      .waitFor({ state: 'visible', timeout: 30000 });
+
+    ok('**« Changer » réaffiche les deux options**',
+      (await pageParcours.getByTestId('support-option-usage').count()) === 1);
+    ok('et referme le formulaire structuré',
+      (await pageParcours.getByTestId('support-formulaire').count()) === 0);
+    ok('la pastille du mode disparaît avec lui',
+      (await pageParcours.getByTestId('support-pastille-parcours').count()) === 0);
+
+    await pageParcours.getByTestId('support-option-usage').click();
+    await pageParcours.getByTestId('support-pastille-parcours')
+      .waitFor({ state: 'visible', timeout: 30000 });
+    await pageParcours.keyboard.press('Escape');
+    await pageParcours.getByTestId('widget-support-panneau')
+      .waitFor({ state: 'detached', timeout: 30000 });
+    await ouvrirWidget(pageParcours);
+    await pageParcours.getByTestId('support-option-usage')
+      .waitFor({ state: 'visible', timeout: 30000 });
+    ok('**fermé puis rouvert SANS échange, le parcours est oublié**',
+      (await pageParcours.getByTestId('support-pastille-parcours').count()) === 0);
+
+    section('Le parcours complet à 375 px');
+
+    const panneauWidget = pageParcours.getByTestId('widget-support-panneau');
+    /*
+     * `scrollWidth > clientWidth`, ET NON DES RECTANGLES. Le panneau porte
+     * `overflow-hidden` : un contenu trop large y est COUPÉ, donc invisible à
+     * la mesure des rectangles — et le défilement du document ne bouge pas
+     * davantage. Seule la largeur de défilement du panneau le dit.
+     */
+    const debordement = (cible) => cible.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+
+    await pageParcours.setViewportSize({ width: 375, height: 740 });
+    await pageParcours.reload({ waitUntil: 'domcontentloaded' });
+    await ouvrirWidget(pageParcours);
+    await pageParcours.getByTestId('support-presentation')
+      .waitFor({ state: 'visible', timeout: 20000 });
+
+    ok('présentation et options tiennent en largeur', !(await debordement(panneauWidget)));
+    ok('**et les deux options restent VISIBLES sur un téléphone** — c’est là que le fil est le plus court',
+      (await optionDansLeCadre(pageParcours, 'support'))
+        && (await optionDansLeCadre(pageParcours, 'usage')));
+    ok('le panneau ne déborde pas par le haut de l’écran',
+      await panneauWidget.evaluate((el) => el.getBoundingClientRect().top >= 0));
+    ok('et le document ne défile pas horizontalement',
+      !(await pageParcours.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth + 1
+      )));
+
+    const cadre = await pageParcours.getByTestId('support-envoyer').evaluate((bouton) => {
+      const p = bouton.closest('[data-test="widget-support-panneau"]').getBoundingClientRect();
+      const b = bouton.getBoundingClientRect();
+      return {
+        dedans: b.right <= p.right + 1 && b.left >= p.left - 1,
+        largeur: Math.round(b.width),
+      };
+    });
+    ok('**le bouton « Envoyer » reste DANS le panneau** — c’est ce que `min-w-0` défend',
+      cadre.dedans, `largeur ${cadre.largeur} px`);
+
+    await pageParcours.screenshot({ path: `${DOSSIER_CAPTURES}support-presentation-375.png` });
+
+    await pageParcours.getByTestId('support-option-support').click();
+    await pageParcours.getByTestId('support-formulaire').waitFor({ state: 'visible', timeout: 30000 });
+    await pageParcours.getByTestId('support-objet').fill(`Carte refusée ${S}`);
+    await pageParcours.getByTestId('support-message')
+      .fill(`Le paiement est refusé depuis hier soir ${S}`);
+
+    ok('**le formulaire support tient lui aussi à 375 px**', !(await debordement(panneauWidget)));
+    ok('et son bouton d’envoi reste atteignable',
+      await pageParcours.getByTestId('support-envoyer-formulaire').isVisible());
+
+    await pageParcours.screenshot({ path: `${DOSSIER_CAPTURES}support-formulaire-375.png` });
+
+    const avant375 = corpsRecus.length;
+    await pageParcours.getByTestId('support-envoyer-formulaire').click();
+    const corps375 = await attendreEnvoi(pageParcours, avant375);
+    ok('**et l’envoi aboutit depuis un téléphone**',
+      corps375?.parcours === 'support' && corps375?.objet === `Carte refusée ${S}`,
+      `parcours « ${corps375?.parcours} », objet « ${corps375?.objet} »`);
+
+    await contexteParcours.close();
   } else {
     ok('**sans URL d’agent, le widget est masqué — pas cassé**', boutonsWidget === 0,
       `${boutonsWidget} bouton(s)`);
@@ -356,9 +717,25 @@ try {
   section('Le back-office reste fermé à un compte ordinaire');
 
   await pageAlice.goto(`${BASE}/admin/moderation`, { waitUntil: 'domcontentloaded' });
-  await pageAlice.waitForTimeout(1500);
+
+  /*
+   * ON ANCRE SUR LA BARRE DE NAVIGATION, présente sur tout écran d'un compte
+   * connecté — que la route admin redirige Alice ou lui refuse l'accès.
+   *
+   * Sans cet ancrage, « aucune famille Support pour un sportif » était
+   * satisfaite par un écran encore blanc. C'est un contrôle d'autorisation :
+   * un faux vert y vaut une porte ouverte qu'on croit fermée.
+   */
+  const ecranAliceRendu = await pageAlice
+    .locator('nav[aria-label="Navigation principale"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
+
   ok('aucune famille « Support » pour un sportif',
-    (await pageAlice.getByTestId('famille-support').count()) === 0);
+    ecranAliceRendu && (await pageAlice.getByTestId('famille-support').count()) === 0,
+    ecranAliceRendu ? '' : 'ÉCRAN NON RENDU : une absence ne conclut rien');
   await contexteAlice.close();
 
   /* =================================================================== *
@@ -406,7 +783,7 @@ try {
   });
 
   await ecran.getByTestId('famille-support').click();
-  await ecran.getByTestId('liste-support').waitFor({ state: 'visible', timeout: 15000 });
+  await ecran.getByTestId('liste-support').waitFor({ state: 'visible', timeout: 30000 });
 
   const listesVues = await ecran.evaluate(() => window.__listesSupport);
   ok('**aucune liste périmée n’est montée, même une image**',
@@ -470,13 +847,13 @@ try {
   ok('il s’active une fois la décision écrite', await bouton.isEnabled());
 
   await bouton.click();
-  await ecran.getByText('Dossier traité').waitFor({ state: 'visible', timeout: 15000 });
+  await ecran.getByText('Dossier traité').waitFor({ state: 'visible', timeout: 30000 });
   ok('l’administration confirme l’instruction', true);
 
   await ecran.waitForFunction(
     (q) => !document.body.innerText.includes(q),
     QUESTION_ESCALADE,
-    { timeout: 15000 }
+    { timeout: 30000 }
   ).catch(() => {});
   ok('le dossier quitte « À traiter »',
     (await ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_ESCALADE }).count()) === 0);
@@ -503,7 +880,7 @@ try {
    */
   await ecran.getByTestId('onglet-clos').click();
   const carteInstruite = ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_ESCALADE });
-  await carteInstruite.waitFor({ state: 'visible', timeout: 15000 });
+  await carteInstruite.waitFor({ state: 'visible', timeout: 30000 });
   const texteInstruit = await carteInstruite.innerText();
   ok('« Traiter » le montre avec son historique', texteInstruit.includes(`par @${admin.pseudo}`));
   ok('et la décision prise', texteInstruit.includes('Décision : Remboursement accordé'));
@@ -512,7 +889,7 @@ try {
 
   await ecran.getByTestId('onglet-resolu').click();
   const carteUsage = ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_USAGE });
-  await carteUsage.waitFor({ state: 'visible', timeout: 15000 });
+  await carteUsage.waitFor({ state: 'visible', timeout: 30000 });
   ok('« Non escaladés » montre les échanges sans intervention humaine',
     (await carteUsage.count()) === 1);
   ok('en lecture seule',
@@ -547,7 +924,7 @@ try {
   await ecran.getByTestId('onglet-escalade').click();
 
   const carteCourriel = ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_COURRIEL });
-  await carteCourriel.waitFor({ state: 'visible', timeout: 15000 });
+  await carteCourriel.waitFor({ state: 'visible', timeout: 30000 });
 
   ok('**l’adresse du destinataire est affichée** — une erreur de dossier doit sauter aux yeux',
     (await carteCourriel.getByTestId('destinataire-courriel').innerText()).includes(alice.email));
@@ -557,7 +934,7 @@ try {
 
   await carteCourriel.getByTestId('brouillon-reponse').fill(BROUILLON);
   await carteCourriel.getByTestId('enregistrer-brouillon').click();
-  await ecran.getByText('Rien n’est encore parti').waitFor({ state: 'visible', timeout: 15000 });
+  await ecran.getByText('Rien n’est encore parti').waitFor({ state: 'visible', timeout: 30000 });
 
   const apresBrouillon = await bdd.collection('tickets').findOne({ _id: new ObjectId(String(idCourriel)) });
   ok('**en base : le brouillon est là, et AUCUNE réponse n’est partie**',
@@ -583,7 +960,7 @@ try {
       .includes('C’est le brouillon enregistré qui partirait'));
 
   await carteCourriel.getByTestId('enregistrer-brouillon').click();
-  await ecran.getByText('Rien n’est encore parti').waitFor({ state: 'visible', timeout: 15000 });
+  await ecran.getByText('Rien n’est encore parti').waitFor({ state: 'visible', timeout: 30000 });
   ok('une fois enregistrée, la correction rouvre l’envoi',
     await carteCourriel.getByTestId('preparer-envoi').isEnabled());
 
@@ -658,7 +1035,7 @@ try {
   await pageRetour.getByTestId('widget-support-bouton').click();
 
   const avis = pageRetour.getByTestId('avis-reponse-courriel');
-  await avis.waitFor({ state: 'visible', timeout: 15000 });
+  await avis.waitFor({ state: 'visible', timeout: 30000 });
   const texteAvis = await avis.innerText();
 
   ok('**l’avis annonce le courriel**', texteAvis.includes('envoyée par e-mail'));
@@ -686,9 +1063,20 @@ try {
 
   await pageRetour.reload({ waitUntil: 'domcontentloaded' });
   await pageRetour.getByTestId('widget-support-bouton').click();
-  await pageRetour.waitForTimeout(2500);
+
+  /*
+   * ON ANCRE SUR LE PANNEAU OUVERT. L'avis vit DANS le panneau : tant que
+   * celui-ci n'est pas monté, son absence ne prouve rien.
+   */
+  const panneauRouvert = await pageRetour
+    .getByTestId('widget-support-panneau')
+    .waitFor({ state: 'visible', timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
+
   ok('**et il ne reparaît pas à la visite suivante**',
-    (await pageRetour.getByTestId('avis-reponse-courriel').count()) === 0);
+    panneauRouvert && (await pageRetour.getByTestId('avis-reponse-courriel').count()) === 0,
+    panneauRouvert ? '' : 'PANNEAU NON OUVERT : une absence ne conclut rien');
 
   await contexteRetour.close();
   }
@@ -712,7 +1100,7 @@ try {
   await ecran.getByTestId('famille-support').click();
   await ecran.getByTestId('onglet-escalade').click();
   const carteConcurrente = ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_CONCURRENTE });
-  await carteConcurrente.waitFor({ state: 'visible', timeout: 15000 });
+  await carteConcurrente.waitFor({ state: 'visible', timeout: 30000 });
 
   // Pendant que la carte est à l'écran, un second administrateur tranche.
   const second = await inscrire('adminbisfront', 'Second');
@@ -731,7 +1119,7 @@ try {
   await carteConcurrente.getByLabel('Décision').fill('Désactivation maintenue.');
   await carteConcurrente.getByRole('button', { name: 'Clore sans courriel' }).click();
 
-  await ecran.getByText('Ce dossier a déjà été traité').waitFor({ state: 'visible', timeout: 15000 })
+  await ecran.getByText('Ce dossier a déjà été traité').waitFor({ state: 'visible', timeout: 30000 })
     .catch(() => {});
   ok('**l’écran explique le refus**',
     (await ecran.getByText('Ce dossier a déjà été traité').count()) > 0);
@@ -739,7 +1127,7 @@ try {
   await ecran.waitForFunction(
     (q) => !document.body.innerText.includes(q),
     QUESTION_CONCURRENTE,
-    { timeout: 15000 }
+    { timeout: 30000 }
   ).catch(() => {});
   ok('**et retire la carte périmée de « À traiter »**',
     (await ecran.getByTestId('dossier-ticket').filter({ hasText: QUESTION_CONCURRENTE }).count()) === 0);
@@ -786,7 +1174,7 @@ try {
   const carteEntrante = ecran
     .getByTestId('dossier-ticket')
     .filter({ hasText: QUESTION_COURRIEL_ENTRANT });
-  await carteEntrante.waitFor({ state: 'visible', timeout: 15000 });
+  await carteEntrante.waitFor({ state: 'visible', timeout: 30000 });
 
   ok('**le canal est annoncé dès la file** — inutile de chercher un pseudo qui n’existe pas',
     await carteEntrante.getByTestId('badge-canal-courriel').isVisible());
@@ -815,7 +1203,7 @@ try {
   await carteEntrante.getByTestId('preparer-envoi').click();
   await carteEntrante.getByTestId('confirmer-envoi').click();
   // Le dossier clos quitte « À traiter » : sa disparition EST la confirmation.
-  await carteEntrante.waitFor({ state: 'detached', timeout: 15000 });
+  await carteEntrante.waitFor({ state: 'detached', timeout: 30000 });
 
   const apresEnvoiCourriel = await bdd.collection('tickets').findOne({ courrielAuteur: ADRESSE_VISITEUR });
   ok('**après validation : le texte relu est figé, et le dossier clos**',
@@ -837,7 +1225,7 @@ try {
   await ecran.goto(`${BASE}/admin/moderation`, { waitUntil: 'domcontentloaded' });
   await ecran.getByTestId('famille-support').click();
   await ecran.getByTestId('onglet-escalade').click();
-  await ecran.getByTestId('dossier-ticket').first().waitFor({ state: 'visible', timeout: 15000 });
+  await ecran.getByTestId('dossier-ticket').first().waitFor({ state: 'visible', timeout: 30000 });
 
   /* ---------------------------- Le tri ---------------------------- */
 
@@ -872,13 +1260,26 @@ try {
    * pire qu'un réglage absent.
    */
   await ecran.getByTestId('famille-diplomes').click();
-  await ecran.waitForTimeout(1000);
+
+  /*
+   * ON ANCRE SUR LE COMPTEUR DE LA LISTE, qui s'affiche pour TOUTE famille
+   * ayant au moins un élément — et la suite crée exprès un diplôme en attente.
+   * Sans lui, l'absence du réglage de tri serait constatée sur une liste pas
+   * encore montée.
+   */
+  const listeDiplomesRendue = await ecran
+    .getByTestId('total-dossiers')
+    .waitFor({ state: 'visible', timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
+
   ok('**aucun réglage de tri sur les familles qui ne le gèrent pas**',
-    (await ecran.getByTestId('ordre-recent').count()) === 0);
+    listeDiplomesRendue && (await ecran.getByTestId('ordre-recent').count()) === 0,
+    listeDiplomesRendue ? '' : 'LISTE NON RENDUE : une absence ne conclut rien');
 
   await ecran.getByTestId('famille-support').click();
   await ecran.getByTestId('onglet-escalade').click();
-  await ecran.getByTestId('dossier-ticket').first().waitFor({ state: 'visible', timeout: 15000 });
+  await ecran.getByTestId('dossier-ticket').first().waitFor({ state: 'visible', timeout: 30000 });
 
   ok('le nombre total de dossiers est annoncé',
     (await ecran.getByTestId('total-dossiers').count()) === 1);
@@ -904,7 +1305,7 @@ try {
   await ecran.getByTestId('onglet-escalade').click();
 
   const carteARelire = ecran.getByTestId('dossier-ticket').filter({ hasText: ADRESSE_RELIRE });
-  await carteARelire.waitFor({ state: 'visible', timeout: 15000 });
+  await carteARelire.waitFor({ state: 'visible', timeout: 30000 });
 
   /*
    * L'AVERTISSEMENT DE PROVENANCE, ET POURQUOI IL COMPTE.
@@ -920,7 +1321,31 @@ try {
     'Bonjour, vos factures sont dans Paramètres puis Facturation. Bonne journée.'
   );
   await carteARelire.getByTestId('enregistrer-brouillon').click();
-  await ecran.waitForTimeout(1500);
+
+  /*
+   * ON ATTEND LA PREUVE EN BASE, et elle sert d'ancrage à l'absence qui suit :
+   * la mention « proposé par l'agent » doit tomber PARCE QUE l'exploitant a
+   * écrit, pas parce que la carte n'est plus montée.
+   *
+   * POURQUOI LA BASE ET NON UN REPÈRE À L'ÉCRAN. Premier essai : attendre
+   * `avis-brouillon-modifie`. C'était faux — ce repère signale des
+   * modifications NON enregistrées, donc il DISPARAÎT à la sauvegarde. Le
+   * serveur, lui, passe `brouillonParAgent` à `false` en enregistrant, avec un
+   * commentaire qui explique pourquoi : « le texte n'est plus celui de l'agent,
+   * même si l'exploitant n'a changé qu'un mot ». C'est exactement la condition
+   * que la mention lit, donc c'est elle qu'il faut attendre.
+   */
+  const brouillonEnregistre = await (async () => {
+    const limite = Date.now() + 30000;
+    while (Date.now() < limite) {
+      const dossier = await bdd
+        .collection('tickets')
+        .findOne({ courrielAuteur: ADRESSE_RELIRE });
+      if (dossier && dossier.brouillonParAgent === false) return true;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return false;
+  })();
 
   /*
    * ET IL DISPARAÎT DÈS QUE L'EXPLOITANT A ÉCRIT. Le laisser ensuite en ferait
@@ -928,7 +1353,9 @@ try {
    * sens le jour où elle serait vraie.
    */
   ok('**et la mention tombe dès que l’exploitant a relu et enregistré**',
-    (await carteARelire.getByTestId('provenance-brouillon').count()) === 0);
+    brouillonEnregistre &&
+      (await carteARelire.getByTestId('provenance-brouillon').count()) === 0,
+    brouillonEnregistre ? '' : 'ENREGISTREMENT NON CONSTATÉ : une absence ne conclut rien');
 
   /* ---------------------------- La suppression ---------------------------- */
 
@@ -943,7 +1370,7 @@ try {
 
   await ecran.getByTestId('onglet-clos').click();
   const carteClose = ecran.getByTestId('dossier-ticket').filter({ hasText: ADRESSE_VISITEUR });
-  await carteClose.waitFor({ state: 'visible', timeout: 15000 });
+  await carteClose.waitFor({ state: 'visible', timeout: 30000 });
 
   ok('un dossier traité propose, lui, la suppression',
     await carteClose.getByTestId('supprimer-dossier').isVisible());
@@ -959,7 +1386,7 @@ try {
     (await bdd.collection('tickets').findOne({ courrielAuteur: ADRESSE_VISITEUR })) !== null);
 
   await carteClose.getByTestId('confirmer-suppression').click();
-  await carteClose.waitFor({ state: 'detached', timeout: 15000 });
+  await carteClose.waitFor({ state: 'detached', timeout: 30000 });
 
   ok('**le second clic supprime, et la base le confirme**',
     (await bdd.collection('tickets').findOne({ courrielAuteur: ADRESSE_VISITEUR })) === null);
@@ -973,7 +1400,7 @@ try {
   await ecran.goto(`${BASE}/admin/moderation`, { waitUntil: 'domcontentloaded' });
   await ecran.getByTestId('famille-support').click();
   await ecran.getByTestId('onglet-clos').click();
-  await ecran.getByTestId('dossier-ticket').first().waitFor({ state: 'visible', timeout: 15000 });
+  await ecran.getByTestId('dossier-ticket').first().waitFor({ state: 'visible', timeout: 30000 });
 
   const deborde = await ecran.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth + 1

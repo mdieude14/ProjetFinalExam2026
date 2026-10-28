@@ -383,9 +383,18 @@ await prive.waitForTimeout(1800);
 ok('acceptation confirmée', await visible(prive.getByText(/vous suit désormais/)));
 
 await alice.reload({ waitUntil: 'networkidle' });
-await alice.waitForTimeout(1500);
+
+/*
+ * ON ANCRE SUR LE PSEUDO DU PROFIL VISITÉ.
+ *
+ * Sans cela, « accès au contenu privé obtenu » était satisfaite par une page
+ * encore blanche : le message « Ce compte est privé » n'y était pas non plus.
+ * Faux vert sur un contrôle de confidentialité.
+ */
+const profilPriveRendu = await visible(alice.getByText(`@${privePseudo}`), 15000);
 ok('**accès au contenu privé obtenu**',
-  (await alice.getByText('Ce compte est privé').count()) === 0);
+  profilPriveRendu && (await alice.getByText('Ce compte est privé').count()) === 0,
+  profilPriveRendu ? '' : 'PROFIL NON RENDU : une absence ne conclut rien sur un écran vide');
 
 /* ================================================================== *
  *  RESPONSIVE ET CONSOLE

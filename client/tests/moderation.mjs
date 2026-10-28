@@ -132,11 +132,32 @@ async function viaMenu(page, libelleEntree) {
 }
 
 /** Libellés actuellement proposés par le menu, menu refermé ensuite. */
-async function libellesDuMenu(page) {
+async function libellesDuMenu(page, attendu = null) {
   const bouton = page.getByTestId('menu-options');
   await bouton.waitFor({ state: 'visible', timeout: 15000 });
   await bouton.click();
   await page.getByRole('menu').waitFor({ state: 'visible', timeout: 5000 });
+
+  /*
+   * ON ATTEND LE LIBELLÉ ESPÉRÉ, PAS SEULEMENT L'OUVERTURE DU MENU.
+   *
+   * `getByRole('menu')` devient visible dès que le conteneur est monté : ses
+   * entrées peuvent n'avoir rendu que leur icône. Sous charge, la campagne du
+   * 27 octobre 2026 a lu « 🔇 » comme libellé complet du menu — un échec qui
+   * accusait la bascule de la restriction alors qu'elle fonctionnait.
+   *
+   * SI LE LIBELLÉ NE VIENT JAMAIS, on lit quand même : l'attente expire,
+   * l'assertion échoue sur le contenu RÉEL du menu, et le diagnostic reste
+   * possible. Transformer l'attente en échec direct ferait perdre cette trace.
+   */
+  if (attendu) {
+    await page
+      .getByRole('menuitem')
+      .filter({ hasText: attendu })
+      .first()
+      .waitFor({ state: 'visible', timeout: 10000 })
+      .catch(() => {});
+  }
 
   const libelles = await page.getByRole('menuitem').allInnerTexts();
   await page.keyboard.press('Escape');
@@ -307,7 +328,7 @@ try {
 
   ok(
     'le menu propose « Restreindre »',
-    (await libellesDuMenu(page)).includes('Restreindre'),
+    (await libellesDuMenu(page, 'Restreindre')).includes('Restreindre'),
     'avant toute action'
   );
 
@@ -331,7 +352,7 @@ try {
   });
   ok('LA RESTRICTION EST ÉCRITE EN BASE', Boolean(relationRestreinte));
 
-  const libellesApres = await libellesDuMenu(page);
+  const libellesApres = await libellesDuMenu(page, 'Lever la restriction');
   ok(
     'le menu BASCULE sur « Lever la restriction »',
     libellesApres.includes('Lever la restriction'),
@@ -352,7 +373,7 @@ try {
 
   ok(
     'le menu revient à « Restreindre »',
-    (await libellesDuMenu(page)).includes('Restreindre'),
+    (await libellesDuMenu(page, 'Restreindre')).includes('Restreindre'),
     'aller-retour complet'
   );
 
@@ -384,7 +405,7 @@ try {
 
   ok(
     'le menu indique désormais « Signalement en cours »',
-    (await libellesDuMenu(page)).includes('Signalement en cours')
+    (await libellesDuMenu(page, 'Signalement en cours')).includes('Signalement en cours')
   );
 
   /* =================================================================== *
@@ -513,7 +534,7 @@ try {
   await page.waitForTimeout(1200);
   ok(
     'le menu BASCULE sur « Débloquer »',
-    (await libellesDuMenu(page)).includes('Débloquer')
+    (await libellesDuMenu(page, 'Débloquer')).includes('Débloquer')
   );
 
   await page.screenshot({
@@ -539,7 +560,7 @@ try {
 
   ok(
     'le menu revient à « Bloquer »',
-    (await libellesDuMenu(page)).includes('Bloquer'),
+    (await libellesDuMenu(page, /Bloquer/)).includes('Bloquer'),
     'aller-retour complet'
   );
 
@@ -573,7 +594,7 @@ try {
     `${Math.round(ecartChat)} px du bord droit`
   );
 
-  const libellesChat = await libellesDuMenu(page);
+  const libellesChat = await libellesDuMenu(page, /Bloquer/);
   ok('il propose les mêmes actions que sur le profil',
     libellesChat.includes('Bloquer') && libellesChat.includes('Restreindre'),
     libellesChat.slice(0, 90));
@@ -620,10 +641,27 @@ try {
   section('On ne se modère pas soi-même');
 
   await page.goto(`${BASE}/profile/${alice.pseudo}`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(1500);
+
+  /*
+   * ON ANCRE SUR LE PSEUDO, qui ne s'affiche que si la page du profil a rendu.
+   *
+   * Sans cet ancrage, « aucun menu ⋯ sur son propre profil » était satisfaite
+   * par un écran encore blanc : rien ne s'y trouve, donc le menu non plus. Un
+   * faux vert sur un contrôle de modération — le pire endroit pour en laisser
+   * un. Trouvé au balayage du 28 octobre 2026, qui a recensé neuf assertions
+   * d'absence dans ce cas.
+   */
+  const profilRendu = await page
+    .getByText(`@${alice.pseudo}`)
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false);
+
   ok(
     'aucun menu « ⋯ » sur son propre profil',
-    (await page.getByTestId('menu-options').count()) === 0
+    profilRendu && (await page.getByTestId('menu-options').count()) === 0,
+    profilRendu ? '' : 'PROFIL NON RENDU : une absence ne conclut rien sur un écran vide'
   );
 } finally {
   await navigateur.close();
