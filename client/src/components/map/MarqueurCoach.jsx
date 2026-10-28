@@ -75,7 +75,7 @@ export default function MarqueurCoach({ coach, surSelection }) {
 
           {coach.positionPartagee && (
             <p className="mt-0.5 text-xs text-ardoise-400">
-              Position approchée — plusieurs coachs dans ce secteur
+              Position approchée : plusieurs coachs dans ce secteur
             </p>
           )}
 

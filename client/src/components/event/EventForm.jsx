@@ -136,7 +136,7 @@ export default function EventForm({ surCree, surAnnuler }) {
         value={champs.titre}
         onChange={modifier('titre')}
         erreur={erreurs.titre}
-        placeholder="Sortie course à pied — 10 km"
+        placeholder="Sortie course à pied, 10 km"
         required
       />
 

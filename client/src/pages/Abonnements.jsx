@@ -47,7 +47,7 @@ function LigneAbonnement({ abonnement, surAction }) {
   const libelleEtat = () => {
     if (abonnement.statut === 'impaye') return { texte: 'Paiement en échec', ton: 'text-red-700' };
     if (abonnement.annuleALaFinPeriode && abonnement.donneAcces) {
-      return { texte: 'Résilié — accès jusqu’à l’échéance', ton: 'text-amber-700' };
+      return { texte: 'Résilié, accès jusqu’à l’échéance', ton: 'text-amber-700' };
     }
     if (abonnement.donneAcces) return { texte: 'Actif', ton: 'text-green-700' };
     return { texte: 'Terminé', ton: 'text-ardoise-500' };

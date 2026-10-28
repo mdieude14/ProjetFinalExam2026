@@ -148,7 +148,7 @@ export default function RattachementTelegram() {
             >
               @{BOT_TELEGRAM}
             </a>{' '}
-            peut y répondre sur vos abonnements premium et vos prochaines inscriptions — jamais sur
+            peut y répondre sur vos abonnements premium et vos prochaines inscriptions, jamais sur
             un montant, un paiement ou votre adresse.
           </p>
           <Button variante="secondaire" onClick={delier} chargement={chargement}>

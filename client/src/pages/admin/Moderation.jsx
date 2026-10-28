@@ -1268,7 +1268,7 @@ export default function Moderation() {
           {pagination && pagination.total > 0 && (
             <p className="text-xs text-ardoise-500" data-test="total-dossiers">
               {pagination.total} dossier{pagination.total > 1 ? 's' : ''}
-              {pagination.pages > 1 && ` — page ${pagination.page} sur ${pagination.pages}`}
+              {pagination.pages > 1 && `, page ${pagination.page} sur ${pagination.pages}`}
             </p>
           )}
         </div>

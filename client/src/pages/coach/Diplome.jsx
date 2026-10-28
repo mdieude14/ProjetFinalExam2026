@@ -98,7 +98,7 @@ export default function Diplome() {
           {diplome.intitule && (
             <span className="text-sm text-ardoise-600">
               {diplome.intitule}
-              {diplome.organisme && ` — ${diplome.organisme}`}
+              {diplome.organisme && `, ${diplome.organisme}`}
             </span>
           )}
         </div>

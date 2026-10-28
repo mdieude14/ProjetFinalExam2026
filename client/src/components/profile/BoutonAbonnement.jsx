@@ -144,7 +144,7 @@ export default function BoutonAbonnement({ coach, estMoi = false, surChangement 
       {/* --- Le bouton lui-même --- */}
       {!abonnement?.donneAcces && statut.offreDisponible && (
         <Button pleineLargeur chargement={action} onClick={sabonner}>
-          S&apos;abonner — {prix}/mois
+          S&apos;abonner à {prix}/mois
         </Button>
       )}
 

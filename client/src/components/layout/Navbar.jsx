@@ -80,7 +80,7 @@ function LienNav({ to, libelle, icone, bientot, mobile, pastille = 0 }) {
             {pastille > 9 ? '9+' : pastille}
           </span>
           <span className="lecteur-ecran-seulement">
-            {` — ${pastille} non lu${pastille > 1 ? 's' : ''}`}
+            {`, ${pastille} non lu${pastille > 1 ? 's' : ''}`}
           </span>
         </>
       )}
@@ -247,7 +247,7 @@ export default function Navbar() {
 
               <span className="lecteur-ecran-seulement">
                 Menu du compte
-                {nbDemandes > 0 && ` — ${nbDemandes} demande${nbDemandes > 1 ? 's' : ''} en attente`}
+                {nbDemandes > 0 && `, ${nbDemandes} demande${nbDemandes > 1 ? 's' : ''} en attente`}
               </span>
             </button>
 

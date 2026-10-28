@@ -405,7 +405,7 @@ export default function Profile() {
             {profil.diplome?.intitule && (
               <span className="text-sm text-ardoise-600">
                 {profil.diplome.intitule}
-                {profil.diplome.organisme && ` — ${profil.diplome.organisme}`}
+                {profil.diplome.organisme && `, ${profil.diplome.organisme}`}
               </span>
             )}
           </div>
