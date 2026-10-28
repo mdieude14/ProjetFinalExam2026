@@ -47,3 +47,20 @@ docker/n8n/docker-compose.override.yml
 # workflows. Ce n est pas un secret, mais c est la conversation d une personne :
 # le depot reste independant de la machine. Voir destinations.local.example.json
 docker/n8n/destinations.local.json
+
+# Journal ecrit par scripts/epreuve-pare-feu.ps1, a cote de lui-meme pour que
+# l exploitant l ait sous la main. C est une trace d execution, pas une source :
+# chaque lancement l ecrase, et il n a rien a faire dans l historique.
+scripts/pare-feu-epreuve.txt
+
+# Les DEUX flux de messagerie generes, et eux seuls. Le generateur y GRAVE EN
+# DUR la conversation Telegram lue dans destinations.local.json ci-dessus :
+# les suivre reviendrait a publier, sur un depot public, l identifiant que ce
+# meme .gitignore protege une ligne plus haut. L indirection protegeait la
+# source, pas l artefact. Le .mjs reste la source de verite et sait les
+# reconstruire ; aucune suite ne lit ces JSON (agent-messagerie.mjs importe le
+# CONSTRUCTEUR), donc rien n est perdu. Les quatre autres workflows restent
+# suivis : ils ne portent aucune valeur locale, et deux passent par une
+# expression dynamique. Decide le 28 octobre 2026.
+docker/n8n/workflows/agent-messagerie-tri.json
+docker/n8n/workflows/agent-messagerie-corbeille.json
