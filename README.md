@@ -23,6 +23,37 @@ serveur, Socket.io pour le temps réel, Stripe Connect pour les paiements.
 | 10 | Recherche de personnes, publications et événements, avec autocomplétion |
 | 11 | Messagerie privée temps réel, avec sas anti-harcèlement |
 | 12 | Notifications centralisées, pastille en direct |
+| 13 | Reprise du projet sur une machine vierge : installation, semis de données, diagnostics |
+| 14 | Modération personnelle — bloquer, restreindre, signaler, depuis le profil et la conversation |
+| 15 | **Assistance automatisée** : un agent de support orchestré par n8n et rédigé par Claude, sur quatre canaux |
+
+### Le module 15 en deux mots
+
+C'est la seule partie de l'application qui ne tient pas dans `server/` et
+`client/`. Quatre workflows n8n, versionnés dans [`docker/n8n/workflows/`](docker/n8n/workflows/),
+relient Claude à l'API :
+
+| Canal | Ce qu'il fait |
+|---|---|
+| **Widget** | Une pastille d'assistance sur toutes les pages. L'agent classe la demande, consulte le compte de la personne en lecture seule, répond, ou remonte le dossier à un humain |
+| **Courriel** | Relève la boîte de l'assistance, rédige une réponse, et la **dépose en brouillon** — rien ne part sans validation humaine |
+| **Telegram** | Alerte l'équipe dès qu'un dossier est escaladé, et lui permet de répondre depuis la conversation |
+| **Messagerie** | Tri et corbeille assistés sur la messagerie interne |
+
+Deux garde-fous structurent tout le module :
+
+1. **L'agent n'interroge jamais MongoDB.** Il passe par les routes de l'API,
+   avec le jeton de la personne : il ne peut donc lire que ce qu'elle pourrait
+   lire elle-même, et une faille d'invite ne devient pas une fuite de données.
+2. **L'agent ne décide pas de ce qui le dépasse.** Un remboursement, un
+   litige, un signalement partent à un humain, et c'est le **serveur** qui en
+   décide — pas une consigne de prompt, que le modèle pourrait désactiver.
+   De même, une personne qui clique « Contacter le support client » obtient
+   un dossier humain quoi qu'en pense le classifieur.
+
+> Le support est une **couche en plus, pas une dépendance**. Sans URL d'agent
+> configurée, le widget est masqué et le reste de l'application fonctionne à
+> l'identique.
 
 ---
 
@@ -144,7 +175,7 @@ voir la section suivante.
 ## Lancer les tests
 
 ```bash
-npm test          # à la racine : les trente-cinq suites, une par une
+npm test          # à la racine : les trente-six suites, une par une
 ```
 
 La commande **vérifie d'abord les prérequis** et s'arrête avec un message
@@ -240,6 +271,28 @@ docker top coachconnect-n8n       # la colonne TIME nomme le coupable
 `waitForTimeout(2000)` suffit quand la suite tourne seule et pas en trentième
 position d'une campagne. **Attendre une condition, jamais une durée.**
 
+Cette règle était écrite ici bien avant d'être appliquée partout : six suites
+l'ignoraient encore au 28 octobre 2026. Le signe qui l'a trahi est précis —
+**seules les vérifications placées juste après un `goto` tombaient**, jamais
+celles qui suivent un clic ou un `waitForURL`, qui attendent d'eux-mêmes.
+`count()` et `content()`, eux, sont des instantanés : ils ne réessaient pas.
+
+Et le coût ne se lisait pas dans le rouge. Une assertion d'**absence**
+(`count() === 0`, `!html.includes(…)`) est **satisfaite par une page vide** :
+huit d'entre elles étaient comptées vertes sans rien mesurer, dont quatre
+contrôles d'autorisation et l'absence de l'adresse d'un événement privé dans
+le HTML. **Toute assertion d'absence doit donc s'ancrer sur une présence**, et
+dire en clair qu'elle ne conclut rien quand cet ancrage manque.
+
+Enfin, un compteur alimenté par un **événement socket** ne s'attend pas en
+sondant : l'événement émis avant la connexion est perdu pour de bon. On attend
+`page.waitForEvent('websocket')`, posé **avant** la navigation.
+
+**La mémoire libre est un prérequis annoncé**, au même titre que `stripe
+listen` : sous 2 Go, `npm test` avertit avant de lancer quoi que ce soit. Le
+seuil des suites de performance, lui, ne se relève pas pour obtenir du vert —
+ce serait truquer l'instrument.
+
 `npm test` lance par ailleurs les suites **une par une**, et ménage une pause
 entre deux suites navigateur : Chromium met un instant à rendre mémoire et
 sockets.
@@ -279,8 +332,9 @@ server/
     routes/        déclaration des URL
     middlewares/   auth, rôles, validation, upload, erreurs
     sockets/       temps réel (module 11)
+    validators/    bornes de forme des entrées
   scripts/         admin, reprise de données, diagnostics
-  tests/           six suites d'API
+  tests/           dix-neuf suites d'API
 
 client/
   src/
@@ -289,7 +343,15 @@ client/
     components/    par domaine : post, profile, map, event, message, …
     pages/         un écran par route
     routes/        gardes de navigation
-  tests/           neuf suites Playwright
+  tests/           dix-sept suites Playwright
+
+docker/
+  n8n/workflows/   les quatre workflows, et les scripts qui les GÉNÈRENT
+                   — la source de vérité est le `.mjs`, jamais le `.json`
+
+docs/SUIVI.md      le journal de bord : les décisions, et pourquoi
+captures/          sorties de campagne et captures d'écran des suites
+scripts/           la campagne de test complète (`npm test`)
 ```
 
 ---

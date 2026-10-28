@@ -21,6 +21,7 @@
     "test:geocodage": "node tests/geocodage.mjs",
     "reindexer-recherche": "node scripts/reindexerRecherche.js",
     "geocoder-evenements": "node scripts/geocoderEvenements.js",
+    "bout-en-bout-agent": "node scripts/bout-en-bout-agent.mjs",
     "test:recherche": "node tests/recherche.mjs",
     "test:messagerie": "node tests/messagerie.mjs",
     "test:notifications": "node tests/notifications.mjs",
@@ -34,7 +35,8 @@
     "test:telegram": "node tests/telegram-compte.mjs",
     "test:messagerie-agent": "node tests/agent-messagerie.mjs",
     "test:reponse": "node tests/reponse-support.mjs",
-    "test:courriel": "node tests/courriel-support.mjs"
+    "test:courriel": "node tests/courriel-support.mjs",
+    "test:escalade": "node tests/escalade-support.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

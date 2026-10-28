@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { freemem, totalmem } from 'node:os';
 
 const RACINE = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SERVEUR = join(RACINE, 'server');
@@ -74,6 +75,7 @@ const SUITES = [
   { paquet: 'server', script: 'test:telegram', libelle: 'API — rattachement Telegram' },
   { paquet: 'server', script: 'test:reponse', libelle: 'API — réponse à une demande' },
   { paquet: 'server', script: 'test:courriel', libelle: 'API — support par courriel' },
+  { paquet: 'server', script: 'test:escalade', libelle: 'API — escalade forcée du support' },
   { paquet: 'server', script: 'test:messagerie-agent', libelle: 'Workflows — assistant de messagerie' },
   { paquet: 'server', script: 'test:perf', libelle: 'API — performance' },
 
@@ -93,6 +95,14 @@ const SUITES = [
   { paquet: 'client', script: 'test:moderation', libelle: 'Navigateur — modération (menu « ⋯ »)' },
   { paquet: 'client', script: 'test:support', libelle: 'Navigateur — back-office du support' },
   { paquet: 'client', script: 'test:telegram', libelle: 'Navigateur — rattachement Telegram' },
+
+  /*
+   * CONTROLE STATIQUE, SANS NAVIGATEUR. Il lit le paquet de production, donc
+   * il ne depend d aucun serveur et ne cree aucun compte. Place ici, avant la
+   * performance, parce qu il reconstruit le paquet s il est perime : la suite
+   * de performance mesure ce meme paquet, et autant qu elle mesure le bon.
+   */
+  { paquet: 'client', script: 'test:cadratins', libelle: 'Texte livré — aucun cadratin séparateur' },
 
   /*
    * LA PERFORMANCE EN DERNIER, et pour une raison precise : elle mesure le
@@ -303,6 +313,35 @@ async function verifierPrerequis() {
         'Le relais Stripe doit tourner, sans quoi `test:paiement` échouera\n' +
         '      à mi-parcours sur des messages sans rapport avec la cause :\n' +
         '      stripe listen --forward-to localhost:5000/api/webhooks/stripe',
+    });
+  }
+
+  /* ---- La mémoire libre du poste ---- */
+  /*
+   * UN PRÉREQUIS AU MÊME TITRE QUE LE RELAIS STRIPE, et pour la même raison :
+   * son absence ne se voit qu'à travers des échecs qui accusent le code.
+   *
+   * Les suites navigateur chronomètrent des pages. Sous deux gigaoctets de
+   * mémoire libre, elles chronomètrent la machine. Le 27 octobre 2026,
+   * `/messages` a été mesuré à 10 370 ms en fin de campagne et à 1 463 ms
+   * relancé seul — sept fois plus rapide, sur un code identique. Trois
+   * campagnes du même jour ont rendu trois totaux différents.
+   *
+   * ON AVERTIT, ON NE BLOQUE PAS : une campagne sur un poste chargé reste
+   * utile pour tout ce qui ne mesure pas une durée, et c'est au porteur du
+   * projet de décider s'il ferme ses fenêtres.
+   */
+  const SEUIL_MEMOIRE_GO = 2;
+  const libreGo = freemem() / 1e9;
+  if (libreGo < SEUIL_MEMOIRE_GO) {
+    manques.push({
+      quoi: null, // un rappel, pas un blocage
+      rappel:
+        `Mémoire libre : ${libreGo.toFixed(2)} Go sur ${(totalmem() / 1e9).toFixed(1)}.\n` +
+        `      Sous ${SEUIL_MEMOIRE_GO} Go, les suites navigateur mesurent la machine plutôt\n` +
+        '      que l’application, et les échecs ne nomment jamais la mémoire.\n' +
+        '      Fermer les fenêtres du navigateur fait partie des prérequis,\n' +
+        '      au même titre que `stripe listen`.',
     });
   }
 

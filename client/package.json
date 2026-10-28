@@ -22,6 +22,7 @@
     "test:story-camera": "node tests/story-camera.mjs",
     "test:publication-toggle": "node tests/publication-toggle.mjs",
     "test:moderation": "node tests/moderation.mjs",
+    "test:cadratins": "node tests/cadratins.mjs",
     "test:support": "node tests/support.mjs",
     "test:carrousel": "node tests/carrousel.mjs",
     "test:telegram": "node tests/telegram.mjs"
