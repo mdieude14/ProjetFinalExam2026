@@ -12038,3 +12038,73 @@ documenté.*
 - [ ] **Les 45 assertions de PRÉSENCE restent à convertir**, un jour où ce sera le sujet. Elles
       ne mentent pas ; elles coûtent des relances. `node scripts/recenser-attentes.mjs` dit
       où en est le chantier à tout moment, sans qu'on ait à s'en souvenir.
+
+---
+
+## 15.63 — Huit commits poussés, et le tunnel qui m'est interdit  `RÉSOLU`
+
+### Pourquoi la sixième campagne s'était effondrée
+
+- [x] **La machine a redémarré pendant la campagne.** `uptime : 0,1 h`, aucun processus Docker,
+      aucun processus node. L'arrêt a emporté Docker Desktop, donc MongoDB, donc sept suites à
+      `0/0` et une huitième à `2/6` — la signature d'une base qui disparaît, pas d'une
+      régression. Le `ENOTFOUND` vu par le porteur du projet venait du même arrêt : ma session
+      perdait l'API en même temps que l'ordinateur s'éteignait. **DNS mesuré à 10/10 après
+      coup : le réseau n'était pas en cause.**
+- [x] **Le redémarrage a tenu sa promesse sur l'échange** : 15 878 Mo alloués et 3 550 de pic
+      avant, **7 926 Mo alloués et 1 197 en service** après.
+- [x] **Mais Chrome a restauré 27 processus et 1 387 Mo**, reprenant le gain aussitôt. Fermés.
+      *La leçon d'exploitation : un redémarrage ne sert à rien si la session du navigateur se
+      restaure derrière.*
+
+### La batterie, enfin dans de bonnes conditions
+
+```
+Total : 2035/2035 vérifications — Tout est au vert — 9 min 42 s
+```
+
+- [x] **9 min 42 s contre 24 min 36 s** pour la campagne verte de la veille, à code identique.
+      Machine fraîche, navigateur fermé. *Le temps de campagne est devenu une mesure de l'état
+      du poste, et c'est utile à savoir.*
+- [x] **Aller-retour réel contre l'agent : 25/25.** Les deux conditions posées par le porteur
+      du projet sont donc remplies.
+
+### Un bug à moi, que `node --check` ne pouvait pas voir
+
+- [x] **`bout-en-bout-agent.mjs` était cassé depuis son installation** :
+      `ReferenceError: MongoClient is not defined`. En assemblant le fichier avec son en-tête,
+      j'avais avalé la ligne d'import. `node --check` l'avait validé — c'est une erreur
+      d'EXÉCUTION, pas de syntaxe. *Un contrôle de syntaxe ne remplace pas un lancement.*
+      Corrigé, puis 25/25.
+
+### Les huit commits
+
+Découpés par thème, alignés sur ce journal, ne portant que `mdieude14` — **zéro ligne
+d'attribution**, vérifié par `grep` sur les huit messages.
+
+| | Thème | Fichiers |
+|---|---|---|
+| 1 | escalade forcée du support | 10 |
+| 2 | « Autour de moi » voie 3 | 9 |
+| 3 | les cadratins, règle et garde-fou | 11 |
+| 4 | les deux réponses périmées | 2 |
+| 5 | le banc d'essai | 10 |
+| 6 | l'accent de « à l'instant » | 1 |
+| 7 | option A Telegram et trois outils | 6 |
+| 8 | registre, prérequis, documentation | 5 |
+
+- [x] **Un découpage raté et repris.** Le premier commit emportait les deux suppressions de
+      l'option A, restées dans l'index depuis le `git rm --cached` : son message ne les
+      expliquait pas. `git reset --soft` et `git restore --staged`, puis recommit.
+      *Rien n'était poussé — c'est le seul moment où l'on peut se reprendre sans trace.*
+- [x] **Poussé** : `b71c8ad..4d89ef2 main -> main`, **54 fichiers, +5 625 / −1 208**, local
+      synchrone avec `origin/main`.
+
+### Le tunnel : refusé par l'environnement, et ce n'est pas négociable
+
+- [ ] **`node docker/n8n/ouvrir-tunnel.mjs` est BLOQUÉ** par la politique de sécurité de
+      l'agent : « External Ingress Tunnel ». Un tunnel entrant expose une machine privée à
+      Internet ; l'interdiction est générale et ne se contourne pas.
+- **Cette commande reste donc celle du porteur du projet.** Tout le reste est prêt : le script
+      enchaîne les trois étapes dans le bon ordre, et la marche à suivre complète — y compris
+      comment répondre au bon dossier et les trois pièges — est en section **15.61**.
