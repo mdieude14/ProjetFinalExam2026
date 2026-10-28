@@ -1,6 +1,6 @@
 import { body, param, query } from 'express-validator';
 
-import { INTENTIONS, STATUTS } from '../models/Ticket.js';
+import { INTENTIONS, PARCOURS, STATUTS } from '../models/Ticket.js';
 
 /**
  * ===========================================================================
@@ -30,6 +30,35 @@ export const reglesCreationTicket = [
     .optional()
     .isIn(INTENTIONS)
     .withMessage(`L'intention doit valoir : ${INTENTIONS.join(', ')}`),
+
+  /*
+   * LE PARCOURS ET L'OBJET SONT TOLÉRÉS À `null`, et ce n'est pas du laxisme.
+   *
+   * Le widget envoie les quatre champs à chaque appel, `parcours: null` et
+   * `objet: null` compris quand aucun choix n'a été fait : une charge de forme
+   * constante est plus simple à lire dans un journal que quatre formes
+   * possibles. `optional()` seul écarte `undefined` mais pas `null`, et un
+   * `null` tomberait alors sur `isIn` — un 400 pour la demande la plus
+   * ordinaire de toutes, celle où la personne n'a rien choisi.
+   *
+   * CE VALIDATEUR NE DÉCIDE DE RIEN. Il borne la forme. C'est le service qui
+   * tire les conséquences de « support », et lui seul : voir `escaladeForcee`.
+   *
+   * ET `escaladeForcee` N'EST PAS VALIDÉ ICI PARCE QU'IL N'EST PAS ACCEPTÉ.
+   * Le service le calcule depuis `parcours`. L'admettre dans le corps
+   * permettrait de réclamer la trace « la personne a demandé l'équipe » sans
+   * avoir emprunté le parcours — une ligne fausse dans l'audit du back-office.
+   */
+  body('parcours')
+    .optional({ values: 'null' })
+    .isIn(PARCOURS)
+    .withMessage(`Le parcours doit valoir : ${PARCOURS.join(', ')}`),
+
+  body('objet')
+    .optional({ values: 'null' })
+    .isString().trim()
+    .isLength({ max: 120 })
+    .withMessage('L’objet ne peut dépasser 120 caractères'),
 
   body('reponse').optional().isString().trim().isLength({ max: 4000 }),
 

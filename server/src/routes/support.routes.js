@@ -44,6 +44,7 @@ import { validate } from '../middlewares/validate.middleware.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { serviceAutorise, agentIdentifie } from '../middlewares/service.middleware.js';
 import { autoriser } from '../middlewares/role.middleware.js';
+import { limiteurEscaladeSupport } from '../middlewares/rateLimit.middleware.js';
 
 const router = Router();
 
@@ -90,7 +91,24 @@ const router = Router();
  * de l'utilisateur, il ne la remplace pas. Sans clé d'agent, l'écriture reste
  * possible mais ne porte ni réponse ni outils, et remonte à un humain.
  */
-router.post('/tickets', protect, agentIdentifie, reglesCreationTicket, validate, creerTicket);
+/*
+ * LE LIMITEUR EST POSÉ APRÈS `protect`, ET C'EST OBLIGATOIRE : il compte par
+ * compte (`req.user._id`), qui n'existe qu'une fois le jeton vérifié. Avant,
+ * sa clé serait `undefined` pour tout le monde — une seule file commune, et
+ * cinq escalades par heure pour la plateforme entière.
+ *
+ * ET AVANT LE VALIDATEUR, car il lit `req.body.parcours` brut : refuser le
+ * dépassement ne demande pas que le reste du corps soit valide.
+ */
+router.post(
+  '/tickets',
+  protect,
+  limiteurEscaladeSupport,
+  agentIdentifie,
+  reglesCreationTicket,
+  validate,
+  creerTicket
+);
 
 router.get('/tickets', protect, reglesListeTickets, validate, mesTickets);
 

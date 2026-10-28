@@ -37,12 +37,24 @@ import * as telegram from '../services/telegram.service.js';
  */
 export const creerTicket = asyncHandler(async (req, res) => {
   // `req.agent` n'existe que si la clé d'agent a été vérifiée.
-  const ticket = await support.enregistrer(req.user, req.body, { parAgent: Boolean(req.agent) });
+  const { ticket, nouveau } = await support.enregistrer(req.user, req.body, {
+    parAgent: Boolean(req.agent),
+  });
 
-  return res.status(201).json({
+  /*
+   * 200 QUAND RIEN N'A ÉTÉ CRÉÉ, et c'est la seule façon de le dire sans
+   * ambiguïté. Un doublon d'escalade forcée renvoie le dossier existant : le
+   * répondre en 201 ferait croire à l'appelant qu'il vient d'en ouvrir un
+   * second, et n8n annoncerait deux références pour une seule demande.
+   *
+   * MÊME CONVENTION QUE `/service/courriel`, qui distingue déjà le dépôt neuf
+   * du rejeu sur ces deux codes.
+   */
+  return res.status(nouveau ? 201 : 200).json({
     succes: true,
-    message:
-      ticket.statut === 'escalade'
+    message: !nouveau
+      ? 'Cette demande a déjà été transmise'
+      : ticket.statut === 'escalade'
         ? 'Votre demande a été transmise à un conseiller'
         : 'Échange enregistré',
     ticket: ticket.versionAuteur(),

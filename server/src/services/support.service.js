@@ -1,4 +1,4 @@
-import Ticket, { referenceDe } from '../models/Ticket.js';
+import Ticket, { referenceDe, PARCOURS } from '../models/Ticket.js';
 import User from '../models/User.js';
 import { ApiError } from '../utils/ApiError.js';
 import { envoyerMail } from './mail.service.js';
@@ -21,6 +21,20 @@ import { envoyerMail } from './mail.service.js';
  * écrire — une seule voie d'écriture, et elle est vérifiable.
  * ===========================================================================
  */
+
+/**
+ * DIX MINUTES : LA FENÊTRE OÙ DEUX ENVOIS IDENTIQUES SONT LE MÊME ENVOI.
+ *
+ * Le parcours « support » crée un dossier à coup sûr. Un double-clic, un
+ * rechargement, un « ça n'a pas marché je renvoie » produisent alors deux
+ * dossiers pour une seule demande, et l'exploitant répond deux fois à la même
+ * personne — ou, pire, deux exploitants se répondent l'un l'autre.
+ *
+ * POURQUOI DIX ET NON UNE HEURE. Au-delà, un renvoi n'est plus une
+ * répétition : c'est une relance, et une relance mérite son dossier. Elle dit
+ * quelque chose que le premier ne disait pas — que la personne attend toujours.
+ */
+export const FENETRE_DOUBLON_MS = 10 * 60 * 1000;
 
 /** Ce qu'un agent ne tranche jamais seul : la liste est fermée à dessein. */
 export const MOTIFS_ESCALADE_AUTOMATIQUE = [
@@ -59,14 +73,103 @@ export const MOTIFS_ESCALADE_AUTOMATIQUE = [
  * dossier `resolu` a déjà reçu sa réponse dans le widget : lui attacher un
  * brouillon ferait apparaître, dans l'onglet d'audit, un texte que personne
  * n'est censé valider ni envoyer — et inviterait à envoyer deux fois.
+ *
+ * ---------------------------------------------------------------------------
+ *  L'ESCALADE FORCÉE DU PARCOURS « SUPPORT »
+ * ---------------------------------------------------------------------------
+ *
+ * `parcours: 'support'` ESCALADE TOUJOURS, quelle que soit l'intention lue par
+ * le classifieur. La personne a cliqué « Contacter le support client » : elle
+ * a demandé un humain, et aucun classement automatique ne doit pouvoir le lui
+ * refuser. Un modèle qui lit « je n'arrive pas à résilier » classera
+ * raisonnablement `usage` et répondra bien, mais la personne ne demandait pas
+ * une réponse : elle demandait l'équipe.
+ *
+ * LA DÉCISION EST ICI, PAS DANS UNE CONSIGNE DE PROMPT. C'est tout le point de
+ * la règle. Écrite dans le prompt, le modèle pourrait l'activer comme la
+ * désactiver, et une demande tournée « réponds-moi sans escalader » suffirait
+ * à la contourner. Écrite ici, à côté de `intention === 'decision'`, elle est
+ * hors de sa portée, exactement au même titre que l'autre.
+ *
+ * LE CHAMP EST REMPLI PAR LE CLIENT, ET C'EST ACCEPTABLE. Le pire abus
+ * possible est UN DOSSIER DE TROP : jamais un accès à une donnée, jamais une
+ * décision prise. Le quota de `limiteurEscaladeSupport` borne le volume, et le
+ * contrôle anti-doublon ci-dessous écarte la répétition involontaire. C'est le
+ * bon compromis : un champ de confort côté client, des bornes côté serveur.
  */
 export async function enregistrer(
   utilisateur,
-  { question, origine, intention, reponse, outils, motifEscalade, brouillonReponse },
+  {
+    question,
+    origine,
+    intention,
+    reponse,
+    outils,
+    motifEscalade,
+    brouillonReponse,
+    parcours,
+    objet,
+  },
   { parAgent = false } = {}
 ) {
-  const escalade = !parAgent || intention === 'decision' || Boolean(motifEscalade);
-  const motifParDefaut = parAgent ? 'demande de décision' : 'demande sans agent';
+  /*
+   * LA VALEUR EST RE-VÉRIFIÉE ICI, APRÈS LE VALIDATEUR. Celui-ci borne la
+   * route ; le service, lui, est appelé aussi par les tests et le sera demain
+   * par un autre canal. Une fonction qui décide d'une escalade ne doit pas
+   * dépendre d'un intermédiaire pour savoir ce qu'elle a reçu.
+   */
+  const voie = PARCOURS.includes(parcours) ? parcours : undefined;
+  const sujet =
+    voie === 'support' ? String(objet ?? '').trim().slice(0, 120) || undefined : undefined;
+
+  const escaladeForcee = voie === 'support';
+
+  const escalade = !parAgent || escaladeForcee || intention === 'decision' || Boolean(motifEscalade);
+
+  /*
+   * TROIS MOTIFS PAR DÉFAUT, UN PAR CAUSE D'ESCALADE. Celui qu'écrit l'agent
+   * l'emporte quand il en donne un ; sinon le dossier doit dire POURQUOI il
+   * est remonté, et « demande de décision » sur une question d'utilisation
+   * envoyée au support client serait faux : l'exploitant croirait à un
+   * arbitrage là où il n'y a qu'une personne qui veut parler à quelqu'un.
+   */
+  const motifParDefaut = !parAgent
+    ? 'demande sans agent'
+    : escaladeForcee
+      ? 'demande au support client'
+      : 'demande de décision';
+
+  /*
+   * LE DOUBLON SE CHERCHE AVANT D'ÉCRIRE, et seulement sur l'escalade forcée.
+   *
+   * POURQUOI RENVOYER L'EXISTANT PLUTÔT QUE REFUSER, même raisonnement que
+   * pour le canal courriel : un second envoi identique n'est pas une faute de
+   * l'appelant, c'est un double-clic ou une relance après une réponse lente.
+   * Un 400 obligerait le widget à expliquer une erreur qui n'en est pas une.
+   * La personne reçoit la référence du dossier qui existe déjà, ce qui est la
+   * vérité : sa demande EST enregistrée.
+   *
+   * `objet: sujet ?? null` ET NON `objet: sujet` : Mongoose retire d'une
+   * requête les clés à `undefined`, et le filtre deviendrait « n'importe quel
+   * objet » — deux demandes différentes du même compte seraient alors
+   * confondues. `null` interroge bien « champ absent ou nul ».
+   *
+   * PAS D'INDEX DÉDIÉ. `{ auteur: 1, createdAt: -1 }` existe déjà et porte la
+   * sélection ; `objet` et `question` filtrent ensuite le tout petit nombre de
+   * dossiers récents de ce compte. Indexer `question` serait d'ailleurs
+   * impossible : 2000 signes dépassent la limite de clé de MongoDB.
+   */
+  if (escaladeForcee) {
+    const jumeau = await Ticket.findOne({
+      auteur: utilisateur._id,
+      escaladeForcee: true,
+      objet: sujet ?? null,
+      question,
+      createdAt: { $gte: new Date(Date.now() - FENETRE_DOUBLON_MS) },
+    }).sort({ createdAt: -1 });
+
+    if (jumeau) return { ticket: jumeau, nouveau: false };
+  }
 
   /*
    * MÊME SEUIL DE DIX SIGNES QUE LE CANAL COURRIEL. Un brouillon de trois mots
@@ -84,6 +187,9 @@ export async function enregistrer(
     question,
     origine,
     intention,
+    parcours: voie,
+    objet: sujet,
+    escaladeForcee,
     reponse: parAgent ? reponse : undefined,
     outils: parAgent && Array.isArray(outils) ? outils : [],
     ecritParAgent: parAgent,
@@ -102,7 +208,13 @@ export async function enregistrer(
     brouillonParAgent: avecBrouillon,
   });
 
-  return ticket;
+  /*
+   * LA FORME DU RETOUR A CHANGÉ, et c'est le prix de l'anti-doublon : le
+   * contrôleur doit pouvoir répondre 200 au lieu de 201 quand rien n'a été
+   * créé. Même convention que `enregistrerCourriel`, qui a déjà ce besoin —
+   * deux formes différentes pour la même information auraient été pires.
+   */
+  return { ticket, nouveau: true };
 }
 
 /**

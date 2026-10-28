@@ -49,15 +49,30 @@ export const supportApi = {
   /**
    * Pose une question à l'agent.
    *
-   * @param {string} question  ce que l'utilisateur a tapé
-   * @param {string} origine   l'écran d'où il la pose — la même phrase
-   *                           n'appelle pas la même réponse depuis « Mon
-   *                           diplôme » ou depuis le fil
+   * UN OBJET ET NON QUATRE ARGUMENTS POSITIONNELS. Avec `parcours` et `objet`,
+   * l'appel en comptait quatre dont deux facultatifs : `demander(q, o, null,
+   * 'Objet')` ne se relit pas, et un argument oublié au milieu passe inaperçu.
+   *
+   * @param {string}      question  le MESSAGE SEUL, entre 3 et 2000 caractères.
+   *                                L'objet n'y est PAS concaténé : la
+   *                                validation n8n porte sur ce champ, et le
+   *                                préfixer ferait dépasser la borne sans que
+   *                                la cause soit visible.
+   * @param {string}      origine   l'écran d'où la question est posée — la même
+   *                                phrase n'appelle pas la même réponse depuis
+   *                                « Mon diplôme » ou depuis le fil
+   * @param {string|null} parcours  'support', 'usage' ou null : ce que la
+   *                                personne DIT vouloir. C'est une indication,
+   *                                pas une vérité — le classifieur de l'agent
+   *                                reste seul juge de l'intention, sans quoi il
+   *                                suffirait de cocher « support » pour forcer
+   *                                la création d'un ticket.
+   * @param {string|null} objet     l'objet du formulaire support, ou null
    */
-  demander: (question, origine) =>
+  demander: ({ question, origine, parcours = null, objet = null }) =>
     axios.post(
       URL_AGENT,
-      { question, origine },
+      { question, origine, parcours, objet },
       {
         headers: { Authorization: `Bearer ${obtenirAccessToken()}` },
         // Un agent qui consulte plusieurs outils met quelques secondes ;

@@ -19,14 +19,23 @@ const reponseDepassement = (req, res) => {
   });
 };
 
+/**
+ * En developpement, les limites gêneraient les tests manuels repetes. On les
+ * neutralise plutot que de les rendre inoperantes en production par un
+ * reglage trop permissif. `RATE_LIMIT_DEV=true` les rallume sur place.
+ *
+ * EXTRAITE EN FONCTION NOMMÉE pour que les limiteurs à `skip` composé
+ * puissent la rappeler. Recopier la condition aurait suffi aujourd'hui, et
+ * aurait divergé au premier changement de nom de variable.
+ */
+const neutraliseEnDeveloppement = () =>
+  estDeveloppement && process.env.RATE_LIMIT_DEV !== 'true';
+
 const optionsCommunes = {
   standardHeaders: 'draft-7', // en-tetes RateLimit-* normalises
   legacyHeaders: false,
   handler: reponseDepassement,
-  // En developpement, les limites gêneraient les tests manuels repetes.
-  // On les neutralise plutot que de les rendre inoperantes en production
-  // par un reglage trop permissif.
-  skip: () => estDeveloppement && process.env.RATE_LIMIT_DEV !== 'true',
+  skip: neutraliseEnDeveloppement,
 };
 
 /**
@@ -87,6 +96,54 @@ export const limiteurReinitialisation = rateLimit({
   ...optionsCommunes,
   windowMs: 15 * 60 * 1000,
   max: 10,
+});
+
+/**
+ * ESCALADES DEMANDÉES PAR LA PERSONNE : 5 PAR HEURE ET PAR COMPTE.
+ *
+ * Le parcours « support » du widget crée un dossier à coup sûr, sans passer
+ * par le jugement du classifieur (`support.service.js`, `escaladeForcee`).
+ * C'est voulu, et c'est précisément ce qui demande une borne : le champ est
+ * rempli par le client, et rien n'empêcherait d'en envoyer cent. Le risque
+ * n'est pas une fuite — un ticket ne donne accès à rien — c'est une file
+ * d'attente humaine noyée, et donc les vraies demandes enterrées.
+ *
+ * PAR COMPTE, ET NON PAR IP. Tous les appels arrivent de n8n, donc de la même
+ * adresse : le conteneur Docker. Une limite par IP compterait les escalades de
+ * tout le monde ensemble, et le sixième utilisateur de l'heure serait refusé
+ * pour la faute des cinq précédents. `protect` garantit que `req.user` existe
+ * sur cette route, il n'y a donc pas de repli sur l'adresse à prévoir.
+ *
+ * COMPTÉ SEULEMENT SUR LE PARCOURS « SUPPORT ». Chaque échange du widget crée
+ * un ticket, y compris les questions d'utilisation résolues par l'agent : une
+ * limite de cinq sur toute la route bloquerait la sixième QUESTION de l'heure,
+ * ce qui serait absurde. Le `skip` lit `parcours` — LA MÊME SOURCE que le
+ * service, et non `escaladeForcee` qui n'est pas accepté du corps. Lire deux
+ * champs différents aurait ouvert exactement le trou que ce limiteur bouche :
+ * une escalade forcée qui ne serait pas comptée.
+ *
+ * LE REFUS NE REMONTE PAS TEL QUEL AU WIDGET. n8n lit ce 429 et répond 200
+ * avec un texte qui explique le quota : côté widget, toute erreur d'appel
+ * s'affiche « service momentanément indisponible », et un quota dépassé
+ * passerait pour une panne.
+ */
+export const MAX_ESCALADES_PAR_HEURE = 5;
+
+export const limiteurEscaladeSupport = rateLimit({
+  ...optionsCommunes,
+  windowMs: 60 * 60 * 1000,
+  max: MAX_ESCALADES_PAR_HEURE,
+  keyGenerator: (req) => String(req.user?._id),
+  skip: (req) => neutraliseEnDeveloppement() || req.body?.parcours !== 'support',
+  handler: (req, res) => {
+    res.status(429).json({
+      succes: false,
+      message:
+        `Vous avez transmis ${MAX_ESCALADES_PAR_HEURE} demandes au support ` +
+        'dans la dernière heure. Réessayez plus tard : vos demandes ' +
+        'précédentes sont bien enregistrées et nous y répondons.',
+    });
+  },
 });
 
 /**

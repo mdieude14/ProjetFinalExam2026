@@ -49,6 +49,25 @@ export const INTENTIONS = [
 export const STATUTS = ['ouvert', 'resolu', 'escalade', 'clos'];
 
 /**
+ * LE PARCOURS CHOISI DANS LE WIDGET — une indication, pas une vérité.
+ *
+ * La personne clique « Contacter le support client » ou « Question
+ * d'utilisation », ou ne clique sur rien. C'est elle qui remplit ce champ :
+ * il dit ce qu'elle a demandé, jamais ce qui est vrai de sa demande. Le
+ * classement de l'intention reste au classifieur, qui lit le CONTENU.
+ *
+ * LISTE FERMÉE, ET POUR UNE RAISON PRÉCISE. « support » déclenche une escalade
+ * forcée (voir `escaladeForcee`). Un champ libre laisserait un appelant
+ * inventer une valeur, et le jour où une troisième voie s'ajoutera, l'enum
+ * fera échouer l'écriture au lieu de l'accepter en silence.
+ *
+ * ABSENT N'EST PAS UNE FAUTE : aucun choix n'a jamais été obligatoire dans le
+ * widget. Pas de `default` donc — « rien choisi » et « a choisi usage » sont
+ * deux faits différents, et les confondre fausserait les statistiques.
+ */
+export const PARCOURS = ['support', 'usage'];
+
+/**
  * Trace d'un outil appelé par l'agent pendant sa réponse.
  *
  * ON ENREGISTRE L'APPEL, JAMAIS SA RÉPONSE. Le contenu renvoyé par
@@ -167,6 +186,28 @@ const ticketSchema = new Schema(
 
     intention: { type: String, enum: INTENTIONS, index: true },
 
+    /* -------------------- Ce que la personne a demandé -------------------- */
+
+    /**
+     * LE PARCOURS, TEL QUE LA PERSONNE L'A CHOISI. Voir `PARCOURS`.
+     * Indexé : l'exploitant filtrera sur « les demandes au support client ».
+     */
+    parcours: { type: String, enum: PARCOURS, index: true },
+
+    /**
+     * L'OBJET QUE LA PERSONNE A ÉCRIT, sur le parcours « support » seulement.
+     *
+     * POURQUOI UN CHAMP, ET NON UN OBJET COLLÉ À LA QUESTION. `question` est
+     * bornée à 2000 signes et part telle quelle au modèle ; y préfixer l'objet
+     * ferait dépasser la borne sans que la cause soit visible, et mélangerait
+     * dans un même champ ce que la personne a RÉSUMÉ et ce qu'elle a RACONTÉ.
+     * Séparés, le back-office peut présenter une file lisible : un objet par
+     * ligne, le récit au clic.
+     *
+     * MÊME BORNE QUE `origine` : les deux tiennent sur une ligne de liste.
+     */
+    objet: { type: String, trim: true, maxlength: 120 },
+
     reponse: { type: String, trim: true, maxlength: 4000 },
 
     /** Ce que l'agent a consulté pour répondre — voir `appelOutilSchema`. */
@@ -197,6 +238,26 @@ const ticketSchema = new Schema(
      */
     motifEscalade: { type: String, trim: true, maxlength: 300 },
     escaladeLe: { type: Date },
+
+    /**
+     * L'ESCALADE A-T-ELLE ÉTÉ DEMANDÉE PAR LA PERSONNE ?
+     *
+     * Vrai quand `parcours` vaut « support » : elle a explicitement demandé
+     * l'équipe, et le service escalade alors sans consulter le classifieur.
+     *
+     * POURQUOI LE TRACER AU LIEU DE LE DÉDUIRE DE `parcours`. L'exploitant
+     * n'ouvre pas le même dossier selon l'origine de l'escalade. Décidée par
+     * le classifieur, elle signifie « l'agent a jugé qu'il ne savait pas » :
+     * la réponse de l'agent est à relire. Demandée par la personne, elle
+     * signifie « je veux un humain » : il n'y a rien à arbitrer, il y a à
+     * répondre. Le déduire marcherait aujourd'hui et cesserait de marcher le
+     * jour où un parcours « support » n'escaladerait plus systématiquement.
+     *
+     * CE CHAMP N'EST JAMAIS ACCEPTÉ DU CORPS DE LA REQUÊTE : le service le
+     * calcule depuis `parcours`. Sinon un appelant pourrait réclamer la trace
+     * sans l'escalade, ou l'inverse, et les deux se contrediraient en base.
+     */
+    escaladeForcee: { type: Boolean, default: false },
 
     /** L'administrateur qui a repris le dossier. */
     traitePar: { type: Schema.Types.ObjectId, ref: 'User' },
@@ -402,6 +463,14 @@ ticketSchema.methods.versionExploitant = function () {
      */
     canal: this.canal,
     courrielAuteur: this.courrielAuteur,
+    /*
+     * LE PARCOURS, L'OBJET ET L'ESCALADE FORCÉE VONT ENSEMBLE DANS LA VUE.
+     * Sans l'escalade forcée, l'exploitant verrait « support client » sans
+     * savoir si c'est ce clic qui a remonté le dossier ou le classifieur.
+     */
+    parcours: this.parcours,
+    objet: this.objet,
+    escaladeForcee: this.escaladeForcee,
     question: this.question,
     origine: this.origine,
     intention: this.intention,
