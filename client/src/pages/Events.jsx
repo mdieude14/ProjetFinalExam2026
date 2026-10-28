@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import eventApi from '@/api/event.api';
+import userApi from '@/api/user.api';
 import useAuth from '@/hooks/useAuth';
 import usePosition from '@/hooks/usePosition';
 import EventCard from '@/components/event/EventCard';
@@ -73,6 +74,29 @@ export default function Events() {
   const [rayon, setRayon] = useState(25000);
   const [selection, setSelection] = useState(null);
 
+  /*
+   * DEUX SOURCES POSSIBLES POUR UN SEUL POINT, ET ELLES NE SE VALENT PAS.
+   *
+   * `position` vient du navigateur : exacte, au mètre. `positionVille` est
+   * déduite de la ville du profil : au kilomètre. L'onglet n'a besoin que
+   * d'un point de départ pour `$geoNear`, et les deux font l'affaire — mais
+   * la seconde n'existe que parce que la première a été REFUSÉE.
+   *
+   * POURQUOI UN ÉTAT LOCAL ET NON UNE EXTENSION DE `usePosition`. Ce hook
+   * décrit ce que le NAVIGATEUR sait de la position. Y injecter un point venu
+   * du serveur brouillerait cette frontière, et le jour où quelqu'un lirait
+   * `position` en croyant lire un relevé GPS, il se tromperait sans rien
+   * voir — c'est la même famille de piège que l'inversion lng/lat.
+   *
+   * LE NAVIGATEUR GARDE LA PRIORITÉ : qui finit par autoriser sa position
+   * exacte ne doit pas rester situé à sa ville.
+   */
+  const [positionVille, setPositionVille] = useState(null);
+  const [villeEnCours, setVilleEnCours] = useState(false);
+  const [erreurVille, setErreurVille] = useState(null);
+
+  const pointUtilise = position ?? positionVille;
+
   /* ------------------------- Onglet « mes inscriptions » ------------------------ */
 
   const [inscriptions, setInscriptions] = useState([]);
@@ -108,14 +132,14 @@ export default function Events() {
   );
 
   const chargerProches = useCallback(async () => {
-    if (!position) return;
+    if (!pointUtilise) return;
 
     setChargement(true);
     setErreur(null);
     try {
       const reponse = await eventApi.proches({
-        lng: position.lng,
-        lat: position.lat,
+        lng: pointUtilise.lng,
+        lat: pointUtilise.lat,
         rayon,
         sport: filtres.sport || undefined,
       });
@@ -126,7 +150,33 @@ export default function Events() {
     } finally {
       setChargement(false);
     }
-  }, [position, rayon, filtres.sport]);
+  }, [pointUtilise, rayon, filtres.sport]);
+
+  /*
+   * LA SECONDE DEMANDE DE CONSENTEMENT, et c'en est bien une : accepter
+   * d'être situé à sa ville n'est pas la même chose qu'avoir refusé de
+   * partager sa position exacte. C'est pourquoi rien ne se déclenche tout
+   * seul — ni au montage, ni après le refus.
+   */
+  const utiliserMaVille = useCallback(async () => {
+    setVilleEnCours(true);
+    setErreurVille(null);
+    try {
+      const reponse = await userApi.localiserDepuisVille();
+      const [lng, lat] = reponse.data.localisation.coordinates;
+      setPositionVille({ lng, lat, ville: reponse.data.ville });
+    } catch (e) {
+      /*
+       * LE MESSAGE DU SERVEUR EST AFFICHÉ TEL QUEL. Il distingue déjà « votre
+       * profil n'a pas de ville » (400) de « cette ville est introuvable »
+       * (422), et ces deux cas appellent deux gestes différents de la part de
+       * la personne. Le réécrire ici les confondrait.
+       */
+      setErreurVille(e.message);
+    } finally {
+      setVilleEnCours(false);
+    }
+  }, []);
 
   const chargerInscriptions = useCallback(async () => {
     setChargement(true);
@@ -151,8 +201,8 @@ export default function Events() {
   }, [onglet, chargerListe, chargerProches, chargerInscriptions]);
 
   const centre = useMemo(
-    () => (position ? { lng: position.lng, lat: position.lat } : null),
-    [position]
+    () => (pointUtilise ? { lng: pointUtilise.lng, lat: pointUtilise.lat } : null),
+    [pointUtilise]
   );
 
   /* -------------------------------- Rendu -------------------------------- */
@@ -276,7 +326,7 @@ export default function Events() {
       {/* ====================== AUTOUR DE MOI ====================== */}
       {onglet === 'proches' && (
         <>
-          {!position && (
+          {!pointUtilise && (
             <section className="rounded-carte border border-ardoise-200 bg-white p-5">
               {!erreurPosition ? (
                 <>
@@ -313,17 +363,74 @@ export default function Events() {
                       className="mt-3"
                       chargement={localisationEnCours}
                       onClick={demander}
+                      data-test="position-reessayer"
                     >
                       Réessayer
                     </Button>
+                  )}
+
+                  {/*
+                    LA SORTIE DE SECOURS : la ville déjà déclarée au profil.
+
+                    PROPOSÉE DANS LES DEUX ÉCHECS, pas seulement après un
+                    refus. Un refus et une panne de capteur laissent la
+                    personne au même endroit — devant un onglet vide — et le
+                    même remède la sort des deux.
+
+                    AFFICHÉE SEULEMENT S'IL Y A UNE VILLE. Sans elle, le
+                    serveur répondrait 400 à coup sûr : proposer un bouton
+                    voué au refus est la meilleure façon de faire croire à une
+                    panne, et ce fichier applique déjà cette règle au bouton
+                    de création d'événement.
+
+                    LA VILLE EST NOMMÉE DANS LE LIBELLÉ. « Utiliser la ville
+                    de mon profil » laisserait deviner laquelle, alors que
+                    c'est précisément ce qu'il faut pouvoir vérifier avant de
+                    cliquer.
+                  */}
+                  {utilisateur?.ville && (
+                    <div className="mt-3">
+                      <Button
+                        variante="secondaire"
+                        chargement={villeEnCours}
+                        onClick={utiliserMaVille}
+                        aria-label={`Utiliser la ville de mon profil, ${utilisateur.ville}`}
+                        data-test="position-depuis-ville"
+                      >
+                        Utiliser la ville de mon profil ({utilisateur.ville})
+                      </Button>
+                      <p className="mt-2 text-xs text-ardoise-500">
+                        Les distances seront calculées depuis le centre de{' '}
+                        {utilisateur.ville}, à quelques kilomètres près.
+                      </p>
+                    </div>
+                  )}
+
+                  {erreurVille && (
+                    <Alert variante="alerte" className="mt-3" data-test="erreur-depuis-ville">
+                      {erreurVille}
+                    </Alert>
                   )}
                 </>
               )}
             </section>
           )}
 
-          {position && (
+          {pointUtilise && (
             <>
+              {/*
+                DIRE D'OÙ L'ON MESURE, quand ce n'est pas la position relevée.
+                Sans cette ligne, « à 3 km » se lirait « à 3 km de moi » alors
+                que c'est « à 3 km du centre-ville » : l'écart peut dépasser
+                le rayon choisi, et la liste paraîtrait fausse.
+              */}
+              {!position && positionVille && (
+                <Alert variante="info" data-test="repere-ville">
+                  Distances calculées depuis {positionVille.ville}, et non depuis votre
+                  position exacte.
+                </Alert>
+              )}
+
               <section className="rounded-carte border border-ardoise-200 bg-white p-4">
                 <div className="flex flex-wrap items-end gap-3">
                   <label className="text-sm">

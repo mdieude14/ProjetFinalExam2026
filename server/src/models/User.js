@@ -208,6 +208,29 @@ const userSchema = new Schema(
     localisation: { type: pointSchema, default: undefined },
 
     /**
+     * D'OÙ VIENT LE POINT — et ce champ garde la carte publique honnête.
+     *
+     * `navigateur` : relevé par l'API de géolocalisation, précis au mètre.
+     * `ville`      : déduit du nom de la ville du profil, précis au kilomètre.
+     *
+     * POURQUOI LA DISTINCTION EXISTE. `carteVisible` n'exigeait qu'« une
+     * position enregistrée ». Dès lors qu'une ville peut produire un point, un
+     * coach qui a seulement voulu CHERCHER autour de lui deviendrait éligible
+     * à la carte publique, où il apparaîtrait au centre-ville avec l'apparence
+     * d'un relevé GPS : la carte arrondissant déjà à ~110 m, rien ne
+     * distinguerait les deux à l'écran. Il se croirait trouvable à son
+     * adresse ; il serait trouvable à un kilomètre près, sans l'avoir su.
+     *
+     * SANS VALEUR PAR DÉFAUT, et c'est volontaire. Les comptes existants ont
+     * un point relevé par le navigateur, puisque c'était le seul chemin
+     * possible : poser `'navigateur'` par défaut serait exact aujourd'hui et
+     * deviendrait un mensonge le jour où un autre chemin s'ajouterait.
+     * `undefined` se lit « on ne sait pas », et le garde-fou de la carte ne
+     * refuse QUE ce qu'il sait venir d'une ville.
+     */
+    localisationSource: { type: String, enum: ['navigateur', 'ville'] },
+
+    /**
      * Consentement a figurer sur la carte publique.
      *
      * FAUX PAR DEFAUT, ET C'EST LE COEUR DE LA DECISION.
@@ -283,7 +306,7 @@ const userSchema = new Schema(
      *
      * `conversation` est TOUJOURS UNE CHAÎNE. L'identifiant arrive en nombre
      * dans le corps JSON et en texte dans une URL ; or MongoDB ne fait jamais
-     * correspondre `5384486890` et `"5384486890"`. Une seule forme stockée,
+     * correspondre `1234567890` et `"1234567890"`. Une seule forme stockée,
      * et une recherche qui échouerait en silence devient impossible.
      */
     telegram: {

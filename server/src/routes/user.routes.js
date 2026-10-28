@@ -6,6 +6,7 @@ import {
   modifierProfil,
   changerVisibilite,
   changerLocalisation,
+  localiserDepuisVille,
   soumettreDiplome,
   televerserJustificatif,
   changerAvatar,
@@ -67,6 +68,14 @@ router.patch('/me', protect, reglesEditionProfil, validate, modifierProfil);
 router.patch('/me/visibilite', protect, reglesVisibilite, validate, changerVisibilite);
 
 router.patch('/me/localisation', protect, reglesLocalisation, validate, changerLocalisation);
+
+/*
+ * AUCUN VALIDATEUR, ET C'EST EXACT : cette route ne lit RIEN du corps de la
+ * requête. La ville vient de `req.user`, donc du jeton. C'est précisément ce
+ * qui la rend sûre, et ce qui justifie qu'elle soit séparée de la précédente —
+ * dont le validateur garantit, lui, qu'une coordonnée reçue a bien été fournie.
+ */
+router.patch('/me/localisation-depuis-ville', protect, localiserDepuisVille);
 
 // Reserve aux coachs : un sportif n'a pas de diplome a faire verifier.
 router.post(

@@ -22,7 +22,7 @@
  *
  * LES ADRESSES SONT CHOISIES POUR ÊTRE DIFFICILES. « Paris » aurait
  * fonctionné du premier coup et masqué les deux pièges. Castres a un homonyme
- * dans l'Aisne, à 430 km, et l'adresse de recette portait une faute de frappe.
+ * dans l'Aisne, à 691 km, et l'adresse de recette portait une faute de frappe.
  * ===========================================================================
  */
 
@@ -38,7 +38,7 @@ const S = Date.now();
 
 /* Castres (Tarn) — la bonne. */
 const TARN = { lat: 43.61, lng: 2.25 };
-/* Castres (Aisne) — l'homonyme, à 430 km. Un point ici serait un faux. */
+/* Castres (Aisne) — l'homonyme, à 691 km. Un point ici serait un faux. */
 const AISNE = { lat: 49.80, lng: 3.24 };
 
 const resultats = [];
@@ -145,7 +145,7 @@ ok('**une adresse fautive ne fait pas perdre la ville**',
 
 /*
  * LE PIÈGE DE L'HOMONYME. « Castres » seul renvoie Castres dans l'Aisne, à
- * 430 km. Le code postal est le seul désambiguïsateur : le service doit
+ * 691 km. Le code postal est le seul désambiguïsateur : le service doit
  * refuser de retomber sur la ville nue tant qu'un code postal est fourni.
  */
 const homonyme = await geocoder({ adresse: 'rue totalement inexistante xyzq', codePostal: '81100', ville: 'Castres' });
@@ -316,6 +316,186 @@ const apresTitre = await bdd.collection('sportevents')
 
 ok('changer le titre ne déplace pas le point',
   JSON.stringify(apresTitre?.lieu?.localisation?.coordinates) === avantTitre);
+
+/* ================================================================== *
+ *  4 — « AUTOUR DE MOI » SANS GÉOLOCALISATION (voie 3)
+ *
+ *  L'onglet restait VIDE pour qui refuse la géolocalisation du navigateur,
+ *  sans rien proposer d'autre. Un refus est un choix légitime, pas une panne :
+ *  `PATCH /users/me/localisation-depuis-ville` déduit un point de la ville du
+ *  profil, à la demande, une personne à la fois.
+ *
+ *  LE PIÈGE QUE CETTE SECTION SURVEILLE. Un point déduit d'une ville est
+ *  précis au kilomètre. `carteVisible` n'exigeait qu'« une position
+ *  enregistrée » : sans garde-fou, un coach qui a seulement voulu CHERCHER
+ *  autour de lui deviendrait éligible à la carte publique, où il apparaîtrait
+ *  au centre-ville avec l'apparence d'un relevé GPS — la carte arrondissant
+ *  déjà à ~110 m, rien ne les distinguerait. Trois vérifications ci-dessous
+ *  existent pour cela seul, et elles sont marquées.
+ * ================================================================== */
+
+section('La position déduite de la ville du profil');
+
+/*
+ * UNE ROUTE QUI NE LIT RIEN DU CORPS DE LA REQUÊTE. La ville vient du jeton,
+ * donc du compte : c'est ce qui la rend sûre, et ce qui justifie qu'elle soit
+ * séparée de `/me/localisation` — dont le validateur garantit, lui, qu'une
+ * coordonnée reçue a bien été fournie par le client.
+ */
+const sansSession = await appel('/users/me/localisation-depuis-ville', { methode: 'PATCH' });
+ok('sans session, la route refuse', sansSession.statut === 401, `statut ${sansSession.statut}`);
+
+/* Un compte SANS ville : l'échec doit être explicite, pas un point au hasard. */
+const inscSansVille = await appel('/auth/register', {
+  methode: 'POST',
+  corps: {
+    type: 'utilisateur', prenom: 'Sans', nom: 'Ville', pseudo: `geosv${S}`,
+    email: `geosv${S}${DOM}`, password: MDP,
+  },
+});
+const tokenSansVille = inscSansVille.json?.accessToken;
+const refusSansVille = await appel('/users/me/localisation-depuis-ville', {
+  methode: 'PATCH', token: tokenSansVille,
+});
+ok('**un profil sans ville reçoit un 400 qui le dit**',
+  refusSansVille.statut === 400 && /ville/i.test(refusSansVille.json?.message ?? ''),
+  `${refusSansVille.statut} — ${refusSansVille.json?.message}`);
+
+/*
+ * UNE VILLE FANTAISISTE DOIT DONNER 422, PAS 400 ET PAS 200.
+ *
+ * La distinction compte pour la personne : 400 dit « corrigez votre demande »,
+ * 422 dit « votre demande est correcte, c'est Nominatim qui ne connaît pas ».
+ * Et surtout, un 200 avec un point nul reproduirait EXACTEMENT le défaut qu'on
+ * corrige — un écran vide sans raison affichée.
+ */
+await bdd.collection('users').updateOne({ pseudo: `geosv${S}` }, { $set: { ville: 'Zzzqqqxxwww' } });
+const villeIntrouvable = await appel('/users/me/localisation-depuis-ville', {
+  methode: 'PATCH', token: tokenSansVille,
+});
+ok('**une ville introuvable donne 422, et non un succès vide**',
+  villeIntrouvable.statut === 422, `statut ${villeIntrouvable.statut}`);
+ok('et le message nomme la ville en cause',
+  (villeIntrouvable.json?.message ?? '').includes('Zzzqqqxxwww'),
+  villeIntrouvable.json?.message);
+
+/*
+ * L'HOMONYME EST REFUSÉ, ET CETTE VÉRIFICATION A TROUVÉ UN VRAI DÉFAUT.
+ *
+ * La première version de la route appelait `geocoder({ ville })` et écrivait
+ * ce qui revenait. Pour « Castres », Nominatim rend Castres dans l'AISNE :
+ * l'épreuve a mesuré **691 km** d'écart avec le Tarn. Le profil ne portant que
+ * `ville`, rien ne permettait de départager — et un point faux ne se signale
+ * pas : « Autour de moi » se serait rempli d'événements plausibles, à 700 km.
+ *
+ * Le service refuse donc désormais de trancher, et dit comment en sortir.
+ */
+await bdd.collection('users').updateOne({ pseudo: `geosv${S}` }, { $set: { ville: 'Castres' } });
+const ambigue = await appel('/users/me/localisation-depuis-ville', {
+  methode: 'PATCH', token: tokenSansVille,
+});
+ok('**une ville à homonyme est REFUSÉE, pas tranchée au hasard**',
+  ambigue.statut === 409, `statut ${ambigue.statut}`);
+ok('**et le refus donne la sortie exacte** — ajouter le code postal au profil',
+  /code postal/i.test(ambigue.json?.message ?? ''), ambigue.json?.message);
+
+const nonEcrit = await bdd.collection('users').findOne({ pseudo: `geosv${S}` });
+ok('**aucun point n’a été écrit** — un refus ne laisse pas de trace à moitié posée',
+  !nonEcrit?.localisation, JSON.stringify(nonEcrit?.localisation ?? null));
+
+/* Le remède annoncé par le message doit effectivement marcher. */
+await bdd.collection('users').updateOne(
+  { pseudo: `geosv${S}` }, { $set: { ville: 'Castres 81100' } }
+);
+const depuisVille = await appel('/users/me/localisation-depuis-ville', {
+  methode: 'PATCH', token: tokenSansVille,
+});
+ok('une ville précisée rend un point', depuisVille.statut === 200, `statut ${depuisVille.statut}`);
+ok('**et il tombe bien sur Castres (Tarn), pas sur son homonyme de l’Aisne**',
+  depuisVille.json?.localisation
+    && ecartKm(depuisVille.json.localisation.coordinates, TARN) < 15,
+  depuisVille.json?.localisation
+    ? `${ecartKm(depuisVille.json.localisation.coordinates, TARN)} km du centre`
+    : 'aucun point');
+
+const compteVille = await bdd.collection('users').findOne({ pseudo: `geosv${S}` });
+ok('le point est bien écrit en base, pas seulement renvoyé',
+  compteVille?.localisation?.type === 'Point' && compteVille.localisation.coordinates.length === 2);
+ok('**la PROVENANCE est enregistrée** — sans elle, la carte publique ne peut pas trancher',
+  compteVille?.localisationSource === 'ville', String(compteVille?.localisationSource));
+ok('et la réponse annonce la précision au client',
+  depuisVille.json?.source === 'ville', String(depuisVille.json?.source));
+
+/*
+ * ET LE POINT EST RÉELLEMENT LU PAR `$geoNear`. Sans cette vérification, on
+ * aurait pu écrire une coordonnée que personne n'interroge — le défaut aurait
+ * survécu au correctif, invisible.
+ */
+const autour = await appel(
+  `/events/proches?lng=${compteVille.localisation.coordinates[0]}&lat=${compteVille.localisation.coordinates[1]}&rayon=25000`,
+  { token: tokenSansVille }
+);
+ok('**le point déduit sert bien à « Autour de moi »**',
+  autour.statut === 200 && Array.isArray(autour.json?.evenements),
+  `statut ${autour.statut}, ${autour.json?.evenements?.length ?? 0} événement(s)`);
+
+section('Un point déduit d’une ville n’ouvre pas la carte publique');
+
+/*
+ * LE COACH DE LA SECTION 2 a un point relevé par le navigateur : il doit
+ * pouvoir figurer sur la carte. Celui-ci part d'une ville : il ne doit pas.
+ */
+const inscCoachVille = await appel('/auth/register', {
+  methode: 'POST',
+  corps: {
+    type: 'coach', prenom: 'Cora', nom: 'Ville', pseudo: `geocv${S}`,
+    /* Précisée : « Castres » seul est refusé pour homonymie, voir plus haut. */
+    ville: 'Castres 81100', email: `geocv${S}${DOM}`, password: MDP,
+    diplome: { intitule: 'BPJEPS AF', organisme: 'DRAJES' },
+  },
+});
+const tokenCoachVille = inscCoachVille.json?.accessToken;
+
+const sansPosition = await appel('/geo/carte-visible', {
+  methode: 'PATCH', token: tokenCoachVille, corps: { carteVisible: true },
+});
+ok('sans aucune position, la carte est refusée — le garde-fou d’origine tient',
+  sansPosition.statut === 400, `statut ${sansPosition.statut}`);
+
+await appel('/users/me/localisation-depuis-ville', { methode: 'PATCH', token: tokenCoachVille });
+const avecPointVille = await appel('/geo/carte-visible', {
+  methode: 'PATCH', token: tokenCoachVille, corps: { carteVisible: true },
+});
+ok('**avec un point déduit de la ville, la carte est refusée AUSSI**',
+  avecPointVille.statut === 400, `statut ${avecPointVille.statut}`);
+ok('**et le refus dit comment en sortir**, au lieu de laisser deviner',
+  /géolocalisation/i.test(avecPointVille.json?.message ?? ''),
+  avecPointVille.json?.message);
+
+const pasSurLaCarte = await bdd.collection('users').findOne({ pseudo: `geocv${S}` });
+ok('le coach n’est effectivement pas passé sur la carte',
+  pasSurLaCarte?.carteVisible !== true, String(pasSurLaCarte?.carteVisible));
+
+/*
+ * LA SORTIE FONCTIONNE : relever sa vraie position rebascule la provenance,
+ * et la carte s'ouvre. Sans cette bascule, un coach ayant une fois géocodé sa
+ * ville resterait exclu de la carte pour toujours.
+ */
+const releve = await appel('/users/me/localisation', {
+  methode: 'PATCH', token: tokenCoachVille,
+  corps: { coordinates: [2.2411, 43.6045], ville: 'Castres' },
+});
+ok('relever sa position exacte est accepté', releve.statut === 200, `statut ${releve.statut}`);
+
+const apresReleve = await bdd.collection('users').findOne({ pseudo: `geocv${S}` });
+ok('**la provenance repasse à « navigateur »**',
+  apresReleve?.localisationSource === 'navigateur', String(apresReleve?.localisationSource));
+
+const carteRouverte = await appel('/geo/carte-visible', {
+  methode: 'PATCH', token: tokenCoachVille, corps: { carteVisible: true },
+});
+ok('**et la carte publique s’ouvre alors** — le refus n’était pas définitif',
+  carteRouverte.statut === 200, `statut ${carteRouverte.statut}`);
 
 /* ------------------------------ Fin ------------------------------ */
 

@@ -128,6 +128,116 @@ export async function geocoder(lieu = {}) {
 }
 
 /**
+ * Géocode une COMMUNE SEULE, en refusant de trancher entre deux homonymes.
+ *
+ * POURQUOI CETTE FONCTION EXISTE À CÔTÉ DE `geocoder()`.
+ *
+ * `geocoder()` sert à situer un ÉVÉNEMENT, dont l'organisateur a saisi une
+ * adresse et un code postal : l'homonymie y est déjà départagée, et l'en-tête
+ * de `tentatives()` explique pourquoi la ville seule y est interdite dès qu'un
+ * code postal existe.
+ *
+ * ICI IL N'Y A QUE LA VILLE. Le profil n'en porte pas d'autre : `User` a un
+ * champ `ville` et rien de plus. Or « Castres » seul renvoie Castres dans
+ * l'AISNE, à 691 km de Castres dans le Tarn — mesuré, et c'est ce qu'une
+ * épreuve de `test:geocodage` a trouvé sur la première version de cette voie.
+ * Nominatim tranche par importance, pas par proximité, et son choix n'a aucune
+ * raison d'être celui de la personne.
+ *
+ * ALORS ON NE TRANCHE PAS. Rendre le point le plus « important » placerait
+ * quelqu'un à 700 km de chez lui AVEC L'APPARENCE D'UNE DONNÉE CALCULÉE : la
+ * liste « Autour de moi » se remplirait d'événements plausibles et faux, et
+ * rien ne signalerait l'erreur. Un refus explicite est préférable, et la
+ * sortie est à la portée de la personne : écrire « Castres 81100 » dans son
+ * profil lève l'ambiguïté sans qu'aucun champ nouveau soit nécessaire.
+ *
+ * @param   {string} ville
+ * @returns {Promise<{ point: object } | { ambigu: string[] } | { point: null }>}
+ */
+export async function geocoderCommune(ville) {
+  const q = String(ville ?? '').trim();
+  if (!q) return { point: null };
+
+  const communes = await interrogerPlusieurs(q);
+  if (communes.length === 0) return { point: null };
+
+  /*
+   * DEUX COMMUNES SONT DISTINCTES SI ELLES SONT LOIN L'UNE DE L'AUTRE.
+   *
+   * Nominatim renvoie volontiers plusieurs entrées pour la MÊME ville — la
+   * commune, son centre, un quartier. Les compter comme des homonymes
+   * refuserait tout, y compris les villes sans ambiguïté. Le seuil de 25 km
+   * sépare deux communes différentes d'un doublon local, et reste bien en
+   * dessous des 691 km du cas qui motive ce code.
+   */
+  const distinctes = communes.filter(
+    (c) => ecartKm(c, communes[0]) > SEUIL_HOMONYME_KM
+  );
+
+  if (distinctes.length > 0) {
+    return { ambigu: [communes[0].libelle, distinctes[0].libelle] };
+  }
+
+  return { point: { type: 'Point', coordinates: [communes[0].lng, communes[0].lat] } };
+}
+
+/** Écart approximatif en km — suffisant pour distinguer deux communes. */
+const ecartKm = (a, b) =>
+  Math.hypot((a.lat - b.lat) * 111, (a.lng - b.lng) * 111 * Math.cos((a.lat * Math.PI) / 180));
+
+const SEUIL_HOMONYME_KM = 25;
+
+/**
+ * Jusqu'à cinq résultats pour une même recherche, au lieu d'un seul.
+ *
+ * C'est la seule différence avec `interroger()`, et elle est nécessaire :
+ * `limit=1` ne permet pas de SAVOIR qu'il y avait un deuxième candidat. On ne
+ * peut pas détecter une ambiguïté en ne regardant qu'une réponse.
+ */
+async function interrogerPlusieurs(q) {
+  try {
+    await respecterCadence();
+
+    const parametres = new URLSearchParams({
+      q,
+      format: 'jsonv2',
+      limit: '5',
+      countrycodes: 'fr',
+      addressdetails: '0',
+    });
+
+    const reponse = await fetch(`${BASE}?${parametres}`, {
+      headers: { 'User-Agent': AGENT, 'Accept-Language': 'fr' },
+      signal: AbortSignal.timeout(DELAI_MAX_MS),
+    });
+
+    if (!reponse.ok) {
+      console.warn(`[GEOCODAGE] Nominatim a répondu ${reponse.status} pour « ${q} »`);
+      return [];
+    }
+
+    const resultats = await reponse.json();
+    if (!Array.isArray(resultats)) return [];
+
+    return resultats
+      .map((r) => ({
+        lng: Number(r.lon),
+        lat: Number(r.lat),
+        libelle: String(r.display_name ?? q),
+      }))
+      .filter(
+        (c) =>
+          Number.isFinite(c.lng) && Number.isFinite(c.lat)
+          && c.lng >= -180 && c.lng <= 180 && c.lat >= -90 && c.lat <= 90
+      );
+  } catch (erreur) {
+    const cause = erreur.name === 'TimeoutError' ? 'délai dépassé' : erreur.message;
+    console.warn(`[GEOCODAGE] Échec pour « ${q} » : ${cause}`);
+    return [];
+  }
+}
+
+/**
  * Une tentative unique. Rend `null` sur panne, refus, ou absence de résultat —
  * jamais d'exception, pour que l'appelant puisse simplement essayer la
  * requête suivante.

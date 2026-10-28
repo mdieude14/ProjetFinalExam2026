@@ -22,6 +22,15 @@ export const userApi = {
   changerLocalisation: (coordinates, ville) =>
     api.patch('/users/me/localisation', { coordinates, ville }),
 
+  /**
+   * Position déduite de la VILLE DU PROFIL, sans aucune coordonnée envoyée.
+   *
+   * AUCUN ARGUMENT, ET C'EST LE FOND DE L'AFFAIRE : la ville est lue sur le
+   * compte, côté serveur. Le client ne choisit pas où il est situé — il
+   * demande seulement à l'être depuis ce qu'il a déjà déclaré.
+   */
+  localiserDepuisVille: () => api.patch('/users/me/localisation-depuis-ville'),
+
   /** Soumission d'un diplome pour verification (coachs). */
   soumettreDiplome: (intitule, organisme) =>
     api.post('/users/me/diplome', { intitule, organisme }),

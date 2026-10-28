@@ -46,6 +46,20 @@ export class ApiError extends Error {
     return new ApiError(409, message);
   }
 
+  /*
+   * 422 : LA REQUÊTE EST BIEN FORMÉE, MAIS INTRAITABLE.
+   *
+   * La distinction avec 400 n'est pas cosmétique. 400 dit « vous avez mal
+   * rempli votre demande », et invite à la corriger. 422 dit « votre demande
+   * est correcte, c'est le monde extérieur qui ne suit pas » — une ville
+   * orthographiée correctement mais que Nominatim ne connaît pas, par
+   * exemple. Le client n'affiche pas la même chose dans les deux cas, et il ne
+   * doit pas avoir à lire le message pour le savoir.
+   */
+  static unprocessable(message = 'Demande correcte mais intraitable') {
+    return new ApiError(422, message);
+  }
+
   static tooManyRequests(message = 'Trop de requetes, réessayez plus tard') {
     return new ApiError(429, message);
   }

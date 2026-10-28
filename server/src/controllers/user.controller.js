@@ -6,6 +6,7 @@ import { construireVueProfil, peutVoirProfil } from '../services/access.service.
 import { etatModeration } from '../services/moderation.service.js';
 import { televerser, supprimer } from '../services/storage.service.js';
 import { accepterDemandesEnAttente } from '../services/follow.service.js';
+import { geocoderCommune } from '../services/geocodage.service.js';
 
 /**
  * Champs modifiables par leur proprietaire.
@@ -226,6 +227,13 @@ export const changerLocalisation = asyncHandler(async (req, res) => {
 
   const maj = {
     localisation: { type: 'Point', coordinates: coordinates.map(Number) },
+    /*
+     * LA PROVENANCE EST ÉCRITE ICI AUSSI, pas seulement sur le chemin de la
+     * ville. Sans cette ligne, un coach ayant une fois géocodé sa ville
+     * resterait marqué `'ville'` après avoir relevé sa vraie position, et la
+     * carte publique lui serait refusée pour un point qu'il a pourtant relevé.
+     */
+    localisationSource: 'navigateur',
   };
   if (ville) maj.ville = ville;
 
@@ -236,6 +244,86 @@ export const changerLocalisation = asyncHandler(async (req, res) => {
     message: 'Position enregistree',
     localisation: maj.localisation,
     ville: ville || req.user.ville,
+  });
+});
+
+/* ================================================================== *
+ *  PATCH /api/users/me/localisation-depuis-ville
+ * ================================================================== */
+
+/**
+ * Déduit la position de la VILLE DU PROFIL, sans aucune coordonnée du client.
+ *
+ * POURQUOI UNE ROUTE À PART, et non `coordinates` rendu facultatif sur
+ * `/me/localisation`. Les deux portent deux modèles de consentement
+ * différents : là, la personne a autorisé son navigateur à donner sa position
+ * exacte ; ici, elle accepte d'être située à sa ville, et rien de plus. Les
+ * mélanger dans un seul point d'entrée obligerait à affaiblir le validateur
+ * de l'autre — qui est précisément ce qui garantit qu'une coordonnée reçue a
+ * bien été fournie.
+ *
+ * CE QU'ELLE CORRIGE. L'onglet « Autour de moi » restait vide pour qui refuse
+ * la géolocalisation du navigateur, sans rien proposer d'autre. Un refus est
+ * un choix légitime, pas une panne : l'écran doit offrir une sortie.
+ *
+ * LES DEUX ÉCHECS SONT EXPLICITES, et c'est le point. `geocoder()` rend
+ * `null` sur une ville introuvable comme sur une panne de Nominatim : le
+ * traduire en `422` avec un message, plutôt qu'en succès vide, évite de
+ * reproduire ici le défaut qu'on est en train de corriger — un écran vide
+ * sans raison affichée.
+ */
+export const localiserDepuisVille = asyncHandler(async (req, res) => {
+  const ville = String(req.user.ville ?? '').trim();
+
+  if (!ville) {
+    throw ApiError.badRequest(
+      'Renseignez la ville de votre profil pour pouvoir l’utiliser ici'
+    );
+  }
+
+  const { point: localisation, ambigu } = await geocoderCommune(ville);
+
+  /*
+   * L'HOMONYME EST REFUSÉ, PAS ARBITRÉ. « Castres » seul désigne deux communes
+   * à 691 km l'une de l'autre, et rien dans le profil ne dit laquelle : le
+   * champ `ville` est le seul que `User` porte. Choisir à la place de la
+   * personne remplirait « Autour de moi » d'événements plausibles et faux,
+   * sans rien signaler.
+   *
+   * 409 ET NON 422 : la demande n'est pas intraitable, elle est AMBIGUË. Et le
+   * message donne la sortie exacte, à la portée de la personne — préciser sa
+   * ville dans son profil, sans qu'aucun champ nouveau soit nécessaire.
+   */
+  if (ambigu) {
+    throw ApiError.conflict(
+      `Plusieurs communes s’appellent « ${ville} ». Précisez-la dans votre profil ` +
+        `en y ajoutant le code postal, par exemple « ${ville} 81100 ».`
+    );
+  }
+
+  if (!localisation) {
+    throw ApiError.unprocessable(
+      `Nous n’avons pas pu situer « ${ville} ». Vérifiez l’orthographe dans votre profil.`
+    );
+  }
+
+  await User.updateOne(
+    { _id: req.user._id },
+    { localisation, localisationSource: 'ville' }
+  );
+
+  return res.json({
+    succes: true,
+    message: `Position déduite de « ${ville} »`,
+    localisation,
+    ville,
+    /*
+     * LA PRÉCISION EST ANNONCÉE AU CLIENT. L'écran doit pouvoir dire « autour
+     * de <ville> » et non « autour de vous » : laisser croire à un relevé
+     * exact ferait passer un rayon de 5 km pour un rayon de 5 km... depuis le
+     * mauvais point de départ.
+     */
+    source: 'ville',
   });
 });
 

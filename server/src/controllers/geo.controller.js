@@ -96,6 +96,27 @@ export const definirCarteVisible = asyncHandler(async (req, res) => {
     );
   }
 
+  /*
+   * UN POINT DÉDUIT D'UNE VILLE N'OUVRE PAS LA CARTE PUBLIQUE.
+   *
+   * Il est précis au kilomètre, et la carte arrondit déjà à ~110 m : affiché,
+   * rien ne le distinguerait d'un relevé GPS. Le coach se croirait trouvable à
+   * son adresse alors qu'il le serait au centre-ville — et surtout, il n'a
+   * jamais consenti à ÊTRE TROUVÉ : il a seulement voulu CHERCHER autour de
+   * lui, après avoir refusé la géolocalisation de son navigateur. Déduire un
+   * consentement de ce refus serait exactement le détournement de finalité
+   * que `carteVisible: false` par défaut existe pour empêcher.
+   *
+   * ON REFUSE EN EXPLIQUANT LA SORTIE : relever sa position rebascule la
+   * provenance sur `'navigateur'` et rend la carte accessible.
+   */
+  if (carteVisible && req.user.localisationSource === 'ville') {
+    throw ApiError.badRequest(
+      'Votre position est déduite de votre ville, trop imprécise pour la carte. ' +
+        'Autorisez la géolocalisation pour y figurer.'
+    );
+  }
+
   await User.updateOne({ _id: req.user._id }, { carteVisible });
 
   return res.json({
