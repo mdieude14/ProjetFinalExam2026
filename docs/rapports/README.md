@@ -32,7 +32,8 @@ qu'un rapport manquant.
 | 2026-10-28 | [Le redémarrage et les huit commits](2026-10-28-redemarrage-et-huit-commits.md) | la cause du `ENOTFOUND`, l'environnement remis en route, 2035/2035, les huit commits poussés, le tunnel refusé |
 | 2026-10-28 | [Les assertions de présence](2026-10-28-assertions-de-presence.md) | le faux vert vivant sur le cloisonnement, les trois angles morts du recenseur, la régression que j'ai causée |
 | 2026-10-29 | [Le tunnel ouvert, éprouvé, refermé](2026-10-29-tunnel-ouvert-eprouve-referme.md) | les mesures à l'ouverture et à la fermeture, les deux points Telegram vérifiés à la source, les deux dettes d'exploitation |
-| 2026-10-29 | [Les flux de messagerie activés](2026-10-29-flux-de-messagerie-actives.md) | l'activation autorisée, la campagne, le tunnel rouvert pour l'épreuve réelle |
+| 2026-10-29 | [Les flux de messagerie activés](2026-10-29-flux-de-messagerie-actives.md) | l'activation autorisée, la campagne morte de mémoire, le pare-feu qui autorisait déjà tout |
+| 2026-10-29 | [L'agent Telegram répondait à côté](2026-10-29-agent-telegram-repondait-a-cote.md) | le repli qui répondait au lieu de refuser, l'origine du brouillon, le piège de l'import |
 
 ## Comment lire un chiffre de campagne
 

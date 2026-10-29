@@ -12627,3 +12627,168 @@ mécanisme ; il ne ferme rien.
       *Il a fallu l'écrire parce que la file était vide : les quatorze dossiers en escalade
       avaient tous déjà reçu leur alerte, et la relève ne renvoie jamais une alerte déjà partie.
       Il n'y avait rien à quoi répondre, donc aucune épreuve possible.*
+
+---
+
+## 15.67 — L'agent Telegram répondait à l'exploitant comme à un client  `RÉSOLU`
+
+### Le défaut, tel qu'il s'est présenté
+
+Le porteur du projet a répondu à une alerte d'escalade avec sa consigne complète :
+
+> « OK, je te formule ma réponse alors : j'ai bien pris connaissance de votre demande.
+> Pouvez-vous nous fournir la date de résiliation de votre abonnement ainsi que la date de
+> prélèvement du dernier abonnement ? Pour la demande de remboursement, ça se fait via le
+> support client et c'est nous qui déciderons… »
+
+L'agent lui a répondu **à lui**, comme à un client :
+
+> « Merci pour ce message, mais je crois qu'il y a une confusion : je suis l'assistant de
+> CoachConnect et c'est à vous que je réponds, je ne suis pas le destinataire d'une réponse du
+> support. Sur ce que je peux voir de votre compte, aucun abonnement premium n'y figure… »
+
+### La cause, et elle est structurelle
+
+```js
+if (reference) { … → rédige un brouillon pour l'utilisateur }
+
+/* ---- Question libre à la base de connaissances ---- */
+… → l'agent répond À L'EXPLOITANT, comme à un client
+```
+
+Sans référence lisible, le message **tombait dans le robot d'accueil**. Le flux n'a, à cet
+instant, aucun moyen de savoir que l'expéditeur est l'exploitant : le compte rattaché n'est lu
+qu'un nœud plus loin.
+
+- **Chaque étape avait fait ce qui était écrit**, et le résultat est pourtant absurde. Surtout,
+  il est **trompeur** : le texte rendu a toutes les apparences d'une réponse réfléchie, et rien
+  n'y dit que la consigne n'a jamais été comprise comme telle. L'exploitant croit avoir instruit
+  un dossier ; il a bavardé.
+
+  > **LA LEÇON : un repli qui RÉPOND quand même est pire qu'un repli qui refuse.** Devant une
+  > entrée ambiguë, on rend la question — pas une réponse confiante et hors sujet.
+
+- [x] **ET LE BANC D'ESSAI GARDAIT LA FAUTE, EN VERT.** `agents-canaux.mjs` affirmait :
+
+      ```js
+      ok('répondre à un message sans référence reste une question ordinaire',
+        citeSansRef.reponseDossier === false && citeSansRef.valide === true);
+      ```
+
+      Cette assertion **décrivait** le comportement observé au lieu de dire celui qu'on veut,
+      et elle le figeait. *Un test écrit en regardant le produit certifie le produit tel qu'il
+      est, défaut compris.* Elle a été retournée, avec sa raison écrite à côté.
+
+### La correction : deux signes, lus avant tout appel au modèle
+
+Les deux cas se distinguent **sans rien dépenser**, avant le moindre jeton.
+
+| Cas | Signe | Ce que le bot répond désormais |
+|---|---|---|
+| a | il a utilisé « Répondre », mais sur un message sans `Réf.` | « Je ne trouve aucune référence dans le message auquel vous répondez… utilisez Répondre sur mon alerte, celle qui porte 🏷️ Réf. » |
+| b | il a **recopié** la référence dans son propre message | « Je ne la lis pas, et c'est volontaire : une faute de frappe sur huit caractères instruirait le dossier de quelqu'un d'autre » |
+
+- **Le cas (b) était déjà refusé, mais en silence.** Un refus qui n'explique pas passe pour une
+  panne : l'exploitant recommence, ou se rabat sur le back-office en pensant que Telegram ne
+  marche pas.
+- [x] **Un utilisateur ordinaire n'est pas pénalisé** : le durcissement ne vise que les messages
+      qui **citent** quelque chose ou qui portent une référence tapée. Une question posée
+      directement reste une question — éprouvé.
+
+### L'origine du brouillon, qui manquait au back-office
+
+Le porteur du projet demandait que le brouillon apparaisse **aussi** dans l'écran de
+modération, en disant qu'il vient du chat Telegram.
+
+- [x] **Il y apparaissait déjà, mais sans rien dire.** Le flux Telegram enregistre son brouillon
+      par `POST /support/service/tickets/:reference/brouillon`, donc le back-office le montre.
+      Seulement `enregistrerBrouillon` met `brouillonParAgent: false` — un humain est bien
+      intervenu — et l'avertissement « proposé par l'agent, à relire » **ne s'affiche donc pas**.
+      Résultat : un texte dicté au téléphone était **indistinguable** d'un texte tapé devant le
+      dossier.
+
+- [x] **`brouillonOrigine` ajouté au modèle** : `agent` | `telegram` | `back-office`, exposé par
+      `versionExploitant()`.
+
+- **ET CE N'EST PAS LA MÊME QUESTION QUE `brouillonParAgent`.** Celui-ci dit si un humain a
+  relu ; l'origine dit d'où vient le geste. Les deux voies ne se relisent pas de la même façon :
+  une amorce Telegram est dictée de mémoire, souvent depuis un téléphone, **sans la demande sous
+  les yeux** ; un brouillon du back-office est écrit en regardant le dossier.
+
+- [x] **L'ORIGINE EST UNE PROPRIÉTÉ DE LA ROUTE, JAMAIS UNE DONNÉE DU CORPS.** `brouillonService`
+      impose `telegram` en dur, `brouillonAdmin` impose `back-office`. Un champ dans le corps
+      permettrait de faire passer une saisie au clavier pour une dictée, et l'écran de
+      modération le répéterait sans pouvoir le vérifier. **Éprouvé par falsification** : on
+      pousse `brouillonOrigine: 'back-office'` dans le corps de la route Telegram, et le dossier
+      rend quand même `telegram`.
+- [x] Le service **valide la valeur** contre la liste fermée et retombe sur `back-office` : une
+      valeur fantaisiste ne peut pas s'inscrire en base.
+
+- [x] **Marqueur ambre dans l'écran de modération**, distinct de celui de l'agent : « Rédigé par
+      l'agent depuis une amorce envoyée sur Telegram. La demande n'était pas sous les yeux au
+      moment de la dicter : à relire avant envoi. »
+
+### L'adresse d'expédition était déjà la bonne
+
+- [x] `MAIL_FROM=Support CoachConnect <support.coachconnect.app@gmail.com>` — rien à changer.
+      Le courriel de validation part donc de la même adresse que pour le widget et le courriel.
+
+### LE PIÈGE DE L'IMPORT, qui rend le bot muet sans erreur
+
+- [x] **`n8n import:workflow` REMET LE FLUX À INACTIF.** Mesuré : après l'import du correctif,
+      `ccAgentTelegr01` était `INACTIF`. Aucun message, aucune erreur — le bot aurait simplement
+      cessé de répondre, et l'on aurait cherché la panne dans le code qu'on venait d'écrire.
+
+      **La séquence est donc en trois temps, et l'ordre n'est pas négociable :**
+
+      ```
+      n8n import:workflow --input=/workflows/agent-telegram.json
+      n8n update:workflow --id=ccAgentTelegr01 --active=true
+      docker compose -f … -f …override… -f …tunnel… up -d --force-recreate n8n
+      ```
+
+      *C'est le même piège que l'activation avant l'inscription de l'adresse, du 19 octobre :
+      un état posé en base ne vaut rien tant que n8n ne l'a pas relu au démarrage.*
+
+### Les épreuves
+
+| Suite | Avant | Après |
+|---|---|---|
+| `test:canaux` — Telegram et courriel | 267 | **274/274** |
+| `test:reponse` — brouillon et validation | 49 | **52/52** |
+| `client test:support` — back-office | 137 | **140/140** |
+| `test:support` — API | — | **133/133** |
+| `test:escalade` | — | **35/35** |
+| `test:courriel` | — | **56/56** |
+| `test:releve` | — | **78/78** |
+| `bout-en-bout-agent` — chaîne réelle | — | **25/25** |
+
+**793 vérifications**, et **treize nouvelles**. Lint du client : **0 erreur**.
+
+- [x] **Le cas réel est éprouvé mot pour mot.** La consigne du 29 octobre figure dans la suite,
+      telle qu'elle a été envoyée, dans les deux situations : citée sur un message sans
+      référence, elle ne part plus au robot d'accueil ; citée sur la bonne alerte, elle rédige
+      le brouillon. *Une régression se verra sur l'entrée exacte, pas sur un cas de
+      laboratoire.*
+- [x] **L'épreuve d'écran porte sur une PRÉSENCE.** Vérifier que le marqueur Telegram ne
+      s'affiche pas sur un brouillon du back-office passerait au vert sur un écran vide — le
+      faux vert balayé le 28 octobre. On écrit donc l'origine en base, on recharge, et on exige
+      que le marqueur **apparaisse**.
+
+### La campagne complète n'a PAS été rejouée, et c'est délibéré
+
+- [ ] **0,71 Go de mémoire libre, compression à 1 729 Mo** — pire que lorsque la campagne est
+      morte quelques heures plus tôt (631 Mo). La relancer aurait reproduit l'échec et produit
+      vingt minutes de données invalides.
+- **Le périmètre modifié est couvert par les 793 vérifications ci-dessus**, dont une suite
+  navigateur. Mais **les 37 suites n'ont pas été éprouvées ensemble aujourd'hui**, et il faut
+  le dire : 793 n'est pas 2035.
+- *Le corollaire de la règle « ne jamais relever un seuil pour obtenir du vert » : ne jamais
+  faire tourner un instrument dans des conditions où il ne mesure plus rien.*
+
+### Le tunnel refermé pour la nuit
+
+- [x] Fermé avant de rendre la main : `tunnel/healthz` → **530**, `WEBHOOK_URL` revenu sur
+      localhost, conteneur supprimé, certificat préservé. *Le laisser ouvert sans surveillance
+      était précisément le risque signalé deux fois ; l'épreuve Telegram se fera à la
+      réouverture, qui coûte une commande.*
