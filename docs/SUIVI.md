@@ -12512,9 +12512,17 @@ campagne entière qui ne tient pas sous 1 Go.
 
 C'est la trouvaille du jour, et elle n'était pas celle qu'on cherchait.
 
-- [x] **Mesuré, depuis un espace réseau distinct** (un conteneur Docker, qui traverse réellement
-      le filtre de l'hôte — contrairement à une tentative locale, que Windows ne filtre pas de
-      façon fiable) :
+> ⚠️ **CETTE MESURE NE PROUVAIT PAS CE QU'ELLE AFFIRMAIT — rectifié le 29 octobre 2026,
+> voir 15.69.** Le pare-feu Hyper-V, qui régit le trafic WSL, porte `LoopbackEnabled : True` :
+> la requête d'un conteneur vers l'hôte est traitée comme du **loopback** et ne traverse
+> **pas** le filtre de profil. Les trois lignes ci-dessous ne disent donc rien de plus que les
+> sockets d'écoute — que l'hôte écoute sur cette adresse. *Croire qu'un conteneur est « un
+> autre appareil » a produit une conclusion de sécurité fausse, et rassurante dans le mauvais
+> sens : elle donnait l'impression d'avoir déjà tout compris.* **Seul un appareil tiers
+> tranche.**
+
+- [~] **Mesuré depuis un conteneur Docker** — mesure dont la portée était surestimée, voir le
+      rectificatif ci-dessus :
 
       ```
       http://192.168.1.21:5000/api/health   REPONSE 200     <- l'API de dev
@@ -12875,3 +12883,209 @@ vaut une confirmation en soi : aucune suite n'a été coupée en route.
       *Et deux cas de refus à éprouver aussi, parce qu'ils sont neufs* : répondre à un message
       sans `Réf.`, et recopier la référence à la main. Les deux doivent rendre une explication,
       pas une réponse de robot d'accueil.
+
+---
+
+## 15.69 — Le piège du redémarrage s'est réalisé, et une mesure de sécurité était fausse  `RÉSOLU`
+
+### LE PIÈGE DU 19 OCTOBRE, OBSERVÉ POUR DE VRAI
+
+Il était consigné depuis onze jours, en avertissement. Le 29 octobre, au redémarrage du poste,
+il s'est produit exactement comme écrit.
+
+```
+docker/n8n/.env   -> WEBHOOK_URL=https://<adresse du tunnel de la veille>/
+coachconnect-tunnel -> Exited (255)      le conteneur n'est PAS revenu
+ccAgentTelegr01     -> ACTIF             il declare donc une adresse MORTE
+```
+
+- [x] **« Le pire des deux mondes », vérifié.** n8n a démarré, lu l'adresse morte dans son
+      environnement, et l'a déclarée à Telegram pour un workflow actif. **Le bot était
+      injoignable en silence**, sans aucune erreur nulle part : ni dans le journal de n8n, ni
+      dans Telegram, ni à l'écran.
+- [x] **Nettoyé par la procédure prévue** : `ouvrir-tunnel.mjs --fermer` désactive
+      `ccAgentTelegr01`, supprime le conteneur et ramène `WEBHOOK_URL` sur localhost. Vérifié
+      après : n8n **200**, adresse locale, zéro conteneur de tunnel, certificat préservé.
+
+  > **Ce que cette occurrence ajoute à l'avertissement** : il ne suffit pas de « ne pas ouvrir
+  > le tunnel juste avant un redémarrage ». Il faut **nettoyer après tout redémarrage**, parce
+  > que l'état fautif ne se signale pas. La seule façon de le voir est de le chercher.
+
+### Le plafond mémoire pour WSL, posé au bon moment
+
+- [x] **Posé pendant que Docker était arrêté**, donc **sans interrompre quoi que ce soit** :
+      WSL n'était pas démarré, le fichier a pris effet au lancement suivant. *C'est la seule
+      fenêtre où ce changement est gratuit ; à tout autre moment il coûte un
+      `wsl --shutdown`.*
+
+`%USERPROFILE%\.wslconfig`, en ASCII pur et sans BOM — un BOM y fait ignorer le fichier
+entier :
+
+```ini
+[wsl2]
+memory=2GB
+```
+
+| Mesure | Avant | Après |
+|---|---|---|
+| `vmmemWSL` | **760 Mo** | **267 Mo** |
+| plafond vu par les conteneurs | ~3,9 Go (50 % de la RAM) | **1,926 GiB** |
+| les deux conteneurs ensemble | — | 437 + 133 = **570 Mo** |
+
+**Environ 490 Mo rendus au système, et plus du triple de marge conservé.** Le choix de 2 Go
+n'est pas un chiffre rond : il vient de la mesure des deux conteneurs réunis.
+
+- **Pour revenir en arrière** : supprimer le fichier, puis `wsl --shutdown`. La raison de son
+  existence et la mesure qui l'a motivé sont écrites dedans.
+
+### UNE MESURE DE SÉCURITÉ QUI NE PROUVAIT PAS CE QU'ELLE AFFIRMAIT
+
+C'est la correction la plus importante du jour, et elle porte sur mon propre travail de la
+veille.
+
+Le 29 octobre, le journal affirmait avoir mesuré l'exposition de l'API au réseau local
+« depuis un espace réseau distinct — un conteneur Docker, **qui traverse réellement le filtre
+de l'hôte** ». Le 30, en revérifiant après le changement de réseau :
+
+```
+Get-NetFirewallHyperVVMSetting :
+  Enabled              : True
+  DefaultInboundAction : Block
+  LoopbackEnabled      : True        <-- la reponse
+```
+
+- [x] **Le pare-feu Hyper-V traite le trafic d'un conteneur vers l'hôte comme du LOOPBACK.**
+      Il ne traverse donc **pas** le filtre de profil. Les trois lignes de mesure ne disaient
+      rien de plus que les sockets d'écoute : que l'hôte écoute sur cette adresse.
+
+  > **LA LEÇON : une mesure vaut ce que vaut le chemin qu'elle emprunte.** Croire qu'un
+  > conteneur est « un autre appareil » a produit une conclusion de sécurité **fausse, et
+  > rassurante dans le mauvais sens** — elle donnait l'impression d'avoir déjà tout compris, et
+  > elle a été publiée comme telle dans le journal et dans un rapport archivé.
+
+- [x] **Les deux documents sont rectifiés sur place**, avec un encadré qui dit ce que la mesure
+      ne prouvait pas. *Un rapport archivé ne se réécrit pas en silence : la rectification est
+      visible à côté de l'affirmation d'origine.*
+
+#### Ce qui reste établi, et ce qui ne l'est pas
+
+| | État |
+|---|---|
+| 5000 et 5678 écoutent sur `::` — **toutes** les interfaces | **établi** (sockets) |
+| 5173 écoute sur `::1` — localhost seul, **sain par construction** | **établi** |
+| une règle entrante autorise `node.exe`, **tous ports**, profil **Private** | **établi** |
+| le back-end tourne sur ce binaire exactement | **établi** (PID vérifié) |
+| **un appareil tiers y arrive-t-il vraiment ?** | **NON ÉTABLI** |
+
+- **Seul un appareil tiers sur le même réseau tranche.** C'est la vérification demandée au
+  porteur du projet, et elle n'est pas optionnelle.
+
+### Le réseau a changé, et mon script codait un plan d'adressage en dur
+
+- [x] **Mesuré au redémarrage** : le poste n'est plus sur le réseau domestique.
+
+      ```
+      reseau  : PEDA                   categorie : Public
+      reseau  : Reseau non identifie   categorie : Public
+      Wi-Fi   : 10.172.10.18 / 24
+      ```
+
+- [x] **La première version de `pare-feu-fermer-le-dev.ps1` ciblait `192.168.1.0/24`** — le
+      réseau domestique. Elle aurait été **sans effet ici**. *Un plan d'adressage codé en dur
+      protège un seul lieu, et ne le dit pas.*
+
+- [x] **Réécrit** : blocage entrant sur 5000, 5173 et 5678, **tous profils, sans restriction
+      d'adresse**. Deux raisons pour que cela ne casse rien :
+      le **loopback n'est pas filtré** par le pare-feu Windows, donc le travail local et les
+      suites ne voient aucune différence ; et le trafic WSL est exempté par `LoopbackEnabled`,
+      donc les flux n8n qui appellent `host.docker.internal:5000` passent toujours.
+
+- **LA SECONDE RAISON EST UNE DÉDUCTION, PAS UNE MESURE**, et le script le dit. C'est pourquoi
+  la vérification finale exige **les deux sens** : le téléphone doit échouer, **et** l'agent de
+  support doit continuer à répondre. *Si l'agent tombe, la déduction était fausse : on retire
+  la règle et on le dit.*
+- [x] Le script affiche **l'état du réseau avant la pose** (nom, catégorie, adresse), pour que
+      la comparaison après soit possible. ASCII pur, zéro octet non-ASCII, zéro erreur
+      d'analyse, refus propre sans élévation.
+- [x] **Les guillemets français avaient glissé dedans** — 8 caractères non-ASCII, attrapés par
+      le contrôle d'encodage du fichier lui-même. *La règle inscrite dans l'en-tête a servi à
+      attraper sa propre violation.*
+
+### Une animation prouvée par sa déclaration, et non par un échantillon
+
+La campagne est sortie à **2047/2048**, une seule chute :
+
+```
+✗ Navigateur — bascule du compositeur   18/19
+    ECHEC le dépliement est animé, pas instantané
+    -> 408 px à mi-course, 408 px à l'arrivée
+```
+
+- [x] **Relancée seule : 19/19.** Le produit n'avait aucun défaut. Et la suite a d'abord rendu
+      `0/0 — INTERROMPU : fetch failed` dans son propre journal, avant que la campagne la
+      relance : l'API était injoignable à cet instant, non parce qu'elle était tombée — elle
+      répondait **200** juste après, le back-end n'a ni redémarré ni erré — mais parce que la
+      machine paginait derrière vingt suites navigateur.
+
+- **LA CAUSE EXACTE.** La vérification échantillonnait la hauteur 80 ms après le clic et
+  exigeait une valeur strictement intermédiaire :
+
+  ```js
+  await page.waitForTimeout(80);
+  const miCourse = await hauteur();
+  ok('le dépliement est animé', miCourse > 0 && miCourse < ouvert);
+  ```
+
+  Sur une machine saturée, **l'animation de 300 ms était déjà terminée** quand la mesure est
+  arrivée. Les deux lectures valaient 408 px.
+
+- [x] **C'est la même famille que la mesure « pendant le chargement » de `relations.mjs`** : un
+      état transitoire lu à délai fixe. **La différence est qu'ici on peut s'en passer.** Le
+      dépliement est animé parce qu'une transition CSS le déclare — `grid transition-all
+      duration-300 ease-out`, de `grid-rows-[0fr]` à `grid-rows-[1fr]` — et cette déclaration
+      se lit sans aucune course :
+
+      ```
+      OK  **le dépliement est animé, pas instantané** — une transition CSS le déclare
+          -> all sur 0.3s
+      ```
+
+  > **LA RÈGLE QUI S'EN DÉGAGE** : quand un état transitoire **est le sujet**, on le mesure à
+  > délai fixe et on le déclare (`mesure-instantanee`). Quand il n'est qu'un **moyen** de
+  > prouver autre chose, on cherche la preuve qui ne court pas.
+
+- Le résultat final — le formulaire est bien déplié, 408 px — reste vérifié juste après, et
+  c'est lui qui prouve que la transition a effectivement abouti. *La déclaration dit qu'elle
+  existe ; la hauteur finale dit qu'elle a servi.*
+- [x] **Le recensement reste à `à traiter : 0`** après la correction : le délai retiré ne
+      précédait plus aucune lecture instantanée.
+
+### La campagne après correction : 2048/2048, et la preuve est dans les conditions
+
+```
+Total : 2048/2048 vérifications
+Tout est au vert.
+37 suites — mémoire libre au lancement : 0,68 Go
+```
+
+- [x] **`Navigateur — bascule du compositeur` : 19/19**, et c'est là que la preuve se trouve.
+      La campagne précédente était partie à **0,43 Go** et l'assertion d'échantillon est
+      tombée ; celle-ci est partie à **0,68 Go** — toujours bien sous le seuil de 2 Go — et
+      l'assertion déterministe a tenu. *Une correction qui ne passe qu'en conditions
+      favorables ne prouve rien ; celle-ci a été éprouvée dans la famille de conditions qui
+      avait fait tomber l'ancienne.*
+- [x] **Aucune régression de performance** : `API — performance` **18/18**, `Navigateur —
+      performance` **15/15**.
+- [x] **Le compte reste 2048** : une assertion a été remplacée par une autre, pas ajoutée.
+
+### Et une date fausse, corrigée partout
+
+- [x] **Plusieurs traces de la séance portaient « 30 octobre 2026 »** alors que l'horloge du
+      poste et l'environnement s'accordent sur le **29**. Corrigé dans le journal, les deux
+      rapports archivés concernés, le script du pare-feu, le commentaire de
+      `publication-toggle.mjs` et l'en-tête du `.wslconfig` ; **le fichier de rapport a été
+      renommé** et l'index mis à jour. Balayage final : zéro occurrence restante.
+
+  > *Dans un journal, une date fausse ne se contente pas d'être inexacte : elle rend la trace
+  > introuvable le jour où on la cherche. C'est le seul champ dont l'erreur coûte plus que le
+  > contenu.*

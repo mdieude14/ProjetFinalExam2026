@@ -72,9 +72,17 @@ les **huit derniers** (`referenceDe`, `models/Ticket.js:395`). L'agent annonçai
 
 C'est la trouvaille du jour, et ce n'était pas celle qu'on cherchait.
 
-Mesuré depuis un espace réseau distinct — un conteneur Docker, qui traverse réellement le
-filtre de l'hôte, contrairement à une tentative locale que Windows ne filtre pas de façon
-fiable :
+> ⚠️ **CETTE MESURE NE PROUVAIT PAS CE QU'ELLE AFFIRMAIT — rectifié le 29 octobre 2026,
+> voir 15.69.** Le pare-feu Hyper-V, qui régit le trafic WSL, porte `LoopbackEnabled : True` :
+> la requête d'un conteneur vers l'hôte est traitée comme du **loopback** et ne traverse
+> **pas** le filtre de profil. Les trois lignes ci-dessous ne disent donc rien de plus que les
+> sockets d'écoute — que l'hôte écoute sur cette adresse. *Croire qu'un conteneur est « un
+> autre appareil » a produit une conclusion de sécurité fausse, et rassurante dans le mauvais
+> sens : elle donnait l'impression d'avoir déjà tout compris.* **Seul un appareil tiers
+> tranche.**
+
+Mesuré depuis un conteneur Docker — mesure dont la portée était surestimée, voir le
+rectificatif ci-dessus :
 
 ```
 http://192.168.1.21:5000/api/health   REPONSE 200     <- l'API de dev

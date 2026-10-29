@@ -1,4 +1,4 @@
-# 30 octobre 2026 — 2048/2048, et une prudence de la veille qui était de trop
+# 29 octobre 2026 — 2048/2048, et une prudence de la veille qui était de trop
 
 > Rapport rendu tel quel. Le journal technique correspondant est en `docs/SUIVI.md`,
 > section 15.68.
