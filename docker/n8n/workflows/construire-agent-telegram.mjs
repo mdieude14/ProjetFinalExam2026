@@ -298,6 +298,71 @@ export function preparerQuestion() {
     return sortie({ reponseDossier: true, reference, consigne: recu });
   }
 
+  /* ------------------------------------------------------------------ *
+   *  SANS RÉFÉRENCE, ON NE DEVIENT PAS UN ROBOT D'ACCUEIL
+   * ------------------------------------------------------------------ */
+
+  /*
+   * LE DÉFAUT QUE CE BLOC CORRIGE, constaté le 29 octobre 2026.
+   *
+   * L'exploitant a répondu à une alerte d'escalade avec sa consigne :
+   *
+   *   « OK, je te formule ma réponse alors : j'ai bien pris connaissance de
+   *     votre demande. Pouvez-vous nous fournir la date de résiliation… »
+   *
+   * Aucune référence n'a pu être lue, et le message est tombé dans la branche
+   * « question libre ». L'agent lui a donc répondu À LUI, comme à un client :
+   *
+   *   « Je crois qu'il y a une confusion : je suis l'assistant de CoachConnect
+   *     et c'est à vous que je réponds… aucun abonnement premium ne figure sur
+   *     votre compte. »
+   *
+   * Techniquement, chaque étape a fait ce qui était écrit. Le résultat est
+   * pourtant absurde, et il est TROMPEUR : le texte rendu a toutes les
+   * apparences d'une réponse réfléchie, et rien n'y dit que la consigne n'a
+   * jamais été comprise comme telle. L'exploitant croit avoir instruit un
+   * dossier ; il a bavardé avec un robot d'accueil.
+   *
+   *   LA LEÇON : un repli qui RÉPOND quand même est pire qu'un repli qui
+   *   refuse. Devant une entrée ambiguë, il faut rendre la question, pas une
+   *   réponse confiante et hors sujet.
+   *
+   * Deux signes permettent de distinguer l'exploitant qui instruit d'un
+   * utilisateur qui pose une question, et ils se lisent AVANT tout appel au
+   * modèle — donc sans rien dépenser.
+   */
+
+  /* 1. Il a bien utilisé « Répondre », mais sur un message sans référence. */
+  if (cite) {
+    return fixe(
+      'Je ne trouve aucune référence dans le message auquel vous répondez, donc je ne sais ' +
+      'pas de quel dossier il s’agit — et je préfère vous le dire plutôt que de vous ' +
+      'répondre à côté.\n\n' +
+      'Utilisez « Répondre » sur mon alerte d’escalade, celle qui porte la ligne ' +
+      '🏷️ Réf. suivie de huit caractères. C’est cette ligne qui désigne le dossier.\n\n' +
+      'Si vous répondiez à un de mes brouillons, il porte aussi sa référence : répondez ' +
+      'directement à ce brouillon pour le corriger.'
+    );
+  }
+
+  /*
+   * 2. Il a recopié la référence dans SON message au lieu de citer le mien.
+   *
+   * C'est le geste le plus naturel, et il est refusé exprès : une faute de
+   * frappe sur huit caractères instruirait un AUTRE dossier, et enverrait la
+   * réponse d'une personne à une autre. Le refus doit donc expliquer, sinon il
+   * passe pour une panne.
+   */
+  if (/R[ée]f\.?\s*[0-9a-f]{6,}/i.test(recu)) {
+    return fixe(
+      'Vous avez écrit une référence dans votre message. Je ne la lis pas, et c’est ' +
+      'volontaire : une faute de frappe sur huit caractères instruirait le dossier de ' +
+      'quelqu’un d’autre, et sa réponse partirait à la mauvaise personne.\n\n' +
+      'Utilisez « Répondre » sur mon alerte d’escalade : citer mon message désigne le ' +
+      'dossier sans risque de se tromper.'
+    );
+  }
+
   /* ---- Question libre à la base de connaissances ---- */
 
   // Mêmes bornes que le validateur de l'API : 3 à 2000 caractères.

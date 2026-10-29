@@ -874,12 +874,98 @@ const tapee = executer(tg.preparerQuestion, {
 })[0].json;
 ok('**une référence TAPÉE à la main n’instruit aucun dossier**',
   tapee.reponseDossier === false && tapee.reference === undefined);
+/*
+ * ET ELLE DOIT S'EXPLIQUER, SINON ELLE PASSE POUR UNE PANNE. Refuser sans dire
+ * pourquoi laisse croire à un bogue, et l'exploitant recommence — ou se rabat
+ * sur le back-office en pensant que Telegram ne marche pas.
+ */
+ok('**et le refus explique pourquoi**, au lieu de ressembler à une panne',
+  /faute de frappe/i.test(tapee.texte ?? '') && /Répondre/i.test(tapee.texte ?? ''),
+  (tapee.texte ?? '').slice(0, 60));
+ok('le refus n’appelle pas le modèle', tapee.valide === false && tapee.redige !== true);
 
+/*
+ * ======================================================================
+ *  LE DÉFAUT DU 29 OCTOBRE 2026, ET POURQUOI CETTE ASSERTION A CHANGÉ
+ * ======================================================================
+ *
+ * Cette suite affirmait, jusqu'à ce jour :
+ *
+ *   « répondre à un message sans référence reste une question ordinaire »
+ *   citeSansRef.valide === true
+ *
+ * C'ÉTAIT LE DÉFAUT, ÉCRIT NOIR SUR BLANC ET GARDÉ PAR UN TEST VERT.
+ *
+ * L'exploitant a répondu à une alerte d'escalade avec sa consigne complète —
+ * « j'ai bien pris connaissance de votre demande, pouvez-vous nous fournir la
+ * date de résiliation… ». Aucune référence n'a pu être lue, le message est
+ * tombé dans la branche « question libre », et l'agent lui a répondu À LUI,
+ * comme à un client : « je crois qu'il y a une confusion, je suis l'assistant
+ * de CoachConnect et c'est à vous que je réponds… aucun abonnement premium ne
+ * figure sur votre compte ».
+ *
+ * Chaque étape avait fait ce qui était écrit. Le résultat est pourtant absurde,
+ * et surtout TROMPEUR : le texte rendu a toutes les apparences d'une réponse
+ * réfléchie, et rien n'y dit que la consigne n'a jamais été comprise comme
+ * telle. L'exploitant croit avoir instruit un dossier ; il a bavardé.
+ *
+ *   LA LEÇON : un repli qui RÉPOND quand même est pire qu'un repli qui refuse.
+ *   Devant une entrée ambiguë, on rend la question — pas une réponse confiante
+ *   et hors sujet.
+ *
+ * Et la leçon de banc d'essai est jumelle : un test qui DÉCRIT le comportement
+ * observé le fige. Celui-ci était vert depuis le début et gardait la faute.
+ * ======================================================================
+ */
 const citeSansRef = executer(tg.preparerQuestion, {
   entree: repondreA('Merci !', 'Bonjour ! Je suis la console de support.'),
 })[0].json;
-ok('répondre à un message sans référence reste une question ordinaire',
-  citeSansRef.reponseDossier === false && citeSansRef.valide === true);
+ok('**répondre à un message sans référence ne devient PAS une question ordinaire**',
+  citeSansRef.reponseDossier === false && citeSansRef.valide === false);
+ok('**et le bot dit qu’il ne sait pas de quel dossier il s’agit**',
+  /aucune référence/i.test(citeSansRef.texte ?? ''),
+  (citeSansRef.texte ?? '').slice(0, 60));
+ok('il indique le geste exact qui marche — « Répondre » sur l’alerte',
+  /Répondre/i.test(citeSansRef.texte ?? '') && /Réf\./i.test(citeSansRef.texte ?? ''));
+
+/*
+ * LE CAS RÉEL, MOT POUR MOT. La consigne qui a déclenché la découverte, pour
+ * que la régression se voie sur l'entrée exacte et non sur un cas de
+ * laboratoire.
+ */
+const consigneReelle = executer(tg.preparerQuestion, {
+  entree: repondreA(
+    'OK, je te formule ma réponse alors : j’ai bien pris connaissance de votre demande. ' +
+      'Pouvez-vous nous fournir la date de résiliation de votre abonnement ainsi que la ' +
+      'date de prélèvement du dernier abonnement ?',
+    'Bonjour ! Je suis la console de support de CoachConnect.'
+  ),
+})[0].json;
+ok('**la consigne réelle du 29 octobre ne part plus au robot d’accueil**',
+  consigneReelle.valide === false && consigneReelle.reponseDossier === false);
+
+/* Et avec la référence, la MÊME consigne instruit bien le dossier. */
+const consigneReelleAvecRef = executer(tg.preparerQuestion, {
+  entree: repondreA(
+    'OK, je te formule ma réponse alors : j’ai bien pris connaissance de votre demande. ' +
+      'Pouvez-vous nous fournir la date de résiliation de votre abonnement ?',
+    ESCALADE
+  ),
+})[0].json;
+ok('**la même consigne, citée sur la bonne alerte, rédige le brouillon**',
+  consigneReelleAvecRef.reponseDossier === true &&
+    consigneReelleAvecRef.reference === 'a1b2c3d4');
+
+/*
+ * UN UTILISATEUR ORDINAIRE N'EST PAS PÉNALISÉ. Le durcissement ne vise que les
+ * messages qui CITENT quelque chose ou qui portent une référence tapée : une
+ * question posée directement reste une question.
+ */
+const questionOrdinaire = executer(tg.preparerQuestion, {
+  entree: msgDe('Comment je change ma photo de profil ?'),
+})[0].json;
+ok('**une question posée directement reste une question** — le repli ne durcit que l’ambigu',
+  questionOrdinaire.valide === true && questionOrdinaire.reponseDossier === false);
 
 ok('**la référence est ramenée en minuscules** — le validateur de l’API n’accepte qu’elle',
   executer(tg.preparerQuestion, { entree: repondreA('Accordé.', '🏷️ Réf. A1B2C3D4') })[0]
