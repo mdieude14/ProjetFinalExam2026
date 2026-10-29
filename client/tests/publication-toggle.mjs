@@ -194,14 +194,55 @@ ok('le champ replié refuse le focus clavier',
 section('Ouverture');
 
 await bascule.click();
-await page.waitForTimeout(80);
-const miCourse = await hauteur();
+
+/*
+ * L'ANIMATION SE PROUVE PAR SA DÉCLARATION, PAS PAR UN ÉCHANTILLON DE HAUTEUR.
+ *
+ * Cette vérification échantillonnait la hauteur 80 ms après le clic et exigeait
+ * une valeur strictement intermédiaire :
+ *
+ *     await page.waitForTimeout(80);
+ *     const miCourse = await hauteur();
+ *     ok('le dépliement est animé', miCourse > 0 && miCourse < ouvert);
+ *
+ * Elle est tombée en campagne le 29 octobre 2026 — « 408 px à mi-course,
+ * 408 px à l'arrivée » — sur une machine saturée : l'animation de 300 ms était
+ * DÉJÀ TERMINÉE quand la mesure est arrivée. Relancée seule, la suite rendait
+ * 19/19. Le produit n'avait aucun défaut.
+ *
+ * C'est la même famille que la mesure « pendant le chargement » de
+ * relations.mjs : un ÉTAT TRANSITOIRE lu à délai fixe. La différence est qu'ici
+ * ON PEUT S'EN PASSER. Le dépliement est animé parce qu'une transition CSS le
+ * déclare, et cette déclaration se lit sans aucune course :
+ *
+ *     grid transition-all duration-300 ease-out
+ *     grid-rows-[0fr]  ->  grid-rows-[1fr]
+ *
+ * On vérifie donc la DÉCLARATION, déterministe, au lieu de guetter son effet.
+ * Le résultat final — le formulaire est bien déplié — reste vérifié juste
+ * après, et c'est lui qui prouve que la transition a effectivement abouti.
+ *
+ *   LA RÈGLE QUI S'EN DÉGAGE : quand un état transitoire est le sujet, on le
+ *   mesure à délai fixe et on le déclare (`mesure-instantanee`). Quand il
+ *   n'est qu'un MOYEN de prouver autre chose, on cherche la preuve qui ne
+ *   court pas.
+ */
+const animation = await zone.evaluate((n) => {
+  const s = getComputedStyle(n);
+  const secondes = String(s.transitionDuration || '')
+    .split(',')
+    .map((d) => Number.parseFloat(d) || 0)
+    .reduce((a, b) => Math.max(a, b), 0);
+  return { propriete: String(s.transitionProperty || ''), duree: String(s.transitionDuration || ''), secondes };
+});
+
 await page.waitForTimeout(500);
 const ouvert = await hauteur();
 
 ok('le formulaire est déplié', ouvert > 200, `${ouvert} px`);
-ok('le dépliement est animé, pas instantané', miCourse > 0 && miCourse < ouvert,
-  `${miCourse} px à mi-course, ${ouvert} px à l'arrivée`);
+ok('**le dépliement est animé, pas instantané** — une transition CSS le déclare',
+  animation.secondes >= 0.1,
+  `${animation.propriete} sur ${animation.duree}`);
 ok('aria-expanded = true', (await bascule.getAttribute('aria-expanded')) === 'true');
 ok('le bloc n’est plus `inert`', !(await zone.evaluate((n) => n.hasAttribute('inert'))));
 ok('PostForm est affiché',
