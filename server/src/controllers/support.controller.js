@@ -375,7 +375,20 @@ export const dossierParReferenceService = asyncHandler(async (req, res) => {
 export const brouillonService = asyncHandler(async (req, res) => {
   const administrateur = await administrateurDuBot(req);
   const ticket = await support.parReference(req.params.reference);
-  const dossier = await support.enregistrerBrouillon(ticket, administrateur, req.body.texte);
+  /*
+   * `telegram` EN DUR, ET NON LU DANS LE CORPS. Cette route n'est atteignable
+   * que par le flux `ccAgentTelegr01`, derrière la clé de service et une
+   * conversation rattachée à un administrateur : l'origine est une propriété de
+   * la ROUTE, pas une donnée que l'appelant déclare. Un champ dans le corps
+   * permettrait de faire passer un brouillon tapé au clavier pour une dictée
+   * Telegram, et l'écran de modération le répéterait sans pouvoir le vérifier.
+   */
+  const dossier = await support.enregistrerBrouillon(
+    ticket,
+    administrateur,
+    req.body.texte,
+    'telegram'
+  );
 
   return res.json({ succes: true, dossier });
 });
@@ -392,7 +405,13 @@ export const envoyerService = asyncHandler(async (req, res) => {
 /** PATCH /api/admin/support/tickets/:id/brouillon — le même brouillon, au clavier. */
 export const brouillonAdmin = asyncHandler(async (req, res) => {
   const ticket = await support.parIdentifiant(req.params.id);
-  const dossier = await support.enregistrerBrouillon(ticket, req.user, req.body.texte);
+  // Même raisonnement que `brouillonService` : l'origine est celle de la route.
+  const dossier = await support.enregistrerBrouillon(
+    ticket,
+    req.user,
+    req.body.texte,
+    'back-office'
+  );
 
   return res.json({ succes: true, dossier });
 });

@@ -302,6 +302,29 @@ const ticketSchema = new Schema(
      */
     brouillonParAgent: { type: Boolean, default: false },
 
+    /**
+     * PAR OÙ CE BROUILLON EST ARRIVÉ, et c'est une autre question que « par qui ».
+     *
+     * `brouillonParAgent` dit si le texte sort du modèle sans qu'un humain l'ait
+     * relu. Il ne dit pas d'où vient le geste. Or les deux voies ne se relisent
+     * pas de la même façon : un brouillon né d'une amorce envoyée sur Telegram
+     * a été dicté de mémoire, souvent depuis un téléphone, sans le dossier sous
+     * les yeux ; un brouillon tapé dans le back-office a été écrit en regardant
+     * la demande.
+     *
+     * Sans ce champ, le back-office affichait les deux à l'identique — et pour
+     * le brouillon venu de Telegram, il n'affichait RIEN du tout, parce que
+     * `brouillonParAgent` y vaut `false` comme pour une saisie au clavier.
+     *
+     *   `agent`       posé à la création, par le widget ou le courriel
+     *   `telegram`    rédigé par le modèle à partir d'une amorce Telegram
+     *   `back-office` tapé au clavier dans l'écran de modération
+     */
+    brouillonOrigine: {
+      type: String,
+      enum: ['agent', 'telegram', 'back-office'],
+    },
+
     reponseExploitant: { type: String, trim: true, maxlength: 4000 },
     reponseEnvoyeeLe: { type: Date },
 
@@ -486,6 +509,7 @@ ticketSchema.methods.versionExploitant = function () {
     brouillonReponse: this.brouillonReponse,
     brouillonLe: this.brouillonLe,
     brouillonParAgent: this.brouillonParAgent,
+    brouillonOrigine: this.brouillonOrigine,
     reponseExploitant: this.reponseExploitant,
     reponseEnvoyeeLe: this.reponseEnvoyeeLe,
     reponseCanal: this.reponseCanal,

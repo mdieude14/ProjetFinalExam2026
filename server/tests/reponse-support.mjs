@@ -199,6 +199,47 @@ ok('**un brouillon trop court est refusé** — « ok » n’est pas une répons
 const b1 = await brouillon(REF, 'Bonjour, nous avons bien reçu votre demande de remboursement.');
 ok('un brouillon valable est enregistré', b1.statut === 200, `statut ${b1.statut}`);
 ok('il est relisible dans le dossier', b1.json?.dossier?.brouillonReponse?.startsWith('Bonjour, nous avons'));
+
+/*
+ * L'ORIGINE DU BROUILLON, ET POURQUOI ELLE NE SE DEVINE PAS.
+ *
+ * `brouillonParAgent` dit si un humain a relu ; il ne dit pas d'où vient le
+ * geste. Dès qu'une amorce Telegram passe par `enregistrerBrouillon`, ce
+ * drapeau retombe à `false` — et le back-office n'affichait alors RIEN, ce qui
+ * rendait un texte dicté au téléphone indistinguable d'un texte tapé devant le
+ * dossier. Ce ne sont pas les mêmes conditions de relecture.
+ *
+ * L'ORIGINE EST UNE PROPRIÉTÉ DE LA ROUTE, PAS UNE DONNÉE DU CORPS. Cette
+ * route-ci n'est atteignable que par le flux Telegram, derrière la clé de
+ * service et une conversation rattachée : elle impose `telegram` en dur. Un
+ * champ dans le corps permettrait de faire passer une saisie au clavier pour
+ * une dictée, et l'écran de modération le répéterait sans pouvoir le vérifier.
+ */
+ok('**le brouillon venu du flux Telegram porte son origine**',
+  b1.json?.dossier?.brouillonOrigine === 'telegram',
+  String(b1.json?.dossier?.brouillonOrigine));
+ok('et il n’est plus annoncé comme non relu — un humain a dicté l’amorce',
+  b1.json?.dossier?.brouillonParAgent === false);
+
+/*
+ * L'ORIGINE N'EST PAS DICTÉE PAR L'APPELANT. On la pousse dans le corps : elle
+ * doit être ignorée. Sans cette épreuve, rien n'empêcherait d'ajouter un jour
+ * un champ qui la lirait, et le marqueur du back-office cesserait d'être une
+ * preuve pour devenir une déclaration.
+ */
+const bFalsifie = await appel(`/support/service/tickets/${REF}/brouillon`, {
+  methode: 'POST',
+  cleService: CLE_SERVICE,
+  corps: {
+    conversation: CONV_ADMIN,
+    texte: 'Bonjour, une falsification de l’origine ne doit rien changer.',
+    brouillonOrigine: 'back-office',
+    origine: 'back-office',
+  },
+});
+ok('**l’origine poussée dans le corps est IGNORÉE** — la route seule la décide',
+  bFalsifie.statut === 200 && bFalsifie.json?.dossier?.brouillonOrigine === 'telegram',
+  `${bFalsifie.statut} / ${bFalsifie.json?.dossier?.brouillonOrigine}`);
 ok('**et rien n’est encore parti**', !b1.json?.dossier?.reponseEnvoyeeLe);
 
 const b2 = await brouillon(REF, 'Bonjour, après vérification, nous vous remboursons sous cinq jours.');

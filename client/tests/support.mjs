@@ -980,6 +980,54 @@ try {
       apresBrouillon?.statut === 'escalade',
     `statut « ${apresBrouillon?.statut} », envoyée : ${apresBrouillon?.reponseEnvoyeeLe ?? 'non'}`);
 
+  ok('**un brouillon tapé ici porte l’origine « back-office »**',
+    apresBrouillon?.brouillonOrigine === 'back-office',
+    String(apresBrouillon?.brouillonOrigine));
+
+  /*
+   * LE MARQUEUR DU BROUILLON DICTÉ SUR TELEGRAM.
+   *
+   * ON ÉPROUVE UNE PRÉSENCE, PAS UNE ABSENCE. Vérifier que le marqueur ne
+   * s'affiche PAS sur un brouillon du back-office passerait au vert sur un
+   * écran vide — c'est le faux vert balayé le 28 octobre. On écrit donc
+   * l'origine `telegram` en base, on recharge, et on exige que le marqueur
+   * APPARAISSE. S'il manque, le test tombe en rouge et dit pourquoi.
+   *
+   * L'origine est remise ensuite : la suite continue sur un dossier dont
+   * l'état correspond à ce qui s'est réellement passé à l'écran.
+   */
+  const rouvrirLeDossier = async () => {
+    await ecran.reload({ waitUntil: 'domcontentloaded' });
+    await ecran.getByTestId('famille-support').click();
+    await ecran.getByTestId('onglet-escalade').click();
+    await carteCourriel.waitFor({ state: 'visible', timeout: 30000 });
+  };
+
+  await bdd.collection('tickets').updateOne(
+    { _id: new ObjectId(String(idCourriel)) },
+    { $set: { brouillonOrigine: 'telegram' } }
+  );
+  await rouvrirLeDossier();
+
+  const marqueurTelegram = carteCourriel.getByTestId('brouillon-via-telegram');
+  const marqueurVu = await marqueurTelegram
+    .first()
+    .waitFor({ state: 'visible', timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
+
+  ok('**le back-office annonce un brouillon dicté sur Telegram**', marqueurVu,
+    marqueurVu ? '' : 'MARQUEUR JAMAIS RENDU en 30 s');
+  ok('et il dit pourquoi cela change la relecture',
+    marqueurVu &&
+      /Telegram/i.test((await marqueurTelegram.first().innerText().catch(() => '')) || ''));
+
+  await bdd.collection('tickets').updateOne(
+    { _id: new ObjectId(String(idCourriel)) },
+    { $set: { brouillonOrigine: 'back-office' } }
+  );
+  await rouvrirLeDossier();
+
   section('Ce qui part est le texte RELU, pas celui de l’écran');
 
   /*

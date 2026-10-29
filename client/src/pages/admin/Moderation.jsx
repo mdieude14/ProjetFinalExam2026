@@ -753,6 +753,32 @@ function DossierTicket({ ticket, onDecision, onBrouillon, onEnvoyer, onSupprimer
               </p>
             )}
 
+            {/*
+              CE BROUILLON A ÉTÉ DICTÉ SUR TELEGRAM, ET ÇA CHANGE LA RELECTURE.
+
+              L'avertissement ci-dessus ne s'affiche pas ici : dès qu'une amorce
+              Telegram passe par enregistrerBrouillon, brouillonParAgent retombe
+              à false, parce qu'un humain est bien intervenu. Le back-office
+              n'affichait donc RIEN, et ce brouillon ressemblait trait pour trait
+              à un texte tapé devant le dossier.
+
+              Or il ne l'a pas été. Il a été dicté en une phrase, souvent depuis
+              un téléphone, sans la demande sous les yeux : c'est le modèle qui
+              l'a développé. Le relire en le sachant n'est pas la même chose.
+            */}
+            {ticket.brouillonOrigine === 'telegram' && enregistre.length > 0 && (
+              <p
+                className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs font-medium text-amber-800"
+                data-test="brouillon-via-telegram"
+              >
+                <span aria-hidden="true">📱</span>
+                <span>
+                  Rédigé par l’agent depuis une amorce envoyée sur Telegram. La demande
+                  n’était pas sous les yeux au moment de la dicter : à relire avant envoi.
+                </span>
+              </p>
+            )}
+
             <Textarea
               libelle="Brouillon"
               value={brouillon}

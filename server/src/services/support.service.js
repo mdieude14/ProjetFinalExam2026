@@ -206,6 +206,7 @@ export async function enregistrer(
     brouillonLe: avecBrouillon ? maintenant : undefined,
     // Le back-office l'affichera comme « proposé par l'agent, à relire ».
     brouillonParAgent: avecBrouillon,
+    brouillonOrigine: avecBrouillon ? 'agent' : undefined,
   });
 
   /*
@@ -300,6 +301,7 @@ export async function enregistrerCourriel({ expediteur, sujet, question, brouill
       brouillonReponse: texte.slice(0, 4000),
       brouillonLe: maintenant,
       brouillonParAgent: true,
+      brouillonOrigine: 'agent',
       notifieExploitant: false,
     });
 
@@ -611,10 +613,19 @@ export async function parIdentifiant(idTicket) {
  * réécrire ne changerait rien pour la personne, et laisserait croire le
  * contraire.
  */
-export async function enregistrerBrouillon(ticket, administrateur, texte) {
+export async function enregistrerBrouillon(ticket, administrateur, texte, origine = 'back-office') {
   const propre = String(texte ?? '').trim();
   if (propre.length < 10) throw ApiError.badRequest('Le brouillon est trop court');
   if (ticket.reponseEnvoyeeLe) throw ApiError.conflict('Une réponse a déjà été envoyée pour ce dossier');
+
+  /*
+   * L'ORIGINE EST IMPOSÉE PAR L'APPELANT, JAMAIS DEVINÉE ICI. Le service ne
+   * sait pas par quelle route il a été atteint, et une valeur par défaut qui se
+   * tromperait serait pire qu'absente : elle mentirait avec aplomb dans l'écran
+   * de modération. `back-office` est le défaut parce que c'est la voie au
+   * clavier — celle où l'exploitant regarde le dossier en écrivant.
+   */
+  const voie = ['agent', 'telegram', 'back-office'].includes(origine) ? origine : 'back-office';
 
   const maj = await Ticket.findOneAndUpdate(
     { _id: ticket._id, reponseEnvoyeeLe: null },
@@ -630,6 +641,7 @@ export async function enregistrerBrouillon(ticket, administrateur, texte) {
          * le seul sens qui compte : il l'a validé des yeux.
          */
         brouillonParAgent: false,
+        brouillonOrigine: voie,
       },
     },
     { new: true, runValidators: true }
