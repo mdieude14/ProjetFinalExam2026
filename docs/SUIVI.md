@@ -12792,3 +12792,86 @@ modération, en disant qu'il vient du chat Telegram.
       localhost, conteneur supprimé, certificat préservé. *Le laisser ouvert sans surveillance
       était précisément le risque signalé deux fois ; l'épreuve Telegram se fera à la
       réouverture, qui coûte une commande.*
+
+---
+
+## 15.68 — 2048/2048, et une prudence d'hier qui était de trop  `RÉSOLU`
+
+### La reprise, après un arrêt de Docker Desktop
+
+Le travail de la veille s'était interrompu **entre l'indexation et le commit** : douze fichiers
+prêts, rien de poussé. Rien n'était perdu — l'index de git avait tout gardé.
+
+- [x] **Séquence de relance, dans l'ordre, et le certificat d'abord.** Docker Desktop, attente
+      du moteur, les deux conteneurs (remontés seuls), **vérification du certificat Avast
+      AVANT toute autre chose**, Mongo primaire (`myState: 1`), back-end, front-end, puis le
+      relais Stripe.
+- [x] **Le relais refuse de démarrer sur une clé `sk_live_`**, vérifié dans la commande même :
+      un relais branché sur une clé de production débiterait une vraie carte. Clé de test
+      confirmée avant lancement.
+- [x] **Trois commits poussés** (`e722eee..8493350`), auteur `mdieude14`, zéro ligne
+      d'attribution : le repli de l'agent Telegram, l'origine du brouillon, et le journal.
+
+### LA CAMPAGNE COMPLÈTE : 2048/2048
+
+```
+Total : 2048/2048 vérifications
+Tout est au vert.
+37 suites — mémoire libre au lancement : 0,80 Go
+```
+
+**2048 = 2035 + les treize vérifications ajoutées la veille.** Le compte tombe juste, ce qui
+vaut une confirmation en soi : aucune suite n'a été coupée en route.
+
+| Suite modifiée | Avant | Après |
+|---|---|---|
+| Workflows — Telegram et courriel | 267 | **274/274** |
+| API — réponse à une demande | 49 | **52/52** |
+| Navigateur — back-office du support | 137 | **140/140** |
+
+- [x] **AUCUNE RÉGRESSION DE PERFORMANCE** : `API — performance` **18/18**, `Navigateur —
+      performance` **15/15**. Les seuils n'ont pas été touchés.
+
+### Et une prudence d'hier qui était de trop
+
+- [x] **Hier, à 0,71 Go, j'ai refusé de lancer la campagne.** Aujourd'hui, partie à 0,59 Go
+      mesurés quelques minutes plus tôt, elle est passée — la mémoire était remontée à 0,80 Go
+      au moment du lancement, les services s'étant stabilisés.
+
+  > **LA LEÇON, et elle corrige la mienne : mesurer vaut mieux que prédire.** Le seuil de 2 Go
+  > est un *avertissement*, pas un verdict. Refuser sur un relevé pris avant que les services
+  > se posent, c'est confondre une photo avec une tendance. La règle « ne jamais relever un
+  > seuil pour obtenir du vert » reste entière ; elle ne dit pas « ne jamais mesurer ».
+
+- **Ce qui a changé côté machine, et qui compte** : Chrome a été fermé par le porteur du projet
+  et ne figure plus parmi les sept premiers consommateurs. Restent `svchost` (918 Mo sur 97
+  processus) et la machine WSL de Docker (760 Mo), tous deux incompressibles sans toucher à la
+  configuration du poste.
+
+- [ ] **Piste durable, non engagée** : un plafond mémoire pour WSL dans
+      `%USERPROFILE%\.wslconfig` (`memory=2GB`) rendrait 0,3 à 0,5 Go de façon permanente. Cela
+      demande `wsl --shutdown`, donc l'arrêt de Docker, et **modifie la configuration du poste
+      hors du projet** : c'est une décision du porteur du projet, pas une initiative.
+
+### La chaîne Telegram, prête à l'épreuve réelle
+
+- [x] **Le correctif est bien dans n8n après redémarrage**, vérifié dans le flux stocké en base
+      et non seulement dans le fichier source : les deux phrases du nouveau repli y sont.
+- [x] Tunnel rouvert : `healthz` **200**, `/rest/credentials` et `/rest/workflows` **401**,
+      certificat préservé, **six flux sur six actifs**.
+- [x] **Dossier frais préparé** : référence **`43440b45`**, « Double prélèvement premium », en
+      `escalade`. Les deux dossiers d'épreuve précédents étaient clos, donc plus répondables —
+      la relève ne renvoie jamais une alerte déjà partie.
+
+- [ ] **CE QUI RESTE À ÉPROUVER EN VRAI**, et qui demande le compte Telegram du porteur du
+      projet. Trois comportements, dans cet ordre :
+
+      1. répondre à l'alerte avec une amorce → **un brouillon rédigé par le modèle**, adapté à
+         la demande initiale, et non une réponse adressée à l'exploitant ;
+      2. le même brouillon visible sur `/admin/moderation`, avec le **marqueur ambre**
+         « rédigé depuis une amorce envoyée sur Telegram » ;
+      3. `ENVOYER` → le courriel part depuis `support.coachconnect.app@gmail.com`.
+
+      *Et deux cas de refus à éprouver aussi, parce qu'ils sont neufs* : répondre à un message
+      sans `Réf.`, et recopier la référence à la main. Les deux doivent rendre une explication,
+      pas une réponse de robot d'accueil.

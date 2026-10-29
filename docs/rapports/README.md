@@ -34,6 +34,7 @@ qu'un rapport manquant.
 | 2026-10-29 | [Le tunnel ouvert, éprouvé, refermé](2026-10-29-tunnel-ouvert-eprouve-referme.md) | les mesures à l'ouverture et à la fermeture, les deux points Telegram vérifiés à la source, les deux dettes d'exploitation |
 | 2026-10-29 | [Les flux de messagerie activés](2026-10-29-flux-de-messagerie-actives.md) | l'activation autorisée, la campagne morte de mémoire, le pare-feu qui autorisait déjà tout |
 | 2026-10-29 | [L'agent Telegram répondait à côté](2026-10-29-agent-telegram-repondait-a-cote.md) | le repli qui répondait au lieu de refuser, l'origine du brouillon, le piège de l'import |
+| 2026-10-30 | [2048/2048, et une prudence de trop](2026-10-30-campagne-complete-2048.md) | la reprise après un arrêt de Docker, la campagne entière, mesurer plutôt que prédire |
 
 ## Comment lire un chiffre de campagne
 
