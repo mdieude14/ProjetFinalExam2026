@@ -12418,3 +12418,212 @@ rappelée : *l'API de développement était déjà balayée par des robots.*
 - [ ] **NE PAS OUVRIR LE TUNNEL JUSTE AVANT UN REDÉMARRAGE.** Le conteneur ne revient pas seul,
       mais n8n garderait l'adresse morte et `ccAgentTelegr01` resterait actif : c'est « le pire
       des deux mondes » du 19 octobre. Ouvrir **après** le redémarrage.
+
+---
+
+## 15.66 — Les flux de messagerie activés, et le pare-feu qui autorisait déjà tout  `RÉSOLU` / `À FAIRE`
+
+### Ce qui manquait n'était pas l'option A
+
+L'option A était **complète**, vérifié fichier par fichier : les deux JSON générés et
+`destinations.local.json` ne sont pas suivis par git, `destinations.local.example.json` l'est,
+et les règles du `.gitignore` portent leur raison. `construire-agent-messagerie.mjs` lit
+l'identifiant de conversation dans le fichier local (`:560-588`) et refuse un identifiant qui
+ne serait pas une conversation privée.
+
+- [x] **CE QUI MANQUAIT, C'ÉTAIT L'ACTIVATION.** Les deux flux existaient dans n8n et n'avaient
+      **jamais tourné**. Vu de l'extérieur, cela ressemble à « l'option A n'est pas finie » ;
+      en réalité la génération marchait et personne n'avait appuyé sur le bouton.
+
+### Le vrai risque, levé avant d'activer
+
+L'autorisation Google expire au bout de sept jours en mode « test », et la saisie datait du
+14 octobre — quinze jours. Activer un flux dont le jeton est mort, c'est un échec toutes les
+quinze minutes, en silence.
+
+- [x] **Le jeton est VIVANT, et on peut le savoir sans le déchiffrer.** n8n réécrit la ligne du
+      justificatif à chaque rafraîchissement. Celle du Gmail OAuth2 portait `maj 2026-10-29
+      02:40:51` — donc un rafraîchissement réussi le jour même.
+
+      *Une date de mise à jour vaut une preuve de validité, là où lire le secret serait à la
+      fois interdit et inutile.*
+
+- [x] **Les deux flux sont sur un déclencheur HORAIRE de 15 minutes, pas un webhook.** Ils ne
+      dépendent donc **pas** du tunnel : ils interrogent Gmail et poussent vers Telegram, deux
+      sens sortants qui passent derrière n'importe quelle box.
+- [x] **Lot plafonné avant d'activer** : `maxMails: 10`, `brouillonsParJour: 20`, et **un seul**
+      message Telegram de résumé — pas un par courriel.
+- [x] **Activés, et ils tournent** : quatre exécutions, toutes en `success` (03:00 et 03:15,
+      les deux flux). Démarrage de n8n propre, aucune erreur.
+
+- [x] **Le CLI `n8n execute` ne sert à rien ici** : il veut démarrer son propre courtier sur le
+      port 5679, déjà pris par l'instance qui tourne. La voie est `n8n update:workflow
+      --active=true` **puis recréation du conteneur** — l'ordre du script du tunnel, pour la
+      même raison.
+- [x] **Et la surcharge compose ne s'utilise pas seule** : elle déclare un service
+      `cloudflared` qui n'existe que dans `docker-compose.tunnel.yml`. Passer les deux fichiers
+      sans le troisième fait refuser le projet entier, et **la recréation n'a pas lieu** — le
+      `200` qui suit vient de l'ancien conteneur, ce qui donne l'illusion du succès.
+
+### La campagne est morte de mémoire, et elle a été jetée
+
+- [x] **Arrêtée en route, à la suite 23.** Toutes les suites navigateur butaient sur le même
+      plafond de 86 s, et les trois services répondaient `000`. **0,51 Go de mémoire libre,
+      compression à 631 Mo** : la machine paginait, et le banc d'essai appelait cela « panne
+      réseau ».
+- **Ce que le banc d'essai voyait n'était pas faux, c'était mal nommé.** Le back-end n'est
+  jamais mort : son journal montre la relève servie chaque minute pendant tout l'épisode. Les
+  traces `ws proxy error: write ECONNABORTED` du front-end sont **bénignes** — elles arrivent
+  quand Playwright ferme une page sur un socket ouvert.
+- [x] **Aucun navigateur orphelin après l'arrêt** — vérifié, la campagne se nettoie seule. La
+      mémoire est remontée à 0,77 Go d'elle-même.
+- [x] **ÉPREUVES CIBLÉES À LA PLACE, et c'est le bon périmètre** : ce qui a changé aujourd'hui
+      ne touche aucun navigateur.
+
+| Suite | Résultat |
+|---|---|
+| `test:releve` — relève des escalades | **78/78** |
+| `test:canaux` — Telegram et courriel | **267/267** |
+| `test:telegram` — rattachement | **57/57** |
+| `test:messagerie-agent` — assistant | **104/104** |
+| `test:courriel` — support par courriel | **56/56** |
+| `test:perf` — performance | **18/18** |
+| `client test:telegram` — navigateur | **19/19** |
+| `bout-en-bout-agent` — chaîne réelle | **25/25** |
+
+**599 vérifications**, dont une suite navigateur : les navigateurs fonctionnent, c'est la
+campagne entière qui ne tient pas sous 1 Go.
+
+### LA RÉFÉRENCE EST LE SUFFIXE, PAS LE PRÉFIXE
+
+- [x] **Une erreur dans mon outil, pas dans l'application.** Mon script d'épreuve affichait les
+      **huit premiers** caractères de l'`_id` ; la référence est les **huit derniers** :
+
+      ```js
+      export const referenceDe = (id) => String(id).slice(-8);   // models/Ticket.js:395
+      ```
+
+      L'agent annonçait `réf. d9d87805`, mon script imprimait `6ae2bd02`, pour le **même
+      dossier** `6ae2bd0237fcc563d9d87805`. *Un outil qui affiche une référence ne désignant
+      aucun dossier envoie chercher une panne dans l'application alors qu'elle est dans
+      l'outil.* Corrigé, avec la raison gravée dedans.
+
+### LE PARE-FEU : il autorisait déjà tout, et le test attendait l'inverse
+
+C'est la trouvaille du jour, et elle n'était pas celle qu'on cherchait.
+
+- [x] **Mesuré, depuis un espace réseau distinct** (un conteneur Docker, qui traverse réellement
+      le filtre de l'hôte — contrairement à une tentative locale, que Windows ne filtre pas de
+      façon fiable) :
+
+      ```
+      http://192.168.1.21:5000/api/health   REPONSE 200     <- l'API de dev
+      http://192.168.1.21:5173/             ECONNREFUSED    <- Vite, sain
+      http://192.168.1.21:5678/healthz      REPONSE 200     <- n8n, ÉDITEUR COMPRIS
+      ```
+
+- **LA CAUSE, et elle n'a rien à voir avec le projet :**
+
+      ```
+      regle entrante "Node.js JavaScript Runtime"
+        programme : C:\Program Files\nodejs\node.exe
+        ports     : TOUS
+        profil    : Private
+      Wi-Fi SFR_xxxx : categorie Private
+      back-end       : tourne sur ce binaire exactement (PID verifie)
+      ```
+
+      Les trois profils du pare-feu sont pourtant **actifs** avec `DefaultInboundAction =
+      Block`. Une seule règle, posée un jour par l'invite « Autoriser node.js », suffit à tout
+      ouvrir sur le réseau domestique.
+
+- [x] **Vite est sain SANS pare-feu** : il n'écoute que sur `::1`. L'API et n8n écoutent sur
+      toutes les interfaces, et leur seule protection était une règle qui les **autorise**.
+- [x] **n8n est donc exposé au réseau local EN PERMANENCE**, tunnel ou pas. Le tunnel ajoute
+      l'exposition à **Internet** ; l'exposition au **réseau local** était déjà là, et n'avait
+      jamais été mesurée.
+
+- [x] **Mon premier relevé était incomplet, et je l'ai vu.** Je cherchais les règles par
+      **port**, et une règle créée par l'invite Windows n'a **aucun filtre de port** — je
+      l'aurais ratée. C'est en changeant de critère, de « port » à « programme », qu'elle est
+      apparue. *Un filtre de recherche mal choisi rend un résultat rassurant et faux.*
+
+#### Le script d'épreuve avait raison, et ne corrigeait rien
+
+`epreuve-pare-feu.ps1` reclasse le Wi-Fi en `Public` pendant 90 secondes, ce qui neutralise la
+règle `Private`. Son « attendu : échec de connexion » est donc **juste pour cette fenêtre**. Ce
+qui manquait, c'est l'autre moitié : **à l'état normal, c'est un succès**. Le script démontre un
+mécanisme ; il ne ferme rien.
+
+- [x] **`scripts/pare-feu-fermer-le-dev.ps1` écrit**, avec son retrait. Il pose une règle de
+      **blocage ciblée** sur 5000, 5173 et 5678, **source `192.168.1.0/24`** uniquement.
+      ASCII pur, aucun BOM, zéro erreur d'analyse, et il refuse proprement sans élévation.
+
+- **POURQUOI UNE RÈGLE CIBLÉE ET NON UNE LIAISON SUR `127.0.0.1`.** La correction évidente
+  casserait toute la chaîne de support : les flux appellent l'API par
+  `host.docker.internal:5000`, qui résout vers **192.168.65.254** — une passerelle interne à
+  Docker, pas `127.0.0.1`. Mesuré. Les deux chemins sont **distincts, donc séparables** : on
+  ferme le sous-réseau du Wi-Fi et on laisse celui de Docker intact. Aucune ligne de code à
+  changer, et le retour en arrière est une commande.
+
+- [ ] **LA POSE DEMANDE L'ÉLÉVATION, et c'est mesuré** : `New-NetFirewallRule` rend
+      « Accès refusé ». Ce geste appartient au porteur du projet.
+
+      ```
+      powershell -ExecutionPolicy Bypass -File scripts\pare-feu-fermer-le-dev.ps1
+      powershell -ExecutionPolicy Bypass -File scripts\pare-feu-fermer-le-dev.ps1 -Retirer
+      ```
+
+      **Et il faut vérifier les deux sens après la pose** : le téléphone doit échouer, ET
+      `node scripts/bout-en-bout-agent.mjs` doit rendre 25/25. Si l'agent ne répond plus, le
+      chemin de Docker a été touché : retirer la règle immédiatement.
+
+### Le tunnel rouvert, et les six flux actifs
+
+| Mesure | Résultat |
+|---|---|
+| `tunnel/healthz` | **200** |
+| `tunnel/rest/credentials` | **401** |
+| `tunnel/rest/workflows` | **401** |
+| `NODE_EXTRA_CA_CERTS` | préservé par la recréation |
+| flux annoncés actifs | **6 sur 6**, dont les deux de messagerie |
+
+- [x] **Un relevé trop tôt m'a fait croire à un défaut.** Après la recréation, le journal
+      n'annonçait que quatre flux : j'ai cru les deux de messagerie désactivés. La base les
+      donnait **tous les six actifs**, et les deux lignes manquantes sont apparues un instant
+      après. *n8n active ses flux de façon asynchrone ; lire son journal une seule fois ne dit
+      pas l'état, seulement l'instant.*
+
+### Un dossier réel a parcouru la chaîne, et son attribution n'est PAS établie
+
+- [x] **La chaîne sortante est prouvée de bout en bout** : widget → n8n → Claude → API →
+      escalade → relève → alerte Telegram. Dossier `d9d87805` créé par la vraie chaîne, avec
+      son brouillon rédigé par l'agent, et `notifieExploitant` passé à `true` dans la minute.
+- [x] **Il a été répondu et clos** à 03:35:22 UTC, `traitePar` = le compte administrateur du
+      porteur du projet, `reponseCanal: 'boite'`. **Aucune suite n'a détourné quoi que ce
+      soit** — c'était bien son compte.
+- [x] **`ccAgentTelegr01` a exécuté une fois, avec succès**, à 03:35:57 UTC — 35 secondes
+      **après** l'envoi, et une vingtaine de secondes après l'ouverture du tunnel. Les deux
+      horloges ont été comparées au même instant : **elles sont synchrones à la seconde**, donc
+      l'ordre tient.
+- [ ] **CE QUI N'EST PAS ÉTABLI** : lequel des deux gestes a fait quoi. L'hypothèse cohérente
+      est une validation depuis le back-office, puis l'arrivée d'une réponse Telegram mise en
+      file par Telegram pendant que le webhook était injoignable — laquelle aurait alors
+      parcouru la branche « déjà répondu ». **Je n'ai pas pu le lire** : la table des données
+      d'exécution n'a pas le schéma que je supposais, et je préfère le dire que raconter une
+      histoire plausible. *À confirmer au prochain essai, en notant l'heure de chaque geste.*
+
+- **ET UNE CHOSE À SAVOIR, qui change la façon d'éprouver** : Telegram **met les mises à jour en
+  file** et les délivre quand le webhook redevient joignable. Une réponse envoyée tunnel fermé
+  n'est donc pas perdue — elle arrive en retard. Cela rend le diagnostic trompeur si l'on ne
+  regarde pas les heures.
+
+- [x] **Dossier neuf préparé pour une épreuve propre** : référence **`d9d8790e`**, en
+      `escalade`, `notifieExploitant: false`. L'outil est versionné
+      (`server/scripts/preparer-epreuve-telegram.mjs`) et **ne nettoie pas derrière lui** — le
+      dossier doit survivre pour qu'on puisse lui répondre. Son nettoyage est une commande à
+      part, `--nettoyer`.
+
+      *Il a fallu l'écrire parce que la file était vide : les quatorze dossiers en escalade
+      avaient tous déjà reçu leur alerte, et la relève ne renvoie jamais une alerte déjà partie.
+      Il n'y avait rien à quoi répondre, donc aucune épreuve possible.*
