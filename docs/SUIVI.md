@@ -13089,3 +13089,161 @@ Tout est au vert.
   > *Dans un journal, une date fausse ne se contente pas d'être inexacte : elle rend la trace
   > introuvable le jour où on la cherche. C'est le seul champ dont l'erreur coûte plus que le
   > contenu.*
+
+---
+
+## 15.70 — « Il ne se passe rien » : trois causes, dont une vraie  `RÉSOLU`
+
+Le porteur du projet a répondu à une alerte d'escalade avec sa consigne complète, en citant
+correctement le message du bot — référence `bc7b0f49` bien présente dans le texte cité. **Rien
+ne s'est produit.** Pas de brouillon, et pas même un message d'erreur.
+
+Trois causes se superposaient, et seule la troisième est un défaut.
+
+### Cause 1 — l'agent n'écoutait pas, et c'était moi
+
+```
+ccAgentTelegr01  : INACTIF
+WEBHOOK_URL      : http://localhost:5678/
+conteneur tunnel : 0
+```
+
+J'avais fermé le tunnel quelques heures plus tôt, en nettoyant le piège du redémarrage
+(**15.69**). **Telegram n'avait donc nulle part où livrer** : il a mis le message en file, et
+aucun code n'a tourné.
+
+- **D'où « rien du tout », pas même une erreur** : le nouveau repli de 15.67 ne pouvait pas
+  parler, puisqu'il n'a jamais été atteint.
+- **Et « mon message a bien été lu »** vient de l'indicateur de Telegram, qui atteste la
+  livraison au *chat*, pas l'exécution d'un workflow. *Un accusé de lecture ne dit rien de ce
+  qui s'est passé derrière.*
+
+### Cause 2 — ce dossier n'existait déjà plus
+
+```
+dossier bc7b0f49 : INTROUVABLE
+compte alicesup… : SUPPRIME
+adresse          : alicesup…@supportfront.local   <- domaine de TEST
+```
+
+L'escalade venait d'une **suite de tests**. Même tunnel ouvert, la réponse aurait reçu « Je ne
+trouve aucun dossier portant la référence bc7b0f49 » — la branche 404, correcte, mais
+incompréhensible pour qui croit répondre à une vraie demande.
+
+### CAUSE 3 — LA RELÈVE ALERTAIT POUR LES DOSSIERS DES SUITES
+
+C'est le défaut, et il explique la confusion entière.
+
+```
+aNotifier() -> Ticket.find({ statut: 'escalade', notifieExploitant: false })
+```
+
+**Aucun filtre, ni dans l'API, ni dans le flux.** Le motif était donc :
+
+> une suite crée un dossier escaladé → la relève envoie l'alerte sur Telegram → **la suite
+> supprime le dossier** en fin de passage → l'exploitant détient une alerte qui ne pointe vers
+> rien.
+
+- [x] **Mesuré avant de corriger** : sur 14 dossiers en escalade, **3 portaient une adresse de
+      test** (`agentreel.local` ×2, `diagtls.local` ×1) et avaient bien reçu leur alerte. Le
+      `bc7b0f49` n'y figurait même plus, sa suite l'ayant effacé.
+
+#### Le critère retenu : le domaine réservé, pas un nom de compte
+
+`.local`, `.test`, `.invalid` et `.example` sont réservés par les **RFC 2606 et 6761** :
+**aucune adresse réelle ne peut s'y trouver**, et aucun courriel n'y est livrable.
+
+- **Le filtre ne repose donc sur aucune convention de nommage** qu'une suite pourrait oublier de
+  suivre. Il repose sur une **impossibilité**. *Un critère fondé sur une habitude se contourne
+  par distraction ; un critère fondé sur une RFC ne se contourne pas.*
+- [x] **Les deux emplacements de l'adresse sont examinés** : le compte peuplé pour le widget,
+      `courrielAuteur` pour le canal courriel — où `auteur` est vide par construction. Ne
+      regarder que le compte aurait laissé passer **tous** les dossiers du courriel sans les
+      avoir vus.
+- [x] **Le filtre est dans la requête, pas après.** Filtrer le résultat laisserait les dossiers
+      écartés occuper la fenêtre : triés du plus ancien au plus récent, vingt dossiers de test
+      jamais supprimés bloqueraient toute alerte réelle, pour toujours et sans rien dire.
+
+#### Le conflit avec les suites, et comment il est tranché
+
+- [x] **Un filtre inconditionnel aurait fait tomber deux suites.** `test:support` vit sur
+      `@supporttest.local` et `test:courriel` sur `@courrieltest.local` : toutes deux vérifient
+      que la file **ramène** leur dossier. C'est leur façon d'éprouver la relève.
+
+- **ET LA TENTATION ÉTAIT DANGEREUSE** : leur donner un domaine livrable aurait fait risquer
+  l'envoi de vrais courriels à de vraies adresses depuis une campagne.
+
+- [x] **`?reserves=1`, opt-in, et le défaut est le comportement SÛR.** La relève ne le passe
+      pas ; les suites le passent. La route est en lecture seule derrière la clé de service :
+      l'exposer ne crée aucun risque, et l'intention devient explicite aux deux appels.
+- [x] **Les deux sens sont éprouvés**, et c'est la moitié de la garantie : sans le drapeau le
+      dossier réservé est **écarté**, avec le drapeau il est **rendu**. Sans la première,
+      le filtre pourrait être retiré demain sans qu'aucun test ne tombe.
+- [x] **Et l'absence est ancrée sur une présence** : on exige d'abord que la route réponde 200
+      et que le drapeau ramène bien le dossier. Sans cet ancrage, une route cassée rendrait une
+      liste vide et la vérification passerait au vert en ayant mesuré le néant.
+
+#### L'outil d'épreuve devait changer d'adresse
+
+- [x] **`preparer-epreuve-telegram.mjs` utilisait `@exemple.local`** — désormais filtré, donc
+      son alerte n'arriverait plus. Or ce script veut l'inverse du filtre : il **fabrique** le
+      dossier auquel l'exploitant doit répondre.
+- [x] **L'adresse se lit à l'exécution**, jamais en dur : `EPREUVE_COURRIEL` si elle est
+      définie, sinon `git config user.email`, sinon **refus explicite**. *Le dépôt est public :
+      une adresse écrite dans un fichier y resterait pour toujours, historique compris.*
+- [x] **Sous-adressage** `vous+epreuvetg123456@domaine` : le courriel arrive dans la même boîte
+      et se distingue au premier coup d'œil d'un message réel.
+- **Deviner aurait été pire que refuser** : on aurait envoyé un courriel d'épreuve à une adresse
+  qui n'est pas la bonne.
+
+### Et une reconnaissance : le piège de l'import était déjà écrit
+
+- [x] **J'ai annoncé hier « le piège de l'import » comme une découverte.** Il était consigné
+      depuis le début dans l'en-tête de `server/tests/releve-telegram.mjs`, lignes 30 à 33 :
+
+      > « `n8n import:workflow` réécrit le workflow en base, avec `active: false`. Lancer les
+      > tests désactiverait donc la relève en production silencieusement. »
+
+  > **LA LEÇON : chercher dans les notes du projet avant d'annoncer une trouvaille.** Le temps
+  > perdu est mineur ; ce qui coûte, c'est de laisser croire que le projet ne savait pas, alors
+  > que quelqu'un l'avait déjà écrit à l'endroit exact où il fallait le lire.
+
+### Les épreuves
+
+| Suite | Avant | Après |
+|---|---|---|
+| `test:support` — API | 133 | **134/134** |
+| `test:courriel` — support par courriel | 56 | **57/57** |
+
+### Et la règle du registre a servi une troisième fois
+
+La campagne de validation est sortie à **2021/2021**, avec `Navigateur — story par la caméra`
+marquée rouge en affichant **`2/2`**. Aucune assertion n'avait échoué.
+
+- [x] **C'est la règle inscrite dans `scripts/test-tout.mjs` qui a parlé** : *un total qui
+      BAISSE sans suite rouge signale une suite coupée en route, pas une régression.* Le compte
+      attendu était 2050 ; 2050 − 2021 = **29**, et 31 − 2 = **29**. La suite s'était
+      interrompue après sa deuxième vérification.
+
+      ```
+      2/2 vérifications réussies
+      INTERROMPU : page.waitForSelector: Timeout 15000ms exceeded.
+        - waiting for locator('[data-test="ajouter-story"]') to be visible
+      ```
+
+- [x] **Relancée seule : 31/31.** Faux rouge sous charge : à la trentième suite sur
+      trente-sept, 15 s ne suffisaient plus à rendre la page d'accueil pendant que la machine
+      paginait.
+
+- [x] **Les deux plafonds portés de 15 s à 30 s**, avec la raison gravée à côté.
+
+  > **ET C'EST GRATUIT, contrairement à ce qu'on croirait.** Relever une attente
+  > CONDITIONNELLE ne coûte rien : elle sort dès que la condition cède, donc zéro seconde de
+  > plus sur une machine au repos. Relever un DÉLAI FIXE, lui, se paie à chaque passage. C'est
+  > toute la différence, et c'est pourquoi un plafond généreux ici n'est pas un truquage de
+  > l'instrument — alors que relever un seuil de performance en serait un.
+
+- **Troisième occurrence du même diagnostic en deux jours** : l'animation du compositeur, le
+  `fetch failed` de la bascule, et cette interruption. **Les trois venaient de la mémoire**, et
+  aucune d'un défaut du produit. *Le banc d'essai nomme « panne réseau » ou « timeout » ce qui
+  est une machine saturée ; il faut le traduire chaque fois.*
