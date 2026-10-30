@@ -13282,3 +13282,166 @@ Tout est au vert.   —   0 suite rouge
       complet portait bien six lignes. Le conteneur venait d'être recréé : la fenêtre de temps
       ne correspondait pas. *Lire le journal une fois ne dit pas l'état, seulement l'instant —
       c'est la base qui fait foi.*
+
+---
+
+## 15.71 — Le canal Telegram accepté, et un piège qui devient une mesure  `RÉSOLU`
+
+### LE CANAL TELEGRAM EST ACCEPTÉ PAR LE PORTEUR DU PROJET
+
+Éprouvé par lui, de bout en bout, sur une demande réelle :
+
+> « j'ai bien la notification de message d'escalade qui vient de la demande d'un utilisateur,
+> ensuite quand je formule le message de réponse en indiquant la référence du dossier, j'ai bien
+> le brouillon qui est rédigé et envoyé au niveau du support modération et ainsi dans la
+> conversation Telegram, et quand je valide le brouillon et que je fais envoyer, le mail s'envoie
+> bien à l'adresse de l'utilisateur concerné — et cela si je valide le brouillon sur Telegram ou
+> sur la page modération »
+
+- [x] **Les cinq maillons du comportement demandé sont confirmés en usage réel** : l'alerte, la
+      référence lue dans le message cité, le brouillon rédigé par le modèle, sa présence **aux
+      deux endroits**, et l'expédition depuis l'une ou l'autre des deux validations.
+- [x] **Et le filtre posé en 15.70 est confirmé en usage** : « je reçois seulement les notifs qui
+      viennent d'une demande utilisateur et pas des tests ».
+
+*C'est la première fonctionnalité du module 15 validée par l'usage et non par les suites seules.*
+
+### Ma contre-vérification : 940 vérifications sur le périmètre
+
+| Suite | Résultat |
+|---|---|
+| `test:canaux` — Telegram et courriel | **274/274** |
+| `test:releve` — relève des escalades | **78/78** |
+| `test:telegram` — rattachement (API) | **57/57** |
+| `test:reponse` — brouillon et validation | **52/52** |
+| `test:support` — API | **134/134** |
+| `test:courriel` — support par courriel | **57/57** |
+| `test:messagerie-agent` — assistant | **104/104** |
+| `bout-en-bout-agent` — chaîne réelle | **25/25** |
+| `client test:support` — back-office | **140/140** |
+| `client test:telegram` — navigateur | **19/19** |
+
+### LE PIÈGE DU REDÉMARRAGE DEVIENT UNE MESURE
+
+- [x] **Deuxième occurrence en deux jours.** Au redémarrage du 30 octobre comme à celui du 29 :
+      adresse de tunnel morte dans la configuration, conteneur de tunnel absent,
+      **`ccAgentTelegr01` ACTIF**. n8n l'avait déclarée à Telegram au démarrage, et le bot était
+      injoignable en silence.
+
+  > **LA LEÇON : un piège qui mord deux fois malgré sa consigne écrite doit devenir une MESURE,
+  > pas un rappel.** Une consigne demande qu'on s'en souvienne ; un contrôle le fait à notre
+  > place. L'avertissement existait depuis le 19 octobre et n'a rien empêché.
+
+- [x] **Contrôle ajouté aux prérequis de la campagne**, à côté de celui de la mémoire. Il
+      compare deux faits : `WEBHOOK_URL` est-elle publique, et un conteneur de tunnel tourne-t-il
+      ? **L'incohérence des deux est l'état fautif.**
+- [x] **C'est un RAPPEL, pas un blocage** : cet état n'empêche aucune suite de passer, il rend
+      seulement le canal Telegram muet. Bloquer la campagne pour cela serait disproportionné.
+- [x] **Et il se taît quand Docker est éteint** : d'autres contrôles le signalent déjà, et *un
+      prérequis qui crie deux fois la même panne apprend à être ignoré.*
+
+#### `--prerequis` : vérifier l'état du poste sans lancer 37 suites
+
+- [x] **Ajouté, et pour deux raisons dont la seconde compte plus** :
+      savoir en deux secondes si une campagne a une chance d'aboutir, au lieu de l'apprendre à
+      la trentième suite ; et surtout **éprouver les contrôles eux-mêmes**.
+
+  > **UN PRÉREQUIS QUI NE SONNE JAMAIS NE VAUT RIEN**, et on ne peut pas le vérifier s'il faut
+  > vingt minutes de campagne pour l'entendre.
+
+- [x] **Le nouveau contrôle est éprouvé DANS LES DEUX SENS**, et c'est reproductible :
+
+      ```
+      état sain        -> aucun avertissement de tunnel
+      docker stop coachconnect-tunnel   (n8n garde l'adresse : l'après-redémarrage, exactement)
+      état fautif      -> « ADRESSE DE TUNNEL MORTE dans n8n, et aucun tunnel debout »
+      après --fermer   -> 0 avertissement
+      ```
+
+- [x] **Le rappel du relais Stripe est INCONDITIONNEL**, et ce n'est pas un défaut : le relais
+      n'expose aucun port, donc rien ne permet de le détecter. Vérifié séparément — il tournait
+      (`Ready!`). *Un rappel qu'on ne peut pas mesurer vaut mieux qu'une détection qui mentirait.*
+
+### La séquence de relance, et le certificat en premier
+
+- [x] Docker Desktop, attente du moteur, les deux conteneurs, **certificat Avast vérifié avant
+      toute autre chose**, Mongo primaire (`myState: 1`), nettoyage du piège, back-end,
+      front-end, relais Stripe (**clé de test confirmée avant lancement**).
+- [x] **Le plafond WSL a survécu au redémarrage** : `memory=2GB` toujours en place.
+
+### Le pare-feu attend d'être chez soi
+
+- [ ] **Le poste est sur `PEDA`, catégorie Public.** La règle `node.exe` est limitée au profil
+      **Private** : elle ne s'applique donc pas ici, et une épreuve au téléphone depuis ce réseau
+      **ne mesurerait rien d'utile**.
+- **Le rapport de la veille affirmait « tu es chez toi »** — c'était vrai le soir du 29, ce ne
+  l'est plus. *Un état de réseau est une mesure de l'instant, pas une propriété du poste.*
+- La pose de la règle demande en outre une élévation que la session n'a pas (`administrateur :
+  False`, mesuré).
+
+### Une hypothèse posée, puis démentie par la mesure
+
+`API — Stripe Connect` est tombée à la deuxième suite sur `INTERROMPU : fetch failed`. J'ai
+supposé une sortie HTTPS bloquée par le réseau de l'école.
+
+- [x] **Mesuré : faux.** `api.stripe.com`, `api.anthropic.com` et `api.telegram.org` répondent
+      tous (404, 404, 302). Et le `fetch` de cette suite pointe vers `http://localhost:5000/api`
+      — donc vers **notre propre API**, pas vers Stripe.
+- [x] **Le back-end n'était pas tombé** : **200**, zéro redémarrage nodemon, aucune erreur, et il
+      servait d'autres requêtes au même instant (`POST /api/events 201`).
+
+  > *Une hypothèse vaut d'être posée, mais elle ne vaut rien sans la mesure qui la tranche.
+  > Celle-ci a été démentie en une commande — et il valait mieux la démentir que de la laisser
+  > s'installer dans le journal comme une explication.*
+
+### Une assertion sur-spécifiée sur un état décidé par Stripe
+
+La campagne de validation est sortie à **2049/2050**, une seule assertion rouge :
+
+```
+✗ API — Stripe Connect   49/50
+    ECHEC statut « en_attente » tant que le formulaire n’est pas rempli  ->  restreint
+```
+
+- [x] **Relancée seule : 50/50.** Et l'échec n'était PAS un délai dépassé — le test attendait
+      `en_attente` et a reçu `restreint`. Un **état**, pas une horloge.
+
+- **LA CAUSE EST DANS LE CALCUL DU STATUT** (`stripe.service.js`) :
+
+      ```js
+      const statut = peutRecevoir
+        ? 'actif'
+        : compte.requirements?.entries?.length
+          ? 'restreint'      // Stripe a DÉJÀ listé ses exigences
+          : 'en_attente';    // Stripe n'a encore rien listé
+      ```
+
+      `restreint` et `en_attente` **décrivent le même fait** — le formulaire n'est pas rempli —
+      et ne diffèrent que par le fait que Stripe ait eu le temps d'évaluer le compte. **C'est
+      une course chez Stripe**, hors de notre portée, et sous charge elle basculait.
+
+- [x] **L'assertion affirme désormais ce qu'elle protège** : le compte ne peut pas encore
+      encaisser. Les deux valeurs passent ; **seul `actif` serait un défaut réel** à ce stade.
+
+  > **LA RÈGLE : ne jamais figer dans une assertion un état décidé par un service tiers quand
+  > plusieurs valeurs y répondent correctement.** On affirme ce que le test protège, pas la
+  > forme qu'il prend ce jour-là.
+
+- [x] **Et une hypothèse de plus, démentie** : le premier échec de cette suite était
+      `INTERROMPU : fetch failed`, que j'ai attribué à une sortie HTTPS bloquée par le réseau de
+      l'école. Mesuré faux — les trois services tiers répondent, et le `fetch` en cause pointe
+      vers `localhost:5000`. *Deux hypothèses posées sur cette suite, deux fois démenties par la
+      mesure ; c'est la mesure qui a fini par nommer la vraie cause.*
+
+### La confirmation : 2050/2050
+
+```
+Total : 2050/2050 vérifications
+Tout est au vert.   —   0 suite rouge
+37 suites — mémoire libre au lancement : 0,90 Go
+```
+
+- [x] `API — Stripe Connect` **50/50** après la correction de l'assertion.
+- [x] `API — support automatisé` **134/134** — le filtre des domaines réservés tient en contexte
+      de campagne.
+- [x] **Aucune régression de performance** : **18/18** et **15/15**.
