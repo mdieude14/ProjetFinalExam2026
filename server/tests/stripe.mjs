@@ -80,8 +80,36 @@ ok('compte signalé comme nouveau', onb.json?.compteExistant === false);
 const coachApres = await User.findById(coach.id);
 ok('identifiant de compte enregistré en base',
   coachApres.stripeAccount?.id?.startsWith('acct_'), coachApres.stripeAccount?.id);
-ok('statut « en_attente » tant que le formulaire n’est pas rempli',
-  coachApres.stripeAccount?.statut === 'en_attente', coachApres.stripeAccount?.statut);
+/*
+ * DEUX VALEURS SONT LEGITIMES ICI, ET C EST STRIPE QUI CHOISIT LAQUELLE.
+ *
+ * Cette verification exigeait « en_attente » seul. Elle est tombee en
+ * campagne le 30 octobre 2026 avec « restreint », puis a rendu 50/50
+ * relancee seule. Le produit n avait aucun defaut.
+ *
+ * La raison est dans le calcul du statut (stripe.service.js) :
+ *
+ *     peutRecevoir            -> 'actif'
+ *     requirements.entries[]  -> 'restreint'     Stripe a DEJA liste ses exigences
+ *     sinon                   -> 'en_attente'    Stripe n a encore rien liste
+ *
+ * « restreint » et « en_attente » decrivent donc LE MEME FAIT — le
+ * formulaire n est pas rempli — et ne diffèrent que par le fait que Stripe
+ * ait eu le temps d evaluer le compte. C est une course CHEZ STRIPE, hors de
+ * notre portee, et sous charge elle basculait.
+ *
+ * CE QUE CETTE VERIFICATION DEFEND VRAIMENT : le compte ne peut pas encore
+ * encaisser. Seul « actif » serait un defaut reel a ce stade. On affirme
+ * donc cela, et on cesse de deviner lequel des deux chemins Stripe a pris.
+ *
+ *   LA REGLE : ne jamais figer dans une assertion un etat decide par un
+ *   service tiers quand plusieurs valeurs y repondent correctement. On
+ *   affirme ce que le test protege, pas la forme qu il prend ce jour-la.
+ */
+const statutApres = coachApres.stripeAccount?.statut;
+ok('**le compte ne peut pas encore encaisser** tant que le formulaire n’est pas rempli',
+  statutApres === 'en_attente' || statutApres === 'restreint',
+  `${statutApres} (les deux valent « formulaire non rempli » ; seul « actif » serait un defaut)`);
 
 const onb2 = await appel('/stripe/connect/onboarding', {
   methode: 'POST', token: coach.token,
