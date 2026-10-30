@@ -26,11 +26,64 @@
  */
 import { MongoClient, ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
+import { execFileSync } from 'node:child_process';
 
 const API = 'http://localhost:5000/api';
 const AGENT = 'http://localhost:5678/webhook/coachconnect-support';
 const MDP = 'MotDePasse1!';
 const MARQUE = 'epreuvetg';
+
+/**
+ * L'ADRESSE DU COMPTE D'ÉPREUVE DOIT ÊTRE RÉELLE, ET ELLE N'EST PAS DANS LE
+ * DÉPÔT.
+ *
+ * POURQUOI PLUS DE `@exemple.local`. Depuis le 30 octobre 2026, la file de
+ * l'exploitant (`aNotifier`) écarte les dossiers dont l'auteur porte une
+ * adresse en domaine RÉSERVÉ — `.local`, `.test`, `.invalid`, `.example`. Le
+ * but est précisément d'empêcher les dossiers des suites d'alerter sur
+ * Telegram. Or ce script-ci veut l'inverse : il FABRIQUE le dossier auquel
+ * l'exploitant doit répondre. Avec une adresse réservée, son alerte serait
+ * filtrée et l'épreuve impossible.
+ *
+ * POURQUOI ELLE SE LIT DANS GIT, ET NON EN DUR. Le dépôt est public. Une
+ * adresse écrite ici y resterait pour toujours, dans l'historique compris.
+ * `git config user.email` la fournit sur la machine de celui qui lance le
+ * script, et nulle part ailleurs.
+ *
+ * L'ordre est : `EPREUVE_COURRIEL` si elle est définie, sinon l'adresse git,
+ * sinon on refuse. Deviner serait pire : on enverrait un courriel d'épreuve à
+ * une adresse qui n'est pas la bonne.
+ */
+function adresseDEpreuve(pseudo) {
+  const depuisEnv = String(process.env.EPREUVE_COURRIEL ?? '').trim();
+  if (depuisEnv) return depuisEnv;
+
+  let git = '';
+  try {
+    git = execFileSync('git', ['config', 'user.email'], { encoding: 'utf8' }).trim();
+  } catch {
+    /* git absent, ou aucune configuration : on tranche juste après */
+  }
+  if (!git || !git.includes('@')) {
+    console.error(
+      "AUCUNE ADRESSE D'ÉPREUVE.\n\n" +
+        "  Ce script crée un dossier auquel vous répondrez depuis Telegram, et la\n" +
+        "  réponse validée partira par courriel. Il lui faut donc une adresse réelle.\n\n" +
+        '  Définissez-en une :   EPREUVE_COURRIEL=vous@exemple.fr node scripts/preparer-epreuve-telegram.mjs\n' +
+        '  ou configurez git :   git config user.email vous@exemple.fr'
+    );
+    process.exit(1);
+  }
+
+  /*
+   * UN SOUS-ADRESSAGE, POUR QUE LE COURRIEL ARRIVE SANS CRÉER DE CONFUSION.
+   * `vous+epreuve-tg-123456@domaine` arrive dans la même boîte chez tous les
+   * fournisseurs qui le gèrent, et se distingue au premier coup d'œil d'un
+   * message réel. Si le fournisseur l'ignore, l'adresse reste valide.
+   */
+  const [local, domaine] = git.split('@');
+  return `${local}+${pseudo}@${domaine}`;
+}
 
 const client = new MongoClient('mongodb://localhost:27017/?replicaSet=rs0');
 await client.connect();
@@ -57,7 +110,7 @@ const { insertedId } = await bdd.collection('users').insertOne({
   nom: 'Epreuve',
   prenom: 'Telegram',
   pseudo,
-  email: `${pseudo}@exemple.local`,
+  email: adresseDEpreuve(pseudo),
   password: bcrypt.hashSync(MDP, 12),
   isActive: true,
   createdAt: new Date(),
