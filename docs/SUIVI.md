@@ -13445,3 +13445,32 @@ Tout est au vert.   —   0 suite rouge
 - [x] `API — support automatisé` **134/134** — le filtre des domaines réservés tient en contexte
       de campagne.
 - [x] **Aucune régression de performance** : **18/18** et **15/15**.
+
+### Le relais Stripe est mort d'une panne DNS, et elle éclaire le « fetch failed »
+
+```
+Session expired, reconnecting...
+Session expired, reconnecting...
+level=fatal msg="Error while authenticating with Stripe:
+  Post https://api.stripe.com/v1/stripecli/sessions:
+  dial tcp: lookup api.stripe.com: no such host"
+```
+
+- [x] **`no such host` est une panne du résolveur du poste**, pas une panne de Stripe ni du
+      code. C'est la règle déjà inscrite au journal : *`ENOTFOUND` désigne le DNS de la machine,
+      pas ce qui vient de changer.* Le relais avait signalé deux reconnexions avant de mourir —
+      le réseau était instable.
+- [x] **Mesuré après coup : DNS sain, 10/10** sur `api.stripe.com` ET sur `localhost`. La panne
+      était transitoire, sur le réseau de l'école.
+- [x] **Relais relancé**, clé de test reconfirmée avant lancement, `Ready!` obtenu.
+
+- **ET CELA DONNE UNE EXPLICATION PLAUSIBLE AU `fetch failed` DE `test:stripe`**, que j'avais
+  attribué à tort à une sortie bloquée. Node résout `localhost` par le **résolveur système** :
+  un résolveur momentanément bloqué fait échouer un `fetch` vers `localhost` tout autant qu'un
+  appel à `api.stripe.com`.
+
+  > **JE NE PEUX PAS LE PROUVER RÉTROACTIVEMENT**, et je ne l'inscris donc pas comme établi.
+  > C'est l'hypothèse la plus cohérente avec les trois faits — le relais mort sur `no such
+  > host`, les deux reconnexions, et un `fetch failed` vers `localhost` alors que le back-end
+  > servait d'autres requêtes. *Une explication cohérente reste une hypothèse tant qu'on n'a pas
+  > la mesure à l'instant du défaut.*
