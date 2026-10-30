@@ -160,7 +160,20 @@ export const rechercherFichesService = asyncHandler(async (req, res) => {
  */
 export const releverANotifier = asyncHandler(async (req, res) => {
   const [tickets, destinations] = await Promise.all([
-    support.aNotifier({ limite: req.query.limite ?? 20 }),
+    /*
+     * `?reserves=1` — OPT-IN, ET RÉSERVÉ AUX SUITES DE TESTS.
+     *
+     * Sans lui, les dossiers dont l'auteur porte une adresse en domaine réservé
+     * (`.local`, `.test`, `.invalid`, `.example`) sont écartés : ce sont ceux
+     * des suites, et alerter l'exploitant pour un dossier qui sera supprimé
+     * dans la minute lui donne une référence qui ne pointe vers rien.
+     *
+     * Le défaut est donc le comportement SÛR, et l'exception se demande.
+     */
+    support.aNotifier({
+      limite: req.query.limite ?? 20,
+      inclureReserves: req.query.reserves === '1',
+    }),
     support.destinationsTelegram(),
   ]);
 

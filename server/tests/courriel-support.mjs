@@ -259,12 +259,29 @@ ok('et pas de `roleAuteur` non plus', enBase && enBase.roleAuteur === undefined)
 
 section('Le dossier remonte dans la file de l’exploitant');
 
-const file = await appel('/support/service/a-notifier?limite=50', { cleService: CLE_SERVICE });
+/*
+ * `?reserves=1` — l'adresse d'épreuve de cette suite est en `@courrieltest.local`,
+ * un domaine RÉSERVÉ que la file écarte par défaut depuis le 30 octobre 2026
+ * pour ne pas alerter l'exploitant sur des dossiers de test. Voir
+ * `support.service.js`, `aNotifier`.
+ */
+const file = await appel('/support/service/a-notifier?limite=50&reserves=1', { cleService: CLE_SERVICE });
 ok('la relève répond', file.statut === 200, `statut ${file.statut}`);
 const dedans = (file.json?.tickets ?? []).find((t) => t.reference === d.reference);
 ok('**le dossier du courriel y figure** — c’est ce qui déclenche l’alerte Telegram, sans flux supplémentaire',
   Boolean(dedans), dedans ? 'présent' : 'ABSENT');
 ok('et la relève expose son adresse à l’exploitant', dedans?.courrielAuteur === ADRESSE, dedans?.courrielAuteur);
+
+/*
+ * LE CANAL COURRIEL PORTE SON ADRESSE DANS `courrielAuteur`, PAS SUR UN COMPTE.
+ * Le filtre doit donc examiner les deux endroits : ne regarder que le compte
+ * peuplé laisserait passer tous les dossiers du courriel sans les avoir vus.
+ */
+const fileFiltree = await appel('/support/service/a-notifier?limite=50', { cleService: CLE_SERVICE });
+const ancreCourriel = fileFiltree.statut === 200 && Boolean(dedans);
+ok('**sans le drapeau, le dossier en domaine RÉSERVÉ est écarté** — y compris par `courrielAuteur`',
+  ancreCourriel && !(fileFiltree.json?.tickets ?? []).some((t) => t.reference === d.reference),
+  ancreCourriel ? '' : 'ANCRAGE MANQUANT : une absence ne conclut rien sur une liste vide');
 
 /* ================================================================== *
  *  5 — LA VALIDATION HUMAINE

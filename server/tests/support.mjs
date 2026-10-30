@@ -337,13 +337,54 @@ ok('sans clé, la relève est refusée', sansCle.statut === 401, `statut ${sansC
 const mauvaiseCle = await appel('/support/service/a-notifier', { cleService: 'x'.repeat(64) });
 ok('avec une mauvaise clé, refusée aussi', mauvaiseCle.statut === 401, `statut ${mauvaiseCle.statut}`);
 
-const releve = await appel('/support/service/a-notifier', { cleService: CLE_SERVICE });
+/*
+ * ======================================================================
+ *  POURQUOI CETTE RELÈVE DEMANDE `?reserves=1`
+ * ======================================================================
+ *
+ * Depuis le 30 octobre 2026, la file écarte par défaut les dossiers dont
+ * l'auteur porte une adresse en domaine RÉSERVÉ — `.local`, `.test`,
+ * `.invalid`, `.example` (RFC 2606 et 6761). Ce sont ceux des suites de
+ * tests, et ils ne doivent pas alerter l'exploitant.
+ *
+ * LE DÉFAUT QUE CELA CORRIGE. Une suite crée un dossier escaladé, la relève
+ * envoie son alerte sur Telegram, puis la suite supprime le dossier en fin de
+ * passage. L'exploitant répond à une alerte QUI NE POINTE VERS RIEN, et le bot
+ * lui dit qu'aucun dossier ne porte cette référence. Constaté sur la référence
+ * `bc7b0f49`, auteur `…@supportfront.local` : à l'instant de la lecture, le
+ * dossier ET le compte avaient disparu.
+ *
+ * Les comptes de CETTE suite vivent sur `@supporttest.local`. Elle doit donc
+ * demander explicitement à voir les dossiers écartés — et le faire est en soi
+ * une vérification : le drapeau existe, il est opt-in, et le défaut est le
+ * comportement sûr.
+ * ======================================================================
+ */
+const releve = await appel('/support/service/a-notifier?reserves=1', { cleService: CLE_SERVICE });
 ok('avec la bonne clé, la relève répond', releve.statut === 200, `statut ${releve.statut}`);
 ok('elle ramène le ticket escaladé',
   releve.json?.tickets?.some((t) => String(t._id) === String(idEscalade)),
   `${releve.json?.nombre} ticket(s)`);
 ok('et pas le ticket résolu',
   !releve.json?.tickets?.some((t) => String(t._id) === String(idTicket)));
+
+/*
+ * ET SANS LE DRAPEAU, LE MÊME DOSSIER DOIT ÊTRE ÉCARTÉ. C'est la moitié de la
+ * garantie : sans cette vérification, le filtre pourrait être retiré demain
+ * sans qu'aucun test ne tombe, et les alertes fantômes reviendraient.
+ *
+ * L'ABSENCE EST ANCRÉE SUR UNE PRÉSENCE : on exige d'abord que la route
+ * réponde 200 et que le drapeau, lui, ramène bien le dossier. Sans cet
+ * ancrage, une route cassée rendrait une liste vide et cette vérification
+ * passerait au vert en ayant mesuré le néant.
+ */
+const releveFiltree = await appel('/support/service/a-notifier', { cleService: CLE_SERVICE });
+const ancre =
+  releveFiltree.statut === 200 &&
+  releve.json?.tickets?.some((t) => String(t._id) === String(idEscalade));
+ok('**sans le drapeau, un dossier en domaine RÉSERVÉ est écarté de la file**',
+  ancre && !releveFiltree.json?.tickets?.some((t) => String(t._id) === String(idEscalade)),
+  ancre ? '' : 'ANCRAGE MANQUANT : une absence ne conclut rien sur une liste vide');
 
 /* ------------------------------------------------------------------ *
  *  OÙ LA RELÈVE DOIT-ELLE ANNONCER

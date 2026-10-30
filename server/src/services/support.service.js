@@ -442,11 +442,104 @@ export async function supprimer(idTicket) {
  * du workflow rejouerait les notifications ou en sauterait. Le drapeau vit avec
  * le ticket : il ne peut ni se désynchroniser, ni se perdre.
  */
-export async function aNotifier({ limite = 20 } = {}) {
-  const tickets = await Ticket.find({ statut: 'escalade', notifieExploitant: false })
+/**
+ * LES DOSSIERS DES SUITES DE TESTS NE DOIVENT PAS ALERTER L'EXPLOITANT.
+ *
+ * LE DÉFAUT QUE CE FILTRE CORRIGE, constaté le 30 octobre 2026.
+ *
+ * Une suite de tests crée un dossier escaladé, la relève envoie son alerte sur
+ * Telegram, puis la suite supprime le dossier en fin de passage. L'exploitant
+ * se retrouve avec une alerte **qui ne pointe vers rien** : il y répond, et le
+ * bot lui dit qu'aucun dossier ne porte cette référence.
+ *
+ * C'est exactement ce qui s'est produit avec la référence `bc7b0f49`, auteur
+ * `…@supportfront.local` : à l'instant où elle a été lue, le dossier ET le
+ * compte avaient disparu. Le porteur du projet a conclu, raisonnablement, que
+ * la fonctionnalité ne marchait pas.
+ *
+ * POURQUOI LE CRITÈRE EST LE DOMAINE RÉSERVÉ, ET NON UN NOM DE COMPTE.
+ *
+ * `.local`, `.test`, `.invalid` et `.example` sont réservés par les RFC 2606 et
+ * 6761 : **aucune adresse réelle ne peut s'y trouver**, et aucun courriel ne
+ * peut y être livré. Le critère ne repose donc sur aucune convention de nommage
+ * qu'une suite pourrait oublier de suivre — il repose sur une impossibilité.
+ *
+ * LE FILTRE EST DANS LA REQUÊTE, PAS APRÈS. Filtrer le résultat laisserait les
+ * dossiers écartés occuper la fenêtre : triés du plus ancien au plus récent,
+ * vingt dossiers de test jamais supprimés bloqueraient toute alerte réelle,
+ * pour toujours et sans rien dire.
+ *
+ * ---------------------------------------------------------------------------
+ * ET POURQUOI `inclureReserves` EXISTE, PLUTÔT QU'UN FILTRE INCONDITIONNEL
+ * ---------------------------------------------------------------------------
+ *
+ * Les suites de tests ont, elles, BESOIN de voir leurs propres dossiers par
+ * cette route : c'est ainsi qu'elles vérifient que la file de l'exploitant
+ * ramène un dossier escaladé et expose son adresse. Or leurs comptes vivent
+ * précisément sur des domaines réservés — `@supporttest.local`,
+ * `@courrieltest.local`.
+ *
+ * Un filtre inconditionnel aurait donc fait tomber ces suites, et la tentation
+ * aurait été de leur donner un domaine livrable : on aurait alors risqué
+ * d'envoyer de vrais courriels à de vraies adresses depuis une campagne.
+ *
+ * Le drapeau est donc opt-in, et le défaut est le comportement SÛR. La route
+ * est en lecture seule et derrière la clé de service : l'exposer ne crée aucun
+ * risque, et il rend l'intention explicite aux deux endroits qui appellent —
+ * la relève ne le passe pas, les suites le passent.
+ */
+const DOMAINES_RESERVES = ['local', 'test', 'invalid', 'example'];
+const MOTIF_RESERVE = new RegExp(`@[^@]*\\.(${DOMAINES_RESERVES.join('|')})$`, 'i');
+
+export async function aNotifier({ limite = 20, inclureReserves = false } = {}) {
+  if (inclureReserves) {
+    const tous = await Ticket.find({ statut: 'escalade', notifieExploitant: false })
+      .populate('auteur', 'pseudo nom prenom type email')
+      .sort({ createdAt: 1 })
+      .limit(limite);
+
+    return tous.map((t) => t.versionExploitant());
+  }
+
+  /*
+   * L'ADRESSE EST À DEUX ENDROITS SELON LE CANAL : sur le compte peuplé pour le
+   * widget, dans `courrielAuteur` pour le courriel — où `auteur` est vide par
+   * construction. Les deux doivent être examinées, sinon la moitié des dossiers
+   * passerait le filtre sans avoir été regardée.
+   */
+  const candidats = await Ticket.aggregate([
+    { $match: { statut: 'escalade', notifieExploitant: false } },
+    { $sort: { createdAt: 1 } },
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: 'auteur',
+        foreignField: '_id',
+        as: 'comptes',
+      },
+    },
+    {
+      $addFields: {
+        adresse: {
+          $ifNull: [{ $arrayElemAt: ['$comptes.email', 0] }, '$courrielAuteur'],
+        },
+      },
+    },
+    { $match: { adresse: { $not: MOTIF_RESERVE } } },
+    { $limit: limite },
+    { $project: { _id: 1 } },
+  ]);
+
+  if (candidats.length === 0) return [];
+
+  /*
+   * DEUXIÈME REQUÊTE, et c'est voulu : `versionExploitant()` est une méthode du
+   * document. Une agrégation rend des objets nus, qui ne la portent pas, et
+   * recopier la sérialisation ici la dupliquerait hors de son modèle.
+   */
+  const tickets = await Ticket.find({ _id: { $in: candidats.map((c) => c._id) } })
     .populate('auteur', 'pseudo nom prenom type email')
-    .sort({ createdAt: 1 })
-    .limit(limite);
+    .sort({ createdAt: 1 });
 
   return tickets.map((t) => t.versionExploitant());
 }
