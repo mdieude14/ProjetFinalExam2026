@@ -13247,3 +13247,38 @@ marquée rouge en affichant **`2/2`**. Aucune assertion n'avait échoué.
   `fetch failed` de la bascule, et cette interruption. **Les trois venaient de la mémoire**, et
   aucune d'un défaut du produit. *Le banc d'essai nomme « panne réseau » ou « timeout » ce qui
   est une machine saturée ; il faut le traduire chaque fois.*
+
+### La validation : 2050/2050, et le filtre éprouvé en vrai
+
+```
+Total : 2050/2050 vérifications
+Tout est au vert.   —   0 suite rouge
+37 suites — mémoire libre au lancement : 0,87 Go
+```
+
+- [x] **Le compte tombe juste** : 2048 + les deux assertions ajoutées = 2050. Aucune suite n'a
+      été coupée.
+- [x] `API — support automatisé` **134/134**, `API — support par courriel` **57/57**,
+      `Navigateur — story par la caméra` **31/31**.
+- [x] **Aucune régression de performance** : **18/18** et **15/15**.
+
+### Le tunnel rouvert, et le filtre prouvé par l'usage
+
+| Mesure | Résultat |
+|---|---|
+| `tunnel/healthz` | **200** |
+| `/rest/credentials` et `/rest/workflows` | **401** |
+| flux actifs **en base** | **6 sur 6** |
+| certificat après recréation | préservé |
+| dossier d'épreuve | **`384e7a25`**, adresse réelle |
+| alerte Telegram | **partie en 20 s** |
+
+- [x] **L'alerte partie EST la preuve du filtre.** Le dossier porte une adresse réelle, donc
+      `aNotifier()` l'a rendu ; s'il avait été écarté, **aucune alerte ne serait jamais
+      sortie**. *Un filtre se prouve par ce qu'il laisse passer autant que par ce qu'il
+      écarte.*
+- [x] **Et une leçon déjà apprise, reconfirmée** : `docker logs --since 4m` rendait **zéro**
+      ligne d'activation, alors que la base donnait les six flux actifs et que le journal
+      complet portait bien six lignes. Le conteneur venait d'être recréé : la fenêtre de temps
+      ne correspondait pas. *Lire le journal une fois ne dit pas l'état, seulement l'instant —
+      c'est la base qui fait foi.*

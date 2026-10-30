@@ -185,3 +185,36 @@ d'un défaut du produit.
 
 > *Le banc d'essai nomme « panne réseau » ou « timeout » ce qui est une machine saturée ; il faut
 > le traduire chaque fois.*
+
+---
+
+## Addendum 2 — la validation, et le tunnel rouvert
+
+```
+Total : 2050/2050 vérifications
+Tout est au vert.   —   0 suite rouge
+37 suites — mémoire libre au lancement : 0,87 Go
+```
+
+Le compte tombe juste : 2048 + les deux assertions ajoutées = 2050. `API — support automatisé`
+**134/134**, `API — support par courriel` **57/57**, `story par la caméra` **31/31**, performance
+**18/18** et **15/15**.
+
+**Le tunnel rouvert**, et le filtre éprouvé par l'usage :
+
+| Mesure | Résultat |
+|---|---|
+| `tunnel/healthz` | **200** |
+| `/rest/credentials` et `/rest/workflows` | **401** |
+| flux actifs **en base** | **6 sur 6** |
+| dossier d'épreuve | **`384e7a25`**, adresse réelle |
+| alerte Telegram | **partie en 20 s** |
+
+> **L'alerte partie EST la preuve du filtre.** Le dossier porte une adresse réelle, donc
+> `aNotifier()` l'a rendu ; s'il avait été écarté, aucune alerte ne serait jamais sortie. *Un
+> filtre se prouve par ce qu'il laisse passer autant que par ce qu'il écarte.*
+
+Et une leçon déjà apprise, reconfirmée : `docker logs --since 4m` rendait **zéro** ligne
+d'activation alors que la base donnait les six flux actifs. Le conteneur venait d'être recréé, la
+fenêtre de temps ne correspondait pas. *Lire le journal une fois ne dit pas l'état, seulement
+l'instant — c'est la base qui fait foi.*
