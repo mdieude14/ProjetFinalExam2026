@@ -258,7 +258,22 @@ await page.getByLabel('Email ou pseudo').fill(pseudo);
 await page.getByLabel('Mot de passe').fill(MDP);
 await page.getByRole('button', { name: 'Se connecter' }).click();
 await page.waitForURL('**/home', { timeout: 25000 });
-await page.waitForSelector('[data-test="ajouter-story"]', { timeout: 15000 });
+/*
+ * TRENTE SECONDES, ET C'EST GRATUIT.
+ *
+ * Cette attente a expire en campagne le 30 octobre 2026, a la trentieme
+ * verification sur trente-sept suites : 15 s ne suffisaient plus a rendre la
+ * page d'accueil pendant que la machine paginait. La suite s'est INTERROMPUE
+ * a 2/2, et le total de la campagne est tombe de 2050 a 2021 — vingt-neuf
+ * verifications jamais executees, sans une seule assertion rouge. Relancee
+  * seule : 31/31. Le produit n avait aucun defaut.
+ *
+ * RELEVER UNE ATTENTE CONDITIONNELLE NE COUTE RIEN : elle sort des que la
+ * condition cede, donc zero seconde de plus sur une machine au repos. Relever
+ * un DELAI FIXE, lui, se paie a chaque passage. C'est toute la difference, et
+ * c'est pourquoi le plafond est genereux ici sans etre un truquage.
+ */
+await page.waitForSelector('[data-test="ajouter-story"]', { timeout: 30000 });
 
 /* ------------------------------------------------------------------ *
  *  Le choix de la source
@@ -433,7 +448,22 @@ if (creee?.media?.url) {
 section('Ajout d’une seconde story');
 
 await page.reload({ waitUntil: 'domcontentloaded' });
-await page.waitForSelector('[data-test="ajouter-story"]', { timeout: 15000 });
+/*
+ * TRENTE SECONDES, ET C'EST GRATUIT.
+ *
+ * Cette attente a expire en campagne le 30 octobre 2026, a la trentieme
+ * verification sur trente-sept suites : 15 s ne suffisaient plus a rendre la
+ * page d'accueil pendant que la machine paginait. La suite s'est INTERROMPUE
+ * a 2/2, et le total de la campagne est tombe de 2050 a 2021 — vingt-neuf
+ * verifications jamais executees, sans une seule assertion rouge. Relancee
+  * seule : 31/31. Le produit n avait aucun defaut.
+ *
+ * RELEVER UNE ATTENTE CONDITIONNELLE NE COUTE RIEN : elle sort des que la
+ * condition cede, donc zero seconde de plus sur une machine au repos. Relever
+ * un DELAI FIXE, lui, se paie a chaque passage. C'est toute la difference, et
+ * c'est pourquoi le plafond est genereux ici sans etre un truquage.
+ */
+await page.waitForSelector('[data-test="ajouter-story"]', { timeout: 30000 });
 
 ok('le « + » est toujours présent alors qu’une story existe',
   await page.locator('[data-test="ajouter-story"]').isVisible());
