@@ -345,6 +345,57 @@ async function verifierPrerequis() {
     });
   }
 
+  /* ---- Le piège du redémarrage : une adresse de tunnel morte ---- */
+
+  /*
+   * POURQUOI CE CONTRÔLE EXISTE, ET POURQUOI IL EST AUTOMATIQUE.
+   *
+   * Le conteneur de tunnel ne revient pas tout seul après un redémarrage du
+   * poste — c'est voulu, `restart: "no"`. Mais n8n, lui, revient, et il garde
+   * l'adresse publique morte dans son environnement. Si le workflow Telegram
+   * est resté actif, n8n la déclare à Telegram au démarrage : **le bot devient
+   * injoignable en silence**, sans une seule erreur nulle part.
+   *
+   * L'avertissement était consigné depuis le 19 octobre 2026, et il n'a pas
+   * suffi : le piège s'est produit le 29 ET le 30 octobre, deux redémarrages de
+   * suite. La seule façon de le voir était de le chercher à la main.
+   *
+   *   LA LEÇON : un piège qui mord deux fois malgré sa consigne écrite doit
+   *   devenir une MESURE, pas un rappel. Une consigne demande qu'on s'en
+   *   souvienne ; un contrôle le fait à notre place.
+   *
+   * Ce n'est qu'un RAPPEL, pas un blocage : l'état fautif n'empêche aucune
+   * suite de passer, il rend seulement le canal Telegram muet. Bloquer la
+   * campagne pour cela serait disproportionné.
+   */
+  try {
+    const { execFileSync } = await import('node:child_process');
+    const lire = (...args) =>
+      execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+
+    const adresse = lire('exec', 'coachconnect-n8n', 'sh', '-c', 'echo "$WEBHOOK_URL"');
+    const publique = /^https?:\/\/(?!localhost)/i.test(adresse);
+    const tunnelDebout = lire('ps', '--filter', 'name=coachconnect-tunnel', '--filter', 'status=running', '-q') !== '';
+
+    if (publique && !tunnelDebout) {
+      manques.push({
+        quoi: null,
+        rappel:
+          'ADRESSE DE TUNNEL MORTE dans n8n, et aucun tunnel debout.\n' +
+          '      n8n a déclaré cette adresse à Telegram au démarrage : si le\n' +
+          '      workflow Telegram est actif, le bot est injoignable EN SILENCE.\n' +
+          '      C’est le piège des redémarrages du 29 et du 30 octobre 2026.\n' +
+          '      Remède :  node docker/n8n/ouvrir-tunnel.mjs --fermer\n' +
+          '      puis, pour une démonstration :  node docker/n8n/ouvrir-tunnel.mjs',
+      });
+    }
+  } catch {
+    /*
+     * Docker absent ou conteneur éteint : d'autres contrôles le signalent déjà,
+     * et un prérequis qui crie deux fois la même panne apprend à être ignoré.
+     */
+  }
+
   /* ---- Le compte administrateur ---- */
   const uri = lireEnv('MONGO_URI');
   if (uri) {
@@ -438,6 +489,24 @@ async function principal() {
   }
 
   console.log('  ✓  Tous les prérequis sont réunis.\n');
+
+  /*
+   * `--prerequis` — VÉRIFIER L'ÉTAT DU POSTE SANS LANCER LES 37 SUITES.
+   *
+   * Deux usages, et le second est le plus utile :
+   *
+   *   1. savoir en deux secondes si une campagne a une chance d'aboutir, au
+   *      lieu de l'apprendre à la trentième suite ;
+   *   2. ÉPROUVER LES CONTRÔLES EUX-MÊMES. Un prérequis qui ne sonne jamais ne
+   *      vaut rien, et on ne peut pas le vérifier s'il faut vingt minutes de
+   *      campagne pour l'entendre. Le contrôle de l'adresse de tunnel morte a
+   *      été éprouvé ainsi : on arrête le conteneur de tunnel en laissant
+   *      l'adresse dans n8n, et l'avertissement doit apparaître.
+   */
+  if (process.argv.includes('--prerequis')) {
+    console.log('  (--prerequis : les suites ne sont pas lancées)\n');
+    process.exit(0);
+  }
 
   console.log('===========================================================');
   console.log(`  ${SUITES.length} SUITES, UNE PAR UNE`);
