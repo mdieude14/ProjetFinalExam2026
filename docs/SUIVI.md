@@ -12856,10 +12856,11 @@ vaut une confirmation en soi : aucune suite n'a été coupée en route.
   processus) et la machine WSL de Docker (760 Mo), tous deux incompressibles sans toucher à la
   configuration du poste.
 
-- [ ] **Piste durable, non engagée** : un plafond mémoire pour WSL dans
-      `%USERPROFILE%\.wslconfig` (`memory=2GB`) rendrait 0,3 à 0,5 Go de façon permanente. Cela
-      demande `wsl --shutdown`, donc l'arrêt de Docker, et **modifie la configuration du poste
-      hors du projet** : c'est une décision du porteur du projet, pas une initiative.
+- [x] **FAIT le 29 octobre 2026, et mesuré** — voir **15.69**. Posé pendant que Docker était
+      arrêté, donc **sans interrompre quoi que ce soit** : c'est la seule fenêtre où ce
+      changement est gratuit. `vmmemWSL` est passé de **760 Mo à 267 Mo**, soit environ
+      **490 Mo rendus**, et le plafond vu par les conteneurs de ~3,9 Go à **1,926 GiB** pour
+      570 Mo réellement utilisés. **Il a survécu aux trois redémarrages suivants.**
 
 ### La chaîne Telegram, prête à l'épreuve réelle
 
@@ -12871,8 +12872,11 @@ vaut une confirmation en soi : aucune suite n'a été coupée en route.
       `escalade`. Les deux dossiers d'épreuve précédents étaient clos, donc plus répondables —
       la relève ne renvoie jamais une alerte déjà partie.
 
-- [ ] **CE QUI RESTE À ÉPROUVER EN VRAI**, et qui demande le compte Telegram du porteur du
-      projet. Trois comportements, dans cet ordre :
+- [x] **ÉPROUVÉ EN VRAI ET VALIDÉ le 30 octobre 2026** par le porteur du projet, sur une
+      demande réelle — voir **15.71**. Les cinq maillons sont confirmés en usage, y compris la
+      validation depuis Telegram **ou** depuis la page de modération, au choix. *C'est la
+      première fonctionnalité du module 15 validée par l'usage et non par les suites seules.*
+- [x] **Les trois comportements qui étaient à éprouver**, pour mémoire :
 
       1. répondre à l'alerte avec une amorce → **un brouillon rédigé par le modèle**, adapté à
          la demande initiale, et non une réponse adressée à l'exploitant ;
@@ -13474,3 +13478,131 @@ level=fatal msg="Error while authenticating with Stripe:
   > host`, les deux reconnexions, et un `fetch failed` vers `localhost` alors que le back-end
   > servait d'autres requêtes. *Une explication cohérente reste une hypothèse tant qu'on n'a pas
   > la mesure à l'instant du défaut.*
+
+---
+
+## 15.72 — L'erreur de Telegram était exacte et inutilisable  `RÉSOLU`
+
+### Le symptôme, et la cause était de mon fait
+
+Le canal Telegram, validé de bout en bout le 30 octobre, ne fonctionnait plus. Le porteur du
+projet a tenté de réactiver le workflow depuis l'éditeur n8n et a reçu :
+
+```
+Workflow could not be activated:
+Bad Request: bad webhook: An HTTPS URL must be provided for webhook.
+```
+
+- [x] **Mesuré en une commande** :
+
+      ```
+      WEBHOOK_URL = http://localhost:5678/     <- HTTP, et localhost
+      conteneur de tunnel : 0
+      ```
+
+      **Telegram exige une adresse HTTPS publique.** Sans tunnel, n8n n'a que
+      `http://localhost:5678/` à lui proposer, et Telegram refuse. Activer le workflow à la main
+      ne pouvait pas marcher : **il faut d'abord une adresse.**
+
+- **ET LA CAUSE EST ENTIÈREMENT DE MON FAIT.** J'avais refermé le tunnel trois fois ce jour-là :
+  après le nettoyage du piège du redémarrage, après l'épreuve de mon propre contrôle de
+  prérequis, et avant de rendre la main. Chaque fermeture était justifiée ; **aucune n'a été
+  annoncée comme mettant le canal hors service.**
+
+  > **LA LEÇON : refermer une porte par prudence sans dire qu'on la referme est une négligence
+  > d'un autre genre.** Le geste était bon, l'absence de signalement non. Le porteur du projet a
+  > cherché la panne dans son produit pendant que la cause était dans mon ménage.
+
+### Et mon propre contrôle ne détectait pas ce cas
+
+- [x] **`--prerequis` annonçait « tous les prérequis sont réunis »** dans cet état. Mon contrôle,
+      écrit la veille, ne détecte que l'**incohérence** — adresse publique sans tunnel — et pas
+      l'**absence** d'adresse, qui rend le canal entrant simplement impossible.
+
+  > *Un contrôle écrit pour le piège qu'on vient de subir ne couvre pas le piège voisin. Celui-ci
+  > visait l'état qui MENT ; il laissait passer l'état qui NE PEUT PAS MARCHER.*
+
+### `etat-telegram.mjs` — le chemin qui manquait entre l'erreur et sa cause
+
+Le message de Telegram est **exact et inutilisable** : il dit ce qu'il refuse, jamais pourquoi
+n8n lui a proposé cela, ni quoi faire.
+
+> **Quand un service tiers rend une erreur exacte mais opaque, ce n'est pas son message qu'il
+> faut corriger, c'est le chemin qui mène de ce message à la cause.** Un diagnostic d'une
+> commande vaut mieux qu'un paragraphe de documentation que personne ne relira au moment utile.
+
+- [x] **Le script distingue les DEUX SENS du canal**, et c'est la distinction que l'erreur de
+      Telegram ne dit pas :
+
+      | Sens | Besoin | Sans tunnel |
+      |---|---|---|
+      | **sortant** — la relève écrit à Telegram | un appel sortant | **fonctionne** |
+      | **entrant** — Telegram écrit à n8n | une adresse HTTPS publique | **impossible** |
+
+      *D'où le symptôme déroutant : les alertes arrivent, mais y répondre ne produit rien — et le
+      bot ne peut même pas dire qu'il n'a rien reçu.*
+
+- [x] **Il n'imprime jamais l'adresse en clair.** Elle mène à n8n, éditeur compris : elle vaut
+      mot de passe tant qu'elle est ouverte, et un journal de terminal se recopie plus souvent
+      qu'on ne le croit. Son existence suffit à conclure.
+- [x] Il ne modifie rien : il lit, il compare, il conclut. Code de sortie 0 si le canal peut
+      fonctionner, 1 sinon.
+
+#### DEUX DÉFAUTS DU SCRIPT, TROUVÉS EN L'ÉPROUVANT
+
+- [x] **1. Il vérifiait la PRÉSENCE d'un tunnel, pas que l'adresse détenue FONCTIONNE.**
+
+      En relançant le conteneur de tunnel par `docker start` pour tester une branche,
+      `cloudflared` a tiré une **nouvelle** adresse — et n8n continuait de déclarer l'ancienne.
+      Mesuré : l'adresse détenue rendait **530**, alors que le script annonçait « ENTRANT : OUI ».
+
+      > **Un diagnostic qui vérifie la présence d'un maillon au lieu de son fonctionnement mente
+      > avec aplomb.** Ici la différence tenait en un appel HTTP — et sans lui, le script aurait
+      > rassuré à tort, soit exactement le défaut qu'il est censé éviter.
+
+      Le script sonde désormais l'adresse détenue. *Et cela ajoute une règle d'exploitation : on
+      ne relance JAMAIS le conteneur de tunnel seul.*
+
+- [x] **2. L'ordre de ses branches donnait la bonne consigne avec la mauvaise explication.**
+
+      Sur l'état réel du 2 novembre — tunnel fermé, adresse publique restée dans n8n — il
+      affichait « un tunnel tourne, mais pas celui dont n8n détient l'adresse » **juste après
+      avoir imprimé `tunnel : fermé`**. Le remède était bon, l'explication se contredisait, et
+      le lecteur cherchait un tunnel qui n'existait pas.
+
+      > **« Aucun tunnel » est un cas PLUS GÉNÉRAL que « le mauvais tunnel ».** Le cas général se
+      > teste d'abord, sinon le cas particulier le capture et explique de travers.
+
+      **Et ce défaut ne s'est vu que sur un état fautif RÉEL.** Les deux états simulés la veille
+      passaient tous les deux par la branche correcte : *le hasard du simulacre avait masqué
+      l'inversion.*
+
+### Les deux questions de sécurité, mesurées plutôt que rassurées
+
+Le porteur du projet demandait confirmation que personne d'extérieur ne peut interagir avec n8n
+ni récupérer les données.
+
+| Route, à travers le tunnel | Résultat | Ce que ça établit |
+|---|---|---|
+| `/rest/workflows` | **401** | les flux **ne sont pas lisibles** |
+| `/rest/credentials` | **401** | les identifiants non plus |
+| `/rest/login` | **401** | l'authentification est bien exigée |
+| `/` | 200 | l'éditeur **charge**, mais c'est une coquille vide |
+| `/rest/settings` | 200 | **expose `versionCli: 1.121.0`** |
+
+- [x] **`userManagement.showSetupOnFirstLoad` vaut `false`**, et c'est le point décisif : **le
+      compte propriétaire existe.** S'il valait `true`, n'importe qui atteignant l'éditeur
+      pourrait créer ce compte et **prendre l'instance**.
+- [ ] **Le seul vrai fuyard est la version de n8n** (`1.121.0`), exposée sans authentification.
+      C'est mineur en soi, et c'est exactement ce qu'on regarde pour choisir une faille connue.
+      *Ni bloquant ni ignorable : à retenir pour le jour où l'instance sera exposée durablement.*
+
+Et sur le widget : le porteur du projet avait raison, `masque = !utilisateur || …` le cache aux
+visiteurs non connectés. **Mais cacher un bouton n'est pas une protection.** Ce qui protège, ce
+sont les routes :
+
+- [x] **Toutes les routes du support sont gardées** — `protect` pour les utilisateurs,
+      `autoriser('admin')` pour l'exploitant, `serviceAutorise` pour les flux.
+- [x] **Vérifié empiriquement depuis l'adresse réseau, sans jeton** : `/api/support/tickets`
+      **401**, `/api/support/fiches` **401**, `/api/support/service/a-notifier` **401**, et
+      `/api/health` **200** comme voulu.
