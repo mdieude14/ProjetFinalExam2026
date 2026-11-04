@@ -255,6 +255,23 @@ export const config = {
     // réponse d'agent, et tous remontent à un humain.
     agentKey: process.env.SUPPORT_AGENT_KEY,
   },
+
+  /**
+   * Canal Telegram entrant, par scrutage (module 15).
+   *
+   * FACULTATIVE ELLE AUSSI, ET C'EST LE DÉFAUT SÛR. Sans jeton, le scrutateur
+   * ne part pas : aucun appel, aucune trace, et le reste du support continue
+   * de fonctionner — les alertes sortantes passent par n8n, qui détient son
+   * propre justificatif.
+   *
+   * `base` n'existe que pour les tests, qui font tourner la vraie boucle
+   * contre une fausse API Telegram. En exploitation, elle ne change jamais.
+   */
+  telegram: {
+    jeton: process.env.TELEGRAM_BOT_TOKEN,
+    base: process.env.TELEGRAM_API_BASE || 'https://api.telegram.org',
+    webhook: process.env.N8N_WEBHOOK_TELEGRAM || 'http://localhost:5678/webhook/telegram-support',
+  },
 };
 
 export const estProduction = config.env === 'production';

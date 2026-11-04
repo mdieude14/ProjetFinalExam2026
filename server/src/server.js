@@ -5,6 +5,7 @@ import { modeStockage } from './services/storage.service.js';
 import { verifierCloudinary, cloudinaryConfigure } from './config/cloudinary.js';
 import { verifierStripe, stripeConfigure } from './config/stripe.js';
 import { initialiserSockets } from './sockets/index.js';
+import { creerScrutateur } from './services/telegram-scrutage.service.js';
 
 /**
  * Point d'entree du serveur.
@@ -78,12 +79,35 @@ async function demarrer() {
   initialiserSockets(serveur);
 
   /**
+   * Canal Telegram entrant (module 15).
+   *
+   * ON SCRUTE AU LIEU D'ÊTRE APPELÉ. Telegram ne livre qu'à une adresse HTTPS
+   * publique ; aller chercher les messages soi-même supprime le besoin
+   * d'adresse, donc le tunnel, donc l'exposition de l'éditeur n8n. Le détail
+   * des trois pistes mesurées est en tête de `telegram-scrutage.service.js`.
+   *
+   * SANS JETON, RIEN NE PART — et c'est le défaut : le scrutateur l'annonce
+   * en une ligne et s'arrête là.
+   */
+  const scrutateur = creerScrutateur({
+    jeton: config.telegram.jeton,
+    base: config.telegram.base,
+    webhook: config.telegram.webhook,
+    cleService: config.support.serviceKey,
+  });
+
+  /**
    * Arret propre : on laisse les requetes en cours se terminer avant de
    * fermer la connexion Mongo. Sans cela, un redeploiement peut couper
    * une ecriture au milieu et laisser des donnees incoherentes.
    */
   const arreterProprement = async (signal) => {
     console.log(`\n[API] Signal ${signal} recu, arret en cours...`);
+    /*
+     * LE SCRUTATEUR D'ABORD : son attente longue dure jusqu'à 50 s, et sans
+     * interruption de la requête en vol l'arrêt traînerait d'autant.
+     */
+    await scrutateur.arreter();
     serveur.close(async () => {
       await deconnecterDB();
       console.log('[API] Arret termine');
@@ -99,6 +123,14 @@ async function demarrer() {
 
   process.on('SIGTERM', () => arreterProprement('SIGTERM')); // hebergeur
   process.on('SIGINT', () => arreterProprement('SIGINT')); //  Ctrl+C
+
+  /*
+   * LE SCRUTAGE DÉMARRE APRÈS LES GESTIONNAIRES DE SIGNAUX, pas avant. Son
+   * premier geste est un appel réseau à Telegram (`deleteWebhook`) : s'il
+   * traînait et qu'on frappait Ctrl-C pendant ce temps, aucun gestionnaire ne
+   * serait encore posé et le processus mourrait sans refermer la base.
+   */
+  await scrutateur.demarrer();
 
   /**
    * Erreurs non rattrapees : on trace puis on quitte.
