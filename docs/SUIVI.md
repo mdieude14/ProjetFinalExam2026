@@ -13606,3 +13606,126 @@ sont les routes :
 - [x] **Vérifié empiriquement depuis l'adresse réseau, sans jeton** : `/api/support/tickets`
       **401**, `/api/support/fiches` **401**, `/api/support/service/a-notifier` **401**, et
       `/api/health` **200** comme voulu.
+
+---
+
+## 15.73 — « Que le tunnel s'ouvre quand je réponds » : la moitié est impossible  `RÉSOLU` / `DÉCISION ATTENDUE`
+
+### La demande, et pourquoi sa première moitié ne peut pas exister
+
+> « Je veux que quand je réponds à un message d'escalade, le tunnel Telegram s'active
+> automatiquement pour que le workflow s'exécute de bout en bout, puis ferme le tunnel une fois
+> l'exécution terminée. »
+
+**Pour savoir que quelqu'un a répondu sur Telegram, il faut que Telegram ait pu livrer le
+message. Or Telegram ne peut livrer que si l'adresse est déjà joignable.** Rien ne peut donc
+apprendre la réponse tant que le tunnel est fermé.
+
+> **CE N'EST PAS UN MANQUE D'EFFORT, C'EST L'ŒUF ET LA POULE.** Aucune automatisation ne peut
+> réagir à un événement qu'elle ne peut pas recevoir.
+
+### Trois contournements cherchés, et mesurés
+
+| Piste | Mesure | Verdict |
+|---|---|---|
+| que **n8n scrute** Telegram (`getUpdates`), ce qui ne demande aucun tunnel | `TelegramApi.credentials.js` n'a **aucun bloc `authenticate`**, seulement un `test` | un `httpRequest` empruntant ce justificatif **partirait sans jeton** |
+| que **le déclencheur scrute** de lui-même | `TelegramTrigger.node.js` : aucun `polling`, `webhooks: 1` | **webhook, et rien d'autre** |
+| que **notre back-end scrute** | le jeton n'est dans **aucun** `.env` du projet | il faudrait l'extraire des justificatifs chiffrés — **refusé** |
+
+- [x] **La première piste était la bonne**, et elle supprimerait le tunnel **entièrement** : un
+      appel sortant passe derrière n'importe quelle box. Elle bute sur un seul point, et il est
+      vérifiable dans l'image : n8n n'expose le jeton Telegram qu'au nœud `telegram`, jamais à
+      un `httpRequest` générique.
+
+- [ ] **ELLE REDEVIENT POSSIBLE AVEC UN GESTE DU PORTEUR DU PROJET**, et d'un seul : déposer le
+      jeton dans un justificatif que `httpRequest` sait lire (type « Query Auth » ou « Header
+      Auth »), depuis l'éditeur n8n. **Son secret, son geste** — je ne le manipule pas.
+      *Bénéfice : plus de tunnel du tout, donc plus aucune exposition, et le canal entrant
+      fonctionne en permanence.* C'est la vraie réponse au besoin, et elle attend une décision.
+
+### La seconde moitié, elle, est faisable — et c'est tout ce que `garder-tunnel.mjs` fait
+
+```
+node docker/n8n/garder-tunnel.mjs
+node docker/n8n/garder-tunnel.mjs --minutes=45
+```
+
+Il ouvre le tunnel une fois, puis **le referme de lui-même** dès que l'activité s'arrête. *On ne
+pense donc au tunnel qu'une seule fois, au début.*
+
+- [x] **Il ne duplique pas la logique d'ouverture** : il appelle `ouvrir-tunnel.mjs`, où l'ordre
+      des trois étapes est écrit. *Dupliquer, c'est s'exposer à ce que les deux divergent.*
+- [x] **Il compte les exécutions AVANT d'ouvrir.** Sans ce point de départ, une exécution de la
+      veille passerait pour de l'activité et le tunnel resterait ouvert sans que personne ne
+      réponde.
+- [x] **Il lit la base, pas le journal.** n8n ne trace pas une exécution réussie, et
+      `docker logs --since` s'est déjà révélé trompeur après une recréation de conteneur. *La
+      base fait foi* — leçon de 15.71, appliquée.
+- [x] **Les horodatages de n8n sont lus comme de l'UTC**, parce qu'ils en sont. Les prendre pour
+      de l'heure locale décalerait la comparaison d'une à deux heures : assez pour fermer le
+      tunnel en pleine conversation, **ou pour le laisser ouvert une heure de trop.** Les deux
+      erreurs comptent.
+- [x] **Il referme aussi sur interruption.** Un Ctrl-C qui laisserait le tunnel ouvert serait le
+      pire des deux mondes : on croit avoir arrêté, l'adresse reste joignable. `finally`, `SIGINT`
+      et `SIGTERM` couvrent les trois sorties.
+- [x] **Le délai court à partir de l'ouverture**, pas de la dernière exécution : au premier tour
+      il n'y a par définition aucune activité nouvelle, et partir de la dernière exécution
+      fermerait aussitôt.
+
+- **CE QU'IL NE FAIT PAS, ET IL LE DIT** : il réduit la fenêtre d'exposition, il ne la supprime
+  pas. Seule la piste du scrutage la supprimerait.
+
+### La version de n8n exposée : ce que je peux et ne peux pas affirmer
+
+- [x] **Établi** : `/rest/settings` rend `versionCli: 1.121.0` sans authentification.
+- **Ce que cela coûte** : rien directement — aucune donnée, aucun accès. Mais c'est exactement
+  ce qu'on lit pour **choisir** une faille connue plutôt que d'en chercher une.
+- [ ] **CE QUE JE NE PEUX PAS VÉRIFIER D'ICI** : si cette version porte une faiblesse publiée.
+      *Je ne vais pas conclure « ce n'est pas problématique » sur une mesure que je n'ai pas
+      faite.* La parade est de toute façon la même que pour l'éditeur : ne pas laisser le tunnel
+      ouvert.
+
+### Vider la mémoire de WSL : trois réponses, de la plus manuelle à la plus automatique
+
+| | Moyen | Effet | Coût |
+|---|---|---|---|
+| 1 | `wsl --shutdown` | rend **tout**, immédiatement | arrête Docker, donc Mongo et n8n |
+| 2 | `echo 3 > /proc/sys/vm/drop_caches` depuis WSL | vide le cache de pages | il faut y penser au bon moment |
+| 3 | **`autoMemoryReclaim=gradual`** | WSL rend de lui-même | aucun, et c'est posé |
+
+- [x] **Posé dans `%USERPROFILE%\.wslconfig`**, section `[experimental]` (WSL 2.4.13).
+- **POURQUOI `gradual` ET NON `dropcache`.** `dropcache` libère plus vite mais vide le cache
+  disque de la machine virtuelle : les relectures suivantes repassent par le disque, et **une
+  campagne y perdrait plus de temps qu'elle n'en gagne.**
+- **Et cela ne remplace pas le plafond** : le plafond empêche WSL de **prendre** plus de 2 Go ;
+  la récupération lui fait **rendre** ce dont il ne se sert plus. *Deux moments différents.*
+- Mesure avant ajout : `vmmemWSL` à **457 Mo** avec les deux conteneurs debout, très en dessous
+  du plafond. Le gain attendu est surtout **après une campagne**, quand le cache a gonflé.
+
+### Et le poste est chez lui, contrairement à ce que le porteur du projet croyait
+
+- [x] **Mesuré** : `SFR_5A78_5GHZ`, catégorie **Private**, donc la règle `node.exe` s'applique.
+      Le message disait « on est toujours sur le réseau de l'école » — ce n'était plus le cas.
+      *Un état de réseau se mesure, il ne se suppose pas, même par celui qui est devant la
+      machine.* **L'épreuve du pare-feu redevient donc possible.**
+
+### Le surveillant éprouvé, et les heures le prouvent
+
+```
+12:40:27  21 exécutions au départ
+12:40:27  ouverture du tunnel…
+12:41:08  en veille (ouverture : 41 s)
+12:43:12  2 min sans activité  ->  fermeture
+          exit 0
+```
+
+- [x] **Cycle complet éprouvé** avec le délai minimum : ouverture, veille, **fermeture
+      automatique** au délai exact, sortie propre.
+- [x] **État final confirmé par le diagnostic** : `adresse : localhost`, `tunnel : fermé`,
+      `SORTANT : OUI`, `ENTRANT : NON`, zéro conteneur de tunnel. *L'état de repos est désormais
+      nommé en une ligne au lieu d'être deviné.*
+
+- [x] **Et un défaut de ma méthode d'épreuve, pas du script.** J'avais redirigé sa sortie dans
+      `sed` pour masquer l'adresse : **un tube tamponne**, et je n'ai donc rien vu avant la fin.
+      *Masquer une sortie en la faisant traverser un tube, c'est renoncer à la suivre en direct.
+      Le script, lui, ne l'imprime déjà pas — le `sed` était superflu.*
