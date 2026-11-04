@@ -216,6 +216,10 @@ un total qui BAISSE sans suite rouge signale une suite coupée. Ici elles étaie
 Relancées seules, back-end stable : **31/31**, **19/19**, **28/28** — soit 78 vérifications, et
 2028 + 78 = **2106**. *On ne modifie pas le serveur pendant qu'une campagne l'interroge.*
 
+**Et un second tour complet, sans rien toucher pendant qu'il tournait, rend bien 2106/2106 —
+38 suites, zéro rouge.** *L'arithmétique n'était donc pas une rustine de comptage ; mais un tour
+propre valait mieux que de la laisser à l'état de calcul.*
+
 **Et deux défauts de mes propres tests, trouvés en les éprouvant :**
 
 

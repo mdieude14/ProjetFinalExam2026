@@ -13952,3 +13952,8 @@ Performance : 18/18 et 15/15
 - [x] **+56 verifications par rapport au dernier tour complet** (2050) : 49 pour `test:scrutage`,
       le reste pour les verifications qui remplacent, dans `test:canaux`, celle du declencheur
       disparu.
+
+- [x] **CONFIRMÉ D'UN SEUL TENANT** : un second tour, sans aucune modification pendant qu'il
+      tournait, rend **2106/2106 — 38 suites, zéro rouge**. *L'arithmétique annoncée (2028 + 78)
+      n'était donc pas une rustine de comptage : c'était la bonne prédiction, et un tour propre
+      valait mieux que de la laisser à l'état de calcul.*
