@@ -3,6 +3,17 @@
  *  GARDER LE TUNNEL OUVERT LE TEMPS DE RÉPONDRE — puis le refermer tout seul
  * ===========================================================================
  *
+ * ⚠️ CE SCRIPT N'A PLUS D'OBJET DEPUIS LE 4 NOVEMBRE 2026, et le garder sans
+ * le dire serait un piège. Le canal Telegram entrant ne passe plus par un
+ * webhook : le back-end va chercher les messages lui-même
+ * (`server/src/services/telegram-scrutage.service.js`). Il n'y a donc plus
+ * d'adresse publique à tenir ouverte, ni de fenêtre à refermer.
+ *
+ * Il reste utilisable pour une DÉMONSTRATION de l'ancien montage, et pour
+ * exposer temporairement n8n à un service tiers qui l'exigerait. Dans ce cas,
+ * tout ce qui suit s'applique encore — y compris l'avertissement : l'adresse
+ * publique mène à n8n, éditeur compris.
+ *
  *   node docker/n8n/garder-tunnel.mjs
  *   node docker/n8n/garder-tunnel.mjs --minutes=45
  *

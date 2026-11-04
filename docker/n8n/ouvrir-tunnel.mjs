@@ -6,6 +6,12 @@
  *   node docker/n8n/ouvrir-tunnel.mjs          ouvre le tunnel
  *   node docker/n8n/ouvrir-tunnel.mjs --fermer  le referme
  *
+ * ⚠️ LE CANAL TELEGRAM N'EN A PLUS BESOIN DEPUIS LE 4 NOVEMBRE 2026. Le
+ * back-end va chercher les messages lui-même (scrutage), donc plus aucune
+ * adresse publique n'est requise pour recevoir les réponses. Ouvrir ce tunnel
+ * expose désormais l'éditeur n8n SANS CONTREPARTIE : il ne sert plus qu'à une
+ * démonstration, ou à un service tiers qui exigerait de joindre n8n.
+ *
  * CE QUE FAIT CE SCRIPT, ET POURQUOI IL EN FAUT UN.
  *
  * Un tunnel rapide de Cloudflare tire une adresse au hasard à chaque

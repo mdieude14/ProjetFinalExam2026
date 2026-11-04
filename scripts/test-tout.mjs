@@ -77,6 +77,7 @@ const SUITES = [
   { paquet: 'server', script: 'test:courriel', libelle: 'API — support par courriel' },
   { paquet: 'server', script: 'test:escalade', libelle: 'API — escalade forcée du support' },
   { paquet: 'server', script: 'test:messagerie-agent', libelle: 'Workflows — assistant de messagerie' },
+  { paquet: 'server', script: 'test:scrutage', libelle: 'Canal — scrutage Telegram' },
   { paquet: 'server', script: 'test:perf', libelle: 'API — performance' },
 
   { paquet: 'client', script: 'test:ui', libelle: 'Navigateur — parcours général' },
@@ -345,48 +346,85 @@ async function verifierPrerequis() {
     });
   }
 
-  /* ---- Le piège du redémarrage : une adresse de tunnel morte ---- */
+  /* ---- Le canal Telegram muet, nouvelle cause ---- */
 
   /*
    * POURQUOI CE CONTRÔLE EXISTE, ET POURQUOI IL EST AUTOMATIQUE.
    *
-   * Le conteneur de tunnel ne revient pas tout seul après un redémarrage du
-   * poste — c'est voulu, `restart: "no"`. Mais n8n, lui, revient, et il garde
-   * l'adresse publique morte dans son environnement. Si le workflow Telegram
-   * est resté actif, n8n la déclare à Telegram au démarrage : **le bot devient
-   * injoignable en silence**, sans une seule erreur nulle part.
+   * Sa première version guettait une adresse de tunnel morte : le conteneur de
+   * tunnel ne revenait pas après un redémarrage du poste, n8n gardait
+   * l'adresse publique périmée et la déclarait à Telegram au démarrage — le
+   * bot devenait injoignable EN SILENCE. L'avertissement était consigné
+   * depuis le 19 octobre 2026 et n'avait pas suffi : le piège a mordu le 29 ET
+   * le 30 octobre.
    *
-   * L'avertissement était consigné depuis le 19 octobre 2026, et il n'a pas
-   * suffi : le piège s'est produit le 29 ET le 30 octobre, deux redémarrages de
-   * suite. La seule façon de le voir était de le chercher à la main.
+   *   LA LEÇON, ET ELLE SURVIT AU PIÈGE QUI L'A FAIT NAÎTRE : un piège qui
+   *   mord deux fois malgré sa consigne écrite doit devenir une MESURE, pas un
+   *   rappel. Une consigne demande qu'on s'en souvienne ; un contrôle le fait
+   *   à notre place.
    *
-   *   LA LEÇON : un piège qui mord deux fois malgré sa consigne écrite doit
-   *   devenir une MESURE, pas un rappel. Une consigne demande qu'on s'en
-   *   souvienne ; un contrôle le fait à notre place.
+   * CE PIÈGE-LÀ N'EXISTE PLUS depuis le 4 novembre 2026 : le canal entrant
+   * passe par le scrutage, il n'y a plus ni tunnel ni `setWebhook`. Mais il en
+   * reste un, de la même famille — muet, et de même remède oublié :
+   *
+   *   `n8n import:workflow` REMET TOUJOURS LE WORKFLOW À L'ARRÊT. Le chemin du
+   *   webhook local n'est alors plus enregistré, le scrutateur reçoit 404, et
+   *   répondre sur Telegram ne produit toujours rien.
+   *
+   * On sonde donc le chemin SANS clé de service : 403 prouve qu'il est
+   * enregistré et protégé, 404 qu'il ne l'est pas. Un diagnostic qui
+   * constaterait la présence du conteneur au lieu d'éprouver le chemin
+   * mentirait avec aplomb — c'est déjà arrivé.
    *
    * Ce n'est qu'un RAPPEL, pas un blocage : l'état fautif n'empêche aucune
-   * suite de passer, il rend seulement le canal Telegram muet. Bloquer la
-   * campagne pour cela serait disproportionné.
+   * suite de passer, il rend seulement le canal Telegram muet.
    */
   try {
     const { execFileSync } = await import('node:child_process');
     const lire = (...args) =>
       execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 
-    const adresse = lire('exec', 'coachconnect-n8n', 'sh', '-c', 'echo "$WEBHOOK_URL"');
-    const publique = /^https?:\/\/(?!localhost)/i.test(adresse);
-    const tunnelDebout = lire('ps', '--filter', 'name=coachconnect-tunnel', '--filter', 'status=running', '-q') !== '';
+    const code = await fetch('http://localhost:5678/webhook/telegram-support', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(8000),
+    })
+      .then((r) => r.status)
+      .catch(() => null);
 
-    if (publique && !tunnelDebout) {
+    if (code === 404) {
       manques.push({
         quoi: null,
         rappel:
-          'ADRESSE DE TUNNEL MORTE dans n8n, et aucun tunnel debout.\n' +
-          '      n8n a déclaré cette adresse à Telegram au démarrage : si le\n' +
-          '      workflow Telegram est actif, le bot est injoignable EN SILENCE.\n' +
-          '      C’est le piège des redémarrages du 29 et du 30 octobre 2026.\n' +
-          '      Remède :  node docker/n8n/ouvrir-tunnel.mjs --fermer\n' +
-          '      puis, pour une démonstration :  node docker/n8n/ouvrir-tunnel.mjs',
+          'CANAL TELEGRAM MUET : le chemin du webhook local n’est pas enregistré.\n' +
+          '      `ccAgentTelegr01` est inactif — et `n8n import:workflow` le remet\n' +
+          '      TOUJOURS à l’arrêt. Aucune erreur ne le signale ailleurs.\n' +
+          '      Remède :  node docker/n8n/etat-telegram.mjs  (il donne les trois étapes)',
+      });
+    } else if (code !== null && code !== 403) {
+      manques.push({
+        quoi: null,
+        rappel:
+          `WEBHOOK TELEGRAM OUVERT SANS CLÉ (${code}).\n` +
+          '      Le port 5678 est joignable depuis le réseau local : n’importe qui\n' +
+          '      pourrait injecter une fausse réponse d’exploitant.\n' +
+          '      Remède :  node docker/n8n/etat-telegram.mjs',
+      });
+    }
+
+    /*
+     * ET UN TUNNEL QUI TRAÎNE N'EST PLUS UN PRÉREQUIS MAIS UNE ALERTE : il
+     * n'apporte plus rien et expose l'éditeur n8n pour rien.
+     */
+    const tunnelDebout = lire('ps', '--filter', 'name=coachconnect-tunnel', '--filter', 'status=running', '-q') !== '';
+    if (tunnelDebout) {
+      manques.push({
+        quoi: null,
+        rappel:
+          'UN TUNNEL TOURNE POUR RIEN. Le canal n’en a plus besoin depuis le\n' +
+          '      scrutage ; il expose l’éditeur n8n sans aucune contrepartie.\n' +
+          '      Remède :  node docker/n8n/ouvrir-tunnel.mjs --fermer',
       });
     }
   } catch {
