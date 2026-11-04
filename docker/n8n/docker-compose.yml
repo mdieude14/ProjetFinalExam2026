@@ -14,8 +14,15 @@
 # `access.service.js`, et avec lui les quatre vues de sérialisation, le verrou
 # du contenu premium et les comptes bloqués.
 #
-#   docker compose -f docker/n8n/docker-compose.yml up -d
-#   docker compose -f docker/n8n/docker-compose.yml logs -f
+#   node docker/n8n/recreer-n8n.mjs                        démarrer / recréer
+#   docker compose -f docker/n8n/docker-compose.yml logs -f            journal
+#
+# ⚠️ NE PAS DÉMARRER CE SERVICE PAR `docker compose -f <ce fichier> up`.
+# Passer `-f` supprime le chargement automatique de `docker-compose.override.yml`,
+# qui monte le certificat de l'antivirus et pose `NODE_EXTRA_CA_CERTS` : le
+# conteneur démarre, répond `healthz 200`, et TOUS ses appels sortants échouent
+# sur « unable to verify the first certificate ». `recreer-n8n.mjs` énumère les
+# trois fichiers dans le bon ordre et vérifie la sortie TLS après coup.
 #
 # ===========================================================================
 
