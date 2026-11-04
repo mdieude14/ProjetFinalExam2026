@@ -111,7 +111,7 @@ const claude = (texte, extra = {}) => [
 
 for (const [nom, w, attendus] of [
   ['Telegram', tg.workflowTelegram, [
-    'Message reçu', 'Préparer la question',
+    'Message reçu', 'Déballer la mise à jour', 'Préparer la question',
     // Voie 1 — rattachement
     'Rattachement ?', 'Lier ou délier', 'Annoncer le rattachement',
     // Voie 2 — l'exploitant répond à un dossier escaladé
@@ -217,8 +217,59 @@ section('Structure — particularités de chaque canal');
 const tgNoeuds = Object.fromEntries(tg.workflowTelegram.nodes.map((n) => [n.name, n]));
 const mlNoeuds = Object.fromEntries(ml.workflowCourriel.nodes.map((n) => [n.name, n]));
 
-ok('Telegram : seuls les messages déclenchent le bot',
-  JSON.stringify(tgNoeuds['Message reçu'].parameters.updates) === '["message"]');
+/*
+ * LE CANAL N'ATTEND PLUS D'ÊTRE APPELÉ PAR TELEGRAM, il va chercher les
+ * messages (`server/src/services/telegram-scrutage.service.js`). La
+ * restriction « seuls les messages », qui vivait dans le déclencheur, vit
+ * désormais dans le scrutateur — et c'est `test:scrutage` qui la défend.
+ *
+ * CE QUI SE VÉRIFIE ICI EST CE QUI A REMPLACÉ LE DÉCLENCHEUR, et surtout ce
+ * qui le protège : le port 5678 est joignable depuis le réseau local, donc un
+ * webhook sans en-tête exigé serait une porte ouverte.
+ */
+ok('**Telegram : le flux ne part plus d’un déclencheur Telegram** — plus de `setWebhook`, donc plus de tunnel',
+  !tg.workflowTelegram.nodes.some((n) => n.type.includes('telegramTrigger')));
+
+ok('**Telegram : le webhook local exige la clé de service** — sans en-tête, n8n refuse',
+  tgNoeuds['Message reçu'].type === 'n8n-nodes-base.webhook'
+  && tgNoeuds['Message reçu'].parameters.authentication === 'headerAuth'
+  && tgNoeuds['Message reçu'].credentials.httpHeaderAuth.id === 'ccCleServiceSup1',
+  tgNoeuds['Message reçu'].parameters.authentication);
+
+ok('Telegram : le webhook n’accepte que POST',
+  tgNoeuds['Message reçu'].parameters.httpMethod === 'POST');
+
+ok('Telegram : le déballage s’intercale entre le webhook et la préparation',
+  JSON.stringify(tg.workflowTelegram.connections['Message reçu'].main[0])
+    === JSON.stringify([{ node: 'Déballer la mise à jour', type: 'main', index: 0 }]));
+
+/*
+ * LA PREUVE QUE RIEN N'A CHANGÉ EN AVAL. Le déballage doit rendre exactement
+ * la forme qu'émettait le déclencheur : si elle diffère d'un champ, les quatre
+ * voies, les quotas et les garde-fous se mettent à décider sur autre chose.
+ */
+const miseAJourTelegram = {
+  update_id: 42,
+  message: { chat: { id: 77, type: 'private' }, text: 'bonjour', from: { id: 77 } },
+};
+
+const deballe = executer(tg.deballerMiseAJour, {
+  entree: [{ json: { headers: { 'x-service-key': 'k' }, body: miseAJourTelegram } }],
+});
+
+ok('**le déballage rend la forme exacte du déclencheur** — l’aval ne voit aucune différence',
+  JSON.stringify(deballe[0].json) === JSON.stringify({ message: miseAJourTelegram.message }));
+
+const parScrutage = executer(tg.preparerQuestion, { entree: deballe });
+const parDeclencheur = executer(tg.preparerQuestion, { entree: [{ json: miseAJourTelegram }] });
+
+ok('**scrutage et déclencheur produisent la même demande** — c’était la condition posée',
+  JSON.stringify(parScrutage) === JSON.stringify(parDeclencheur),
+  `conversation : ${parScrutage[0]?.json.conversation}`);
+
+ok('une enveloppe sans message ne fait pas tomber le déballage',
+  JSON.stringify(executer(tg.deballerMiseAJour, { entree: [{ json: { body: {} } }] })[0].json)
+    === '{"message":{}}');
 
 ok('**Telegram : la réponse part en texte brut** — un chevron du modèle ferait refuser tout le message',
   tgNoeuds['Répondre sur Telegram'].parameters.additionalFields.parse_mode === undefined);

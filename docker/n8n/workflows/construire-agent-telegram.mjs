@@ -83,6 +83,33 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /* eslint-disable no-undef */
 
+/**
+ * Remet la mise à jour dans la forme qu'émettait le déclencheur Telegram.
+ *
+ * POURQUOI CE NŒUD EXISTE, ET POURQUOI IL NE FAIT QUE ÇA. Le flux ne part
+ * plus d'un `telegramTrigger` mais d'un `Webhook` que le back-end appelle en
+ * local, après avoir scruté Telegram lui-même (voir
+ * `server/src/services/telegram-scrutage.service.js`). Un nœud Webhook rend
+ * `{ headers, params, query, body }` ; le déclencheur rendait `{ message }`.
+ *
+ * TOUT L'AVAL LIT `$json.message`. Déballer ici plutôt que de retoucher
+ * « Préparer la question » laisse les quatre voies, leurs quotas et leurs
+ * garde-fous rigoureusement inchangés — c'était la condition posée : même
+ * comportement qu'avec le tunnel ouvert. Un test compose les deux nœuds et
+ * vérifie que la sortie est identique à celle d'avant.
+ */
+export function deballerMiseAJour() {
+  const enveloppe = $input.first().json ?? {};
+
+  /*
+   * `body` quand l'appel vient du scrutateur ; l'objet lui-même si un jour on
+   * repassait par un déclencheur direct. Les deux formes se distinguent sans
+   * ambiguïté : seule l'enveloppe du webhook porte un `body`.
+   */
+  const corps = enveloppe.body ?? enveloppe;
+  return [{ json: { message: corps.message ?? {} } }];
+}
+
 export function preparerQuestion() {
   /*
    * CONFIGURATION — le seul endroit à adapter. Pas de variable
@@ -944,21 +971,46 @@ const noeudClaude = (nom, pos) => ({
 
 const noeuds = [
   {
+    /*
+     * CE N'EST PLUS TELEGRAM QUI APPELLE, C'EST NOTRE BACK-END.
+     *
+     * `telegramTrigger` posait un `setWebhook`, et Telegram n'accepte qu'une
+     * adresse HTTPS publique : il fallait donc un tunnel, et ce tunnel menait
+     * à l'éditeur n8n. Le back-end va désormais chercher les messages par
+     * `getUpdates` — un appel SORTANT, qui ne demande aucune adresse — puis
+     * les remet ici, en local.
+     *
+     * LE CHEMIN N'EST PAS UN SECRET : il est versionné. Ce qui protège, c'est
+     * l'en-tête. `authentication: 'headerAuth'` fait exiger par n8n la clé de
+     * service, celle que les deux côtés connaissent déjà — aucun secret de
+     * plus à déposer. Sans elle, n8n répond 403, y compris depuis le réseau
+     * local où le port 5678 est joignable.
+     *
+     * La réponse part DÈS RÉCEPTION (`responseMode` par défaut) : le
+     * scrutateur ne doit pas attendre une rédaction de Claude pour aller
+     * chercher le message suivant. La frontière de la livraison est « n8n a
+     * accepté » — exactement le contrat qu'avait le webhook de Telegram.
+     */
     parameters: {
-      // Seuls les messages : ni les modifications, ni les réactions, ni les
-      // entrées en groupe. Chaque type non écouté est un appel au modèle en
-      // moins, et une surface d'entrée en moins.
-      updates: ['message'],
-      additionalFields: {},
+      httpMethod: 'POST',
+      path: 'telegram-support',
+      authentication: 'headerAuth',
+      options: {},
     },
     id: idDe('Message reçu'),
     name: 'Message reçu',
-    type: 'n8n-nodes-base.telegramTrigger',
-    typeVersion: 1.2,
+    type: 'n8n-nodes-base.webhook',
+    typeVersion: 2.1,
     position: position(0),
     webhookId: idDe('webhook-telegram'),
-    credentials: { telegramApi: IDENTIFIANT_TELEGRAM },
+    credentials: { httpHeaderAuth: IDENTIFIANT_CLE_SERVICE },
   },
+  /*
+   * Une demi-colonne : insérer un nœud à la position 1 aurait décalé les
+   * dix-huit suivants, et un déplacement de masse cache les vrais
+   * changements au relecteur.
+   */
+  noeudCode('Déballer la mise à jour', deballerMiseAJour, position(0.5)),
   noeudCode('Préparer la question', preparerQuestion, position(1)),
 
   /* ---- Voie 1 : rattachement ---- */
@@ -1084,7 +1136,8 @@ const vers = (...noms) => noms.map((node) => ({ node, type: 'main', index: 0 }))
  * si bien qu'aucun chemin ne peut laisser l'exploitant sans réponse.
  */
 const connexions = {
-  'Message reçu': { main: [vers('Préparer la question')] },
+  'Message reçu': { main: [vers('Déballer la mise à jour')] },
+  'Déballer la mise à jour': { main: [vers('Préparer la question')] },
   'Préparer la question': { main: [vers('Rattachement ?')] },
 
   // Sortie 0 = vrai, sortie 1 = faux.

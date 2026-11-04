@@ -1,31 +1,44 @@
 {
   "id": "ccAgentTelegr01",
   "name": "CoachConnect — assistant sur Telegram",
-  "versionId": "e4734765-ae72-f92c-f925-45d10efc74a3",
+  "versionId": "1c0a6621-91d4-cd6b-b081-ec9a748ef517",
   "active": false,
   "nodes": [
     {
       "parameters": {
-        "updates": [
-          "message"
-        ],
-        "additionalFields": {}
+        "httpMethod": "POST",
+        "path": "telegram-support",
+        "authentication": "headerAuth",
+        "options": {}
       },
       "id": "06576326-b23a-41bb-8aea-ab865fc006af",
       "name": "Message reçu",
-      "type": "n8n-nodes-base.telegramTrigger",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
       "position": [
         0,
         0
       ],
       "webhookId": "76b0265f-5c61-83d5-0998-cc7cc67cb547",
       "credentials": {
-        "telegramApi": {
-          "id": "ccTelegramBot001",
-          "name": "Bot Telegram — CoachConnect"
+        "httpHeaderAuth": {
+          "id": "ccCleServiceSup1",
+          "name": "Clé de service — CoachConnect"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "const enveloppe = $input.first().json ?? {};\n\n/*\n * `body` quand l'appel vient du scrutateur ; l'objet lui-même si un jour on\n * repassait par un déclencheur direct. Les deux formes se distinguent sans\n * ambiguïté : seule l'enveloppe du webhook porte un `body`.\n */\nconst corps = enveloppe.body ?? enveloppe;\nreturn [{ json: { message: corps.message ?? {} } }];"
+      },
+      "id": "0341297c-9270-9c7d-55d6-377cdb77055a",
+      "name": "Déballer la mise à jour",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        130,
+        0
+      ]
     },
     {
       "parameters": {
@@ -722,6 +735,17 @@
   ],
   "connections": {
     "Message reçu": {
+      "main": [
+        [
+          {
+            "node": "Déballer la mise à jour",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Déballer la mise à jour": {
       "main": [
         [
           {
