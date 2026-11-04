@@ -13729,3 +13729,17 @@ pense donc au tunnel qu'une seule fois, au début.*
       `sed` pour masquer l'adresse : **un tube tamponne**, et je n'ai donc rien vu avant la fin.
       *Masquer une sortie en la faisant traverser un tube, c'est renoncer à la suivre en direct.
       Le script, lui, ne l'imprime déjà pas — le `sed` était superflu.*
+
+### La validation : 2050/2050, au niveau de mémoire le plus bas jamais tenu
+
+```
+Total : 2050/2050 vérifications
+Tout est au vert.   —   0 suite rouge
+37 suites — mémoire libre au lancement : 0,57 Go
+```
+
+- [x] **Aucune régression de performance** : **18/18** et **15/15**.
+- [x] **0,57 Go est le niveau le plus bas où une campagne ait abouti** — contre 0,43 Go où elle
+      était morte, et 0,68 à 0,90 Go pour les précédentes réussites. *Le plafond WSL et la
+      récupération automatique y sont probablement pour quelque chose, mais je ne l'affirme pas :
+      une campagne verte à 0,57 Go est une mesure, pas une preuve de causalité.*

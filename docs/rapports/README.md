@@ -38,6 +38,7 @@ qu'un rapport manquant.
 | 2026-10-29 | [Le piège du redémarrage, et une mesure fausse](2026-10-29-piege-du-redemarrage-et-mesure-fausse.md) | le bot muet sans erreur, le plafond WSL, la mesure de sécurité qui ne prouvait rien, l'animation prouvée par sa déclaration |
 | 2026-10-30 | [« Il ne se passe rien » : trois causes](2026-10-30-il-ne-se-passe-rien-trois-causes.md) | la relève alertait pour les dossiers des suites, le filtre par domaine réservé, le piège déjà écrit |
 | 2026-10-30 | [Le canal Telegram accepté](2026-10-30-canal-telegram-accepte.md) | la validation par l'usage, le piège du redémarrage devenu une mesure, `--prerequis` |
+| 2026-11-04 | [Le tunnel se referme tout seul](2026-11-04-le-tunnel-se-referme-tout-seul.md) | l'œuf et la poule du webhook, le surveillant, vider la mémoire de WSL |
 
 ## Comment lire un chiffre de campagne
 
