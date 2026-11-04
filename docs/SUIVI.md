@@ -13593,9 +13593,12 @@ ni récupérer les données.
 - [x] **`userManagement.showSetupOnFirstLoad` vaut `false`**, et c'est le point décisif : **le
       compte propriétaire existe.** S'il valait `true`, n'importe qui atteignant l'éditeur
       pourrait créer ce compte et **prendre l'instance**.
-- [ ] **Le seul vrai fuyard est la version de n8n** (`1.121.0`), exposée sans authentification.
+- [x] **Le seul vrai fuyard est la version de n8n** (`1.121.0`), exposée sans authentification.
       C'est mineur en soi, et c'est exactement ce qu'on regarde pour choisir une faille connue.
-      *Ni bloquant ni ignorable : à retenir pour le jour où l'instance sera exposée durablement.*
+      **ET LA SUITE A MONTRÉ QUE LE FUYARD N'ÉTAIT PAS LE SUJET** : le 4 novembre, cette version
+      s'est révélée porter deux avis de sécurité (voir **15.74**). *Ce n'était pas la visibilité
+      du numéro qui comptait, c'était la version — et l'instance n'est de toute façon plus
+      joignable depuis que le canal se passe du tunnel.*
 
 Et sur le widget : le porteur du projet avait raison, `masque = !utilisateur || …` le cache aux
 visiteurs non connectés. **Mais cacher un bouton n'est pas une protection.** Ce qui protège, ce
@@ -13637,11 +13640,15 @@ apprendre la réponse tant que le tunnel est fermé.
       vérifiable dans l'image : n8n n'expose le jeton Telegram qu'au nœud `telegram`, jamais à
       un `httpRequest` générique.
 
-- [ ] **ELLE REDEVIENT POSSIBLE AVEC UN GESTE DU PORTEUR DU PROJET**, et d'un seul : déposer le
-      jeton dans un justificatif que `httpRequest` sait lire (type « Query Auth » ou « Header
-      Auth »), depuis l'éditeur n8n. **Son secret, son geste** — je ne le manipule pas.
-      *Bénéfice : plus de tunnel du tout, donc plus aucune exposition, et le canal entrant
-      fonctionne en permanence.* C'est la vraie réponse au besoin, et elle attend une décision.
+- [x] **ELLE REDEVIENT POSSIBLE AVEC UN GESTE DU PORTEUR DU PROJET**, et d'un seul.
+      ~~Déposer le jeton dans un justificatif que `httpRequest` sait lire (« Query Auth » ou
+      « Header Auth »).~~ **RECTIFIÉ LE 4 NOVEMBRE 2026, ET C'EST UNE ERREUR DE MA PART :**
+      Telegram ne lit le jeton que dans le **chemin** de l'URL — aucun type de justificatif ne
+      peut l'y écrire, et un justificatif n'est pas lisible depuis une expression. *En suivant
+      cette consigne, le porteur du projet aurait créé un justificatif inutile.*
+      Le geste réel est **une ligne dans `server/.env`** : `TELEGRAM_BOT_TOKEN=…`. Voir **15.74**
+      pour la mesure, l'architecture retenue et la preuve de bout en bout. **Son secret, son
+      geste** — je ne le manipule pas.
 
 ### La seconde moitié, elle, est faisable — et c'est tout ce que `garder-tunnel.mjs` fait
 
@@ -13680,10 +13687,12 @@ pense donc au tunnel qu'une seule fois, au début.*
 - [x] **Établi** : `/rest/settings` rend `versionCli: 1.121.0` sans authentification.
 - **Ce que cela coûte** : rien directement — aucune donnée, aucun accès. Mais c'est exactement
   ce qu'on lit pour **choisir** une faille connue plutôt que d'en chercher une.
-- [ ] **CE QUE JE NE PEUX PAS VÉRIFIER D'ICI** : si cette version porte une faiblesse publiée.
-      *Je ne vais pas conclure « ce n'est pas problématique » sur une mesure que je n'ai pas
-      faite.* La parade est de toute façon la même que pour l'éditeur : ne pas laisser le tunnel
-      ouvert.
+- [x] **CE QUE JE NE POUVAIS PAS VÉRIFIER D'ICI** : si cette version porte une faiblesse publiée.
+      *Je n'allais pas conclure « ce n'est pas problématique » sur une mesure que je n'avais pas
+      faite.* **VÉRIFIÉ LE 4 NOVEMBRE 2026, et la réponse est oui : deux avis**, dont un à
+      **9,9**. Et une bonne nouvelle au passage : 1.121.0 est le correctif de l'avis à **10,0**,
+      le seul qui soit exploitable **sans authentification**. Le détail, les plages exactes et le
+      verdict sont en **15.74**.
 
 ### Vider la mémoire de WSL : trois réponses, de la plus manuelle à la plus automatique
 
@@ -13743,3 +13752,203 @@ Tout est au vert.   —   0 suite rouge
       était morte, et 0,68 à 0,90 Go pour les précédentes réussites. *Le plafond WSL et la
       récupération automatique y sont probablement pour quelque chose, mais je ne l'affirme pas :
       une campagne verte à 0,57 Go est une mesure, pas une preuve de causalité.*
+
+---
+
+## 15.74 — Le canal Telegram se passe du tunnel : il va chercher au lieu d'attendre  `RÉSOLU`
+
+### La question posée, et la réponse courte
+
+Deux pistes retenues parmi les trois de 15.73, avec deux critères :
+
+| Piste | Critère posé |
+|---|---|
+| 1 — **n8n scrute** Telegram | que les données en transit soient sûres et invisibles de l'extérieur |
+| 2 — **le déclencheur scrute** lui-même | que le comportement soit identique à celui du tunnel ouvert |
+
+**LA PISTE 2 N'EXISTE PAS, ET AUCUN GESTE NE PEUT LA FAIRE EXISTER.**
+
+- [x] **Mesuré** : `polling` apparaît **zéro fois** dans `TelegramTrigger.node.js`. Ce nœud est un
+      webhook, et rien d'autre. Ce n'est pas un réglage manquant, c'est une capacité absente du
+      code. *Un critère ne peut pas départager une option qui n'est pas constructible.*
+
+**LA PISTE 1 EST LA BONNE, ET SON CRITÈRE EST MIEUX SERVI QUE DEMANDÉ** : avec le scrutage il n'y a
+plus **aucune adresse entrante**, donc plus rien à exposer — c'est strictement mieux
+qu'aujourd'hui, pas seulement équivalent. Et le critère de la piste 2 est servi lui aussi, parce
+que le corps du flux ne change pas d'un octet.
+
+### CE QUE J'AVAIS DIT DE FAUX, ET QUI CHANGEAIT LE GESTE À FAIRE
+
+- [x] **J'avais annoncé « déposer le jeton dans un justificatif Query Auth ou Header Auth ».
+      C'était faux.** Telegram ne lit le jeton que dans le **CHEMIN** de l'URL
+      (`/bot<jeton>/getUpdates`) : ni en-tête, ni paramètre de requête. Aucun type de justificatif
+      n8n ne peut l'écrire là, et les justificatifs ne sont pas lisibles depuis une expression.
+      *Le porteur du projet aurait créé un justificatif inutile en suivant ma consigne.*
+
+- [x] **Et aucun nœud ne peut appeler `getUpdates` avec le justificatif existant.** La seule
+      occurrence du mot dans `Telegram.node.js` est **une ligne commentée** ; les ressources
+      exposées sont `bot`, `callback`, `chat`, `file`, `message`, et aucune ne rend les mises à
+      jour. `TelegramApi.credentials.js` n'a toujours aucun bloc `authenticate`.
+
+### Les trois façons d'amener le jeton à un appel HTTP, et pourquoi la troisième gagne
+
+| Voie | Mesure | Coût |
+|---|---|---|
+| justificatif n8n | le jeton va dans le chemin de l'URL, inatteignable | **impossible** |
+| `$env` dans une expression | `N8N_BLOCK_ENV_ACCESS_IN_NODE=true`, posé par nous (`docker-compose.yml:55`) | ouvrirait **`N8N_ENCRYPTION_KEY`** à toute expression |
+| **le back-end scrute** | le jeton vit dans `server/.env`, déjà ignoré par git | **aucun** |
+
+- [x] **Le coût de la deuxième voie est mesuré, pas supposé** : l'environnement du conteneur porte
+      `N8N_ENCRYPTION_KEY`. L'ouvrir livrerait la clé qui déchiffre **tous** les justificatifs —
+      Anthropic, SMTP, Gmail, et le bot lui-même. *Et ce serait le pire moment : la version
+      installée est affectée par une injection d'expression (voir plus bas).*
+
+- **C'ÉTAIT MA « PISTE 3 », QUE J'AVAIS REFUSÉE** — pour une seule raison : elle demandait
+  d'extraire le jeton des justificatifs chiffrés. **Le porteur du projet le déposant lui-même, cette
+  raison disparaît entièrement.** *Un refus doit être réexaminé quand sa cause tombe, pas reconduit
+  par habitude.*
+
+### Ce qui a été construit
+
+- [x] **`server/src/services/telegram-scrutage.service.js`** — la boucle de scrutage. Elle
+      n'appelle `getUpdates` qu'en sortie, en attente longue, et remet chaque message à n8n en
+      local. Toutes ses dépendances sont injectables : la suite de tests exerce **la vraie boucle**
+      contre une fausse API Telegram et un faux n8n.
+
+- [x] **Cinq décisions, et chacune défend une propriété qui casse en silence :**
+      - **le jeton n'atteint jamais un journal.** Il voyage dans l'URL, et `fetch` cite l'URL dans
+        ses erreurs : chaque message d'erreur est donc une fuite potentielle. `masquer()` est
+        appliqué à tout, et un test force **tous** les chemins d'erreur pour vérifier qu'aucun ne
+        le laisse passer.
+      - **`deleteWebhook` d'abord, sans jeter la file.** Telegram refuse `getUpdates` (409) tant
+        qu'un webhook est posé. Mais `drop_pending_updates: false` : les réponses envoyées et non
+        livrées dorment dans cette file, et ce sont exactement celles qu'on vient chercher.
+      - **l'avance ne se confirme qu'après une remise réussie.** Telegram ne rend une mise à jour
+        qu'une fois : confirmer avant de l'avoir remise l'efface du système entier, sans trace.
+      - **une mise à jour sans message se confirme quand même**, sinon elle reste en tête de file
+        et bloque tout ce qui la suit, indéfiniment.
+      - **la frontière de la livraison est « n8n a accepté »**, pas « le workflow a fini » — le
+        même contrat qu'avait le webhook de Telegram, et ce qui permet de ne pas attendre une
+        rédaction de Claude pour aller chercher le message suivant.
+
+- [x] **Le flux n8n part désormais d'un nœud `Webhook` local** (`typeVersion 2.1`, mesurée dans
+      l'image), avec `authentication: 'headerAuth'` et le justificatif « Clé de service » — celui
+      que les deux côtés connaissent déjà. **Aucun secret de plus à déposer.** Le chemin est
+      versionné, donc public : ce qui protège est l'en-tête, et le port 5678 est joignable depuis
+      le réseau local.
+
+- [x] **Un seul nœud ajouté, `Déballer la mise à jour`**, qui rend la forme exacte qu'émettait le
+      déclencheur. *Retoucher « Préparer la question » aurait touché les quatre voies, leurs quotas
+      et leurs garde-fous ; une demi-colonne de position évite aussi de décaler les dix-huit nœuds
+      suivants et de noyer le vrai changement.*
+
+- [x] **La restriction « seuls les messages » a déménagé**, du déclencheur vers le scrutateur
+      (`allowed_updates=["message"]`). `test:canaux` ne pouvait plus la défendre : c'est
+      `test:scrutage` qui s'en charge, et `test:canaux` défend désormais ce qui l'a remplacée.
+
+### La preuve, et elle est de bout en bout
+
+- [x] **Le flux s'active avec `WEBHOOK_URL=http://localhost:5678/`.** C'est la mesure qui clôt le
+      sujet : l'erreur « An HTTPS URL must be provided for webhook » **ne peut plus se produire**.
+- [x] **Le chemin local répond 403 sans clé** et 200 avec. Un 404 signifierait « workflow inactif ».
+- [x] **La réponse d'escalade du porteur du projet, rejouée telle quelle**, a produit le brouillon
+      attendu : `brouillonOrigine: 'telegram'`, `brouillonParAgent: false`, 566 signes, fidèle à la
+      consigne dictée. *Le dossier `b5577414` attendait depuis le 2 novembre.*
+
+### LA VERSION DE n8n : LE VERDICT DEMANDÉ, ET IL N'EST PAS CELUI QUE JE CROYAIS
+
+Le porteur du projet demandait si l'exposition de `versionCli: 1.121.0` pouvait rester en l'état.
+**La question n'était pas la bonne, et c'est la recherche qui l'a montré.**
+
+| Avis | Portée | 1.121.0 |
+|---|---|---|
+| **CVE-2026-21858** « Ni8mare », CVSS **10.0**, **sans authentification** | `>= 1.65.0, < 1.121.0` | **non affecté — 1.121.0 EST le correctif** |
+| **CVE-2025-68613** injection d'expression → exécution de code, CVSS **9.9**, **authentifié** (`PR:L`) | `>= 1.121.0, < 1.121.1` | **AFFECTÉ** |
+| **CVE-2026-21877** écriture de fichier → exécution de code, **authentifié** | `>= 0.123.0, < 1.121.3` | **AFFECTÉ** |
+
+- [x] **Ce n'est donc pas la VISIBILITÉ de la version qui compte, c'est la VERSION.** Afficher le
+      numéro ne donne aucun accès ; porter deux avis dont un à 9,9 en donne.
+- [x] **Les deux avis qui nous touchent exigent un compte.** Mesuré le 2 novembre :
+      `/rest/login` répond 401, et `userManagement.showSetupOnFirstLoad` vaut `false` — le compte
+      propriétaire existe, personne ne peut le créer. Il n'y a donc **pas** de chemin anonyme.
+- [x] **Et depuis aujourd'hui, l'instance n'est plus joignable du tout** : le scrutage supprime la
+      seule raison qu'on avait d'ouvrir un tunnel. *La parade la plus efficace n'était pas une mise
+      à jour, c'était de n'avoir plus rien à exposer.*
+- [ ] **RESTE À FAIRE, ET CE N'EST PAS URGENT** : sortir des deux plages affectées. Le plus petit
+      pas est une version **1.12x ≥ 1.121.3**, qui les quitte toutes les deux sans changer de
+      version majeure ; la page des publications montre `1.123.92` sur la ligne 1.x. *À vérifier
+      avant de l'appliquer — et à ne pas confondre avec la dernière stable, qui est **2.46.6** :
+      passer en 2.x est une migration majeure, pas un correctif, et ce n'est pas un geste à faire
+      à quelques jours d'une soutenance.*
+
+### LE PIÈGE QUI M'A MORDU DEUX FOIS DANS LA MÊME HEURE
+
+La réponse d'escalade a d'abord échoué, et pas là où je l'attendais.
+
+- [x] **Symptôme** : tous les nœuds ont tourné, l'API a répondu 200, et le dossier est resté sans
+      brouillon. Le nœud `Rédiger le courriel` portait
+      **`unable to verify the first certificate`**.
+- [x] **Cause, et elle est de mon fait** : j'avais recréé le conteneur avec
+      `docker compose -f docker/n8n/docker-compose.yml up -d --force-recreate n8n`. **Passer `-f`
+      supprime le chargement automatique de `docker-compose.override.yml`** — celui qui monte le
+      certificat d'Avast et pose `NODE_EXTRA_CA_CERTS`. Le conteneur démarre, répond `healthz 200`,
+      sert son éditeur, **et aucun de ses appels sortants n'aboutit**.
+- [x] **La bonne commande était DÉJÀ ÉCRITE dans ce journal** (`-f … -f …override… -f …tunnel…`).
+      J'ai employé une forme plus courte, de mémoire. *C'est la deuxième fois : chercher dans les
+      notes du projet avant d'écrire une commande d'exploitation n'est pas une politesse, c'est la
+      méthode.*
+- [x] **Et la correction « évidente » était fausse aussi.** Ni `cd docker/n8n && docker compose
+      up -d`, ni base + override ne fonctionnent : l'override déclare aussi `cloudflared`, dont
+      l'image n'existe que dans le troisième fichier. Docker refuse alors le projet entier. **Les
+      deux formes ont été mesurées avant d'être écartées.**
+- [x] **Ma première sonde TLS ne mesurait rien non plus** : `wget` de busybox ne lit pas
+      `NODE_EXTRA_CA_CERTS`. Il échouait avec le certificat correctement monté. *C'est Node qui
+      exécute les nœuds de n8n ; c'est donc Node qui doit répondre.*
+
+- [x] **`docker/n8n/recreer-n8n.mjs`** — la mesure qui remplace le rappel. Il énumère les trois
+      fichiers dans le bon ordre, n'en met que ceux qui existent, nomme `n8n` pour ne pas démarrer
+      le tunnel au passage, attend `healthz`, **puis sonde la sortie TLS avec Node** et refuse de
+      conclure si elle est rompue. *Un conteneur debout qui ne peut rien appeler est le pire des
+      états : il a l'air sain.*
+- [x] Toutes les consignes qui imprimaient l'ancienne commande ont été corrigées, y compris
+      l'en-tête de `docker-compose.yml`, qui l'enseignait.
+
+### Ce qui a été désamorcé, plutôt que supprimé
+
+- [x] **`etat-telegram.mjs` a été refait.** Il décrivait une architecture disparue et prescrivait
+      **d'ouvrir un tunnel** : il aurait fait rouvrir la porte dont tout ce travail consiste à se
+      passer. *Un diagnostic périmé est pire que pas de diagnostic.* Il éprouve désormais le chemin
+      local sans clé, ce qui distingue d'un seul appel les trois états qui comptent : **403**
+      enregistré et protégé, **404** workflow inactif, **200** porte ouverte sur le réseau local.
+- [x] **Le prérequis de campagne a changé de cible.** Celui qui guettait une adresse de tunnel
+      morte n'a plus d'objet ; il guette maintenant le 404 — car `n8n import:workflow` remet
+      **toujours** le workflow à l'arrêt, et le canal redevient muet sans un mot. *La leçon survit
+      au piège qui l'a fait naître.*
+- [x] **`ouvrir-tunnel.mjs` et `garder-tunnel.mjs` portent un avertissement en tête** : le canal
+      n'en a plus besoin, et les ouvrir expose l'éditeur n8n sans contrepartie. Ils restent pour
+      une démonstration. *Garder un script qui ouvre un trou sans dire qu'il est devenu inutile
+      serait exactement le piège qu'on vient de retirer du diagnostic.*
+
+### La campagne : 2106/2106, et un chiffre qu'il faut expliquer
+
+```
+Total du tour de campagne : 2028/2028
+3 suites navigateur rouges, toutes a 0/0, INTERROMPU : fetch failed
+Relancees seules : 31/31, 19/19, 28/28  ->  2028 + 78 = 2106
+Performance : 18/18 et 15/15
+```
+
+- [x] **Les trois suites rouges sont de mon fait.** Elles sont **consecutives**, et elles tombent
+      exactement dans la fenetre ou j'ai modifie `server.js` : nodemon a redemarre le back-end
+      sous elles. Leur `0/0` ne laisse aucun doute sur le moment de la coupure — avant la
+      premiere verification, donc avant d'avoir pu mesurer quoi que ce soit.
+- [x] **Relancees back-end stable, les trois passent** : 31/31, 19/19, 28/28.
+
+  > **LA LECON : on ne modifie pas le serveur pendant qu'une campagne l'interroge.** La regle
+  > inscrite dans `test-tout.mjs` disait deja qu'un total qui BAISSE sans suite rouge signale une
+  > suite coupee ; ici elles etaient rouges ET a zero, ce qui designe la cause encore plus
+  > directement. *Le garde-fou a fonctionne ; c'est moi qui ai cree l'etat qu'il a su nommer.*
+
+- [x] **+56 verifications par rapport au dernier tour complet** (2050) : 49 pour `test:scrutage`,
+      le reste pour les verifications qui remplacent, dans `test:canaux`, celle du declencheur
+      disparu.

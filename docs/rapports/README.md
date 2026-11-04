@@ -39,6 +39,7 @@ qu'un rapport manquant.
 | 2026-10-30 | [« Il ne se passe rien » : trois causes](2026-10-30-il-ne-se-passe-rien-trois-causes.md) | la relève alertait pour les dossiers des suites, le filtre par domaine réservé, le piège déjà écrit |
 | 2026-10-30 | [Le canal Telegram accepté](2026-10-30-canal-telegram-accepte.md) | la validation par l'usage, le piège du redémarrage devenu une mesure, `--prerequis` |
 | 2026-11-04 | [Le tunnel se referme tout seul](2026-11-04-le-tunnel-se-referme-tout-seul.md) | l'œuf et la poule du webhook, le surveillant, vider la mémoire de WSL |
+| 2026-11-04 | [Le canal Telegram se passe du tunnel](2026-11-04-le-canal-telegram-se-passe-du-tunnel.md) | le scrutage, ma consigne fausse rectifiée, les deux avis de sécurité de n8n, le certificat perdu par une commande trop courte |
 
 ## Comment lire un chiffre de campagne
 
