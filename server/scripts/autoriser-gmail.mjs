@@ -123,6 +123,52 @@ async function echanger(code) {
   const corps = await reponse.json().catch(() => ({}));
   if (!reponse.ok) {
     const raison = corps.error_description ?? corps.error ?? 'raison inconnue';
+
+    /*
+     * « Bad Request » EST LE MESSAGE LE PLUS INUTILE DE GOOGLE, et c'est celui
+     * qu'il renvoie le plus souvent ici : sur un échange de code,
+     * `error: invalid_grant` est accompagné de `error_description: "Bad
+     * Request"`. Exact, et sans aucune valeur pour agir.
+     *
+     * Mesuré le 5 novembre 2026 : le consentement avait réussi, Google avait
+     * bien renvoyé un code — et l'échange a échoué parce que la page d'erreur
+     * d'un essai précédent avait été RECHARGÉE. Un code d'autorisation est à
+     * usage unique et de courte durée : le rejouer est refusé.
+     *
+     *   LA LEÇON, déjà écrite pour l'erreur de webhook de Telegram : quand un
+     *   service tiers rend une erreur exacte mais opaque, ce n'est pas son
+     *   message qu'il faut corriger, c'est le chemin qui mène de ce message à
+     *   la cause. Les trois causes tiennent en trois lignes ; les chercher sur
+     *   Internet prend un quart d'heure.
+     */
+    if (corps.error === 'invalid_grant') {
+      const erreur = new Error(
+        `code d’autorisation périmé ou déjà utilisé (invalid_grant — « ${raison} »).\n` +
+          '  Un code est à USAGE UNIQUE et de courte durée. Trois causes :\n' +
+          '    1. une page d’erreur d’un essai précédent a été RECHARGÉE — y compris par\n' +
+          '       un navigateur qui RESTAURE ses onglets au démarrage, sans rien demander ;\n' +
+          '    2. plus de quelques minutes entre l’accord et le retour ;\n' +
+          '    3. le consentement donné pendant que le script ne tournait pas.\n' +
+          '  REPARTIR DE L’ADRESSE AFFICHÉE, jamais d’un rechargement.'
+      );
+
+      /*
+       * RÉCUPÉRABLE : CE REFUS NE DOIT PAS CONSOMMER LA FENÊTRE.
+       *
+       * Mesuré le 5 novembre 2026, et c'est un piège en boucle : le script
+       * ouvre un navigateur, celui-ci RESTAURE l'onglet d'erreur de l'essai
+       * précédent et le recharge aussitôt. Le code périmé arrive donc AVANT
+       * que l'exploitant ait pu cliquer, et la tentative mourait là — pour une
+       * requête dont il n'était même pas l'auteur.
+       *
+       *   LA LEÇON : une opération qui n'a qu'une seule chance par quart
+       *   d'heure ne doit pas être tuée par la PREMIÈRE requête reçue. On
+       *   répond à celle-là, on explique, et ON CONTINUE D'ATTENDRE la bonne.
+       */
+      erreur.recuperable = true;
+      throw erreur;
+    }
+
     throw new Error(`Google a refusé l'échange (${reponse.status}) : ${raison}`);
   }
   return corps;
@@ -223,6 +269,22 @@ const serveur = createServer(async (requete, reponse) => {
 
     terminer(0);
   } catch (erreur) {
+    if (erreur.recuperable) {
+      /*
+       * ON RÉPOND, ON EXPLIQUE, ET ON CONTINUE D'ATTENDRE. Terminer ici
+       * laisserait l'exploitant devant une fenêtre déjà refermée, pour une
+       * requête qu'il n'a pas forcément déclenchée.
+       */
+      repondre(
+        reponse,
+        'Code périmé — ce n’est pas grave',
+        'Ce code avait déjà servi, ou il est trop vieux. <b>Le script écoute toujours.</b><br>' +
+          'Repartez de l’adresse affichée dans le terminal, sans recharger cette page.'
+      );
+      console.error(`\n[AUTORISATION] ignoré : ${erreur.message}`);
+      console.error('  Le script CONTINUE D’ATTENDRE. Repartez de l’adresse ci-dessus.\n');
+      return;
+    }
     repondre(reponse, 'Échec de l’échange', String(erreur.message));
     console.error(`\n[AUTORISATION] ${erreur.message}\n`);
     terminer(1);

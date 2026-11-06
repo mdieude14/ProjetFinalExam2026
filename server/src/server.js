@@ -6,6 +6,7 @@ import { verifierCloudinary, cloudinaryConfigure } from './config/cloudinary.js'
 import { verifierStripe, stripeConfigure } from './config/stripe.js';
 import { initialiserSockets } from './sockets/index.js';
 import { creerScrutateur } from './services/telegram-scrutage.service.js';
+import { verifierSmtp, modeEnvoi } from './services/mail.service.js';
 
 /**
  * Point d'entree du serveur.
@@ -57,6 +58,57 @@ async function demarrer() {
       '[PAIEMENTS] Stripe inactif — renseignez STRIPE_SECRET_KEY dans .env. ' +
         'Le reste de l application fonctionne normalement.'
     );
+  }
+
+  /**
+   * État de l'envoi de courriels. Même logique que pour les médias et les
+   * paiements — mais elle manquait, et son absence a coûté trois jours.
+   *
+   * LE JETON OAuth DE GMAIL EXPIRE AU BOUT DE SEPT JOURS, parce que
+   * l'application Google est en mode Test : c'est une règle de ce mode, pas un
+   * incident. Le 2 novembre 2026 il est mort à 13 h 44, et PERSONNE NE L'A SU
+   * avant qu'un utilisateur attende une réponse : le back-office a affiché
+   * `invalid_grant` à l'exploitant, le flux courriel a échoué vingt-sept fois
+   * de suite, et la campagne est restée à 2106/2106 — aucune de ses
+   * vérifications ne regardait là.
+   *
+   * `verifierSmtp()` EXISTAIT DÉJÀ, exportée, et n'était appelée par personne.
+   * Elle authentifie sans rien envoyer et rend la raison exacte du refus. Il
+   * n'y avait rien à écrire : il y avait un fil à brancher.
+   *
+   *   LA LEÇON : un instrument que rien n'appelle ne protège de rien. Chercher
+   *   ce qui existe avant d'écrire du neuf valait ici une fonction entière.
+   */
+  const envoi = modeEnvoi();
+  if (envoi === 'aucun') {
+    console.log(
+      '[COURRIEL] Envoi inactif — aucune authentification configurée. Les messages ' +
+        'seront déposés dans server/.boite-mails/ au lieu d’être envoyés.'
+    );
+  } else {
+    const etat = await verifierSmtp();
+    if (etat.ok) {
+      console.log(`[COURRIEL] Envoi pret (${envoi})`);
+    } else {
+      /*
+       * ON NE REFUSE PAS DE DÉMARRER. Le reste de l'application n'a pas besoin
+       * de l'envoi, et un serveur qui ne démarre pas empêcherait justement
+       * d'aller lire ce message. Mais on nomme le remède, parce que personne
+       * ne devine « réémettre un jeton OAuth » depuis « invalid_grant ».
+       */
+      console.error(`[COURRIEL] ENVOI HORS SERVICE (${envoi}) : ${etat.raison}`);
+      if (/invalid_grant/i.test(etat.raison ?? '')) {
+        console.error(
+          '[COURRIEL] Le jeton de rafraichissement Gmail est expire ou revoque. ' +
+            'Application Google en mode Test = sept jours de validite.'
+        );
+        console.error(
+          '[COURRIEL] Remede : node server/scripts/autoriser-gmail.mjs ' +
+            '(consentement dans Chrome), puis REDEMARRER ce serveur — ' +
+            'nodemon ne surveille pas .env.'
+        );
+      }
+    }
   }
 
   const serveur = app.listen(config.port, () => {
