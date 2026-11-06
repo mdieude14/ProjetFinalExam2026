@@ -463,7 +463,7 @@ export function preparerRedaction() {
 
   const corpsClaude = {
     model: demande.modele,
-    max_tokens: 1500,
+    max_tokens: 3000,
     fallbacks: 'default',
     output_config: { effort: demande.effortRedaction },
     system: systeme,

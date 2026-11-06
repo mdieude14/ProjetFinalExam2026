@@ -532,7 +532,7 @@ export function preparerCourriel() {
 
   const corpsClaude = {
     model: demande.modele,
-    max_tokens: 1500,
+    max_tokens: 3000,
     fallbacks: 'default',
     output_config: { effort: demande.effortRedaction },
     system: systeme,
@@ -600,12 +600,24 @@ export function lireCourriel() {
     .join('\n')
     .trim();
 
-  // La borne de l'API pour un brouillon est de 4000 caractères : au-delà,
-  // l'enregistrement échouerait après coup, sans que rien ne l'explique.
-  if (texte.length < 10 || texte.length > 4000) {
+  /*
+   * DEUX REFUS DISTINCTS, CAR ILS APPELLENT DEUX GESTES OPPOSÉS.
+   *
+   * Les confondre sous « courriel non exploitable » laissait l'exploitant sans
+   * rien à faire : rien ne lui disait s'il fallait ÉTOFFER sa consigne ou la
+   * RESSERRER. La borne de 4000 est celle de l'API ; au-delà, l'enregistrement
+   * échouerait APRÈS coup, sans que rien ne l'explique.
+   */
+  if (texte.length < 10) {
     return echouer(
-      'Je n’ai pas pu rédiger un courriel exploitable. Réessayez, ou écrivez-le depuis le ' +
-      'back-office.'
+      'Le modèle n’a produit presque rien. Étoffez votre consigne, ou écrivez le courriel ' +
+      'depuis le back-office.'
+    );
+  }
+  if (texte.length > 4000) {
+    return echouer(
+      `Le courriel rédigé fait ${texte.length} caractères, au-delà des 4000 que l’API ` +
+      'accepte. Resserrez votre consigne, ou écrivez-le depuis le back-office.'
     );
   }
 
@@ -642,18 +654,59 @@ export function annoncerBrouillon() {
   const entete = redaction.reprise ? '📝 Brouillon corrigé' : '📝 Brouillon';
   const destinataire = redaction.destinataire ? ` → ${redaction.destinataire}` : '';
 
-  const texte = [
+  /*
+   * TELEGRAM REFUSE AU-DELÀ DE 4096 CARACTÈRES, CADRE COMPRIS.
+   *
+   * Le brouillon peut atteindre 4000 caractères — la borne de l'API — et
+   * l'encadrement en ajoute environ deux cents. Un brouillon long partait donc
+   * en 400 « message is too long » : il était ENREGISTRÉ, et l'exploitant n'en
+   * voyait rien. Jamais survenu jusqu'ici, le plus long brouillon réel faisant
+   * 2873 caractères — mais le budget de jetons est passé de 1500 à 3000 le
+   * 6 novembre, ce qui rapproche l'échéance.
+   *
+   *   ET ON NE TRONQUE PAS. Un brouillon coupé à l'affichage serait validé
+   *   par « ENVOYER » sans que sa fin ait été relue, et cette fin partirait
+   *   chez un utilisateur. Une troncature silencieuse change un garde-fou
+   *   en piège.
+   */
+  const LIMITE_TELEGRAM = 4096;
+
+  const assembler = (corps) => [
     `${entete} — Réf. ${redaction.reference}`,
     `Pour @${redaction.pseudoAuteur ?? 'inconnu'}${destinataire}`,
     '',
-    redaction.brouillon,
+    corps,
     '',
     '— — —',
     'Répondez ENVOYER à ce message pour l’expédier.',
     'Ou dites-moi ce qu’il faut changer, et je le réécris.',
   ].join('\n');
 
-  return [{ json: { ...redaction, texte } }];
+  const brouillon = String(redaction.brouillon ?? '');
+  const complet = assembler(brouillon);
+
+  if (complet.length <= LIMITE_TELEGRAM) {
+    return [{ json: { ...redaction, texte: complet } }];
+  }
+
+  /*
+   * LA RÉFÉRENCE RESTE DANS LE MESSAGE : « Préparer la question » la relit
+   * dans `reply_to_message`, donc le fil du dossier continue de fonctionner,
+   * et l'exploitant peut encore dicter une correction depuis Telegram.
+   */
+  const texte = [
+    `${entete} — Réf. ${redaction.reference}`,
+    `Pour @${redaction.pseudoAuteur ?? 'inconnu'}${destinataire}`,
+    '',
+    `Le brouillon est enregistré, mais il fait ${brouillon.length} caractères : trop long ` +
+      'pour être affiché ici.',
+    '',
+    '— — —',
+    'Relisez-le dans le back-office, section Modération, avant de l’envoyer.',
+    'Ou dites-moi ce qu’il faut changer, et je le réécris plus court.',
+  ].join('\n');
+
+  return [{ json: { ...redaction, texte, tropLongPourTelegram: true } }];
 }
 
 /** Le courriel est parti — ou l'API a refusé, et on dit pourquoi. */
@@ -808,7 +861,7 @@ export function preparerRedaction() {
     model: demande.modele,
     // Telegram coupe à 4096 caractères : une réponse plus longue serait
     // tronquée à l'envoi. On borne à la source plutôt qu'à l'arrivée.
-    max_tokens: 1200,
+    max_tokens: 2000,
     fallbacks: 'default',
     output_config: { effort: demande.effortRedaction },
     system: systeme,
