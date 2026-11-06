@@ -30,7 +30,7 @@
  * ===========================================================================
  */
 
-import { creerScrutateur, masquer } from '../src/services/telegram-scrutage.service.js';
+import { causeDe, creerScrutateur, masquer } from '../src/services/telegram-scrutage.service.js';
 
 const resultats = [];
 let sectionCourante = '';
@@ -418,6 +418,74 @@ ok('masquer ne touche pas un texte sans jeton',
   ok('et le masque a bien servi', tout.includes('bot•••'));
   ok('les traces restent utilisables malgré le masque',
     tout.includes('409') && tout.includes('Unauthorized') && tout.includes('500'));
+}
+
+/* ================================================================== *
+ *  8 bis — UNE ALERTE RÉSEAU DOIT NOMMER SA CAUSE
+ * ================================================================== */
+
+section('Une panne réseau dit ce qui a lâché');
+
+/*
+ * CE QUE CETTE SECTION DÉFEND, ET POURQUOI ELLE EXISTE.
+ * Le 6 novembre, le back-end a écrit 349 fois « Telegram est injoignable :
+ * fetch failed » sans jamais dire ce qui avait lâché, parce que `fetch`
+ * range la cause dans `erreur.cause` et que le code journalisait
+ * `erreur.message` seul. Il a fallu dater la panne à l'arithmétique des
+ * reprises puis la recouper avec le journal Wi-Fi de Windows.
+ *
+ * Les assertions portent sur les formes RÉELLES que prend une erreur
+ * d'undici — pas sur des erreurs inventées pour la circonstance.
+ */
+const avecCause = (message, cause) => Object.assign(new Error(message), { cause });
+const codeSysteme = (message, code) => Object.assign(new Error(message), { code });
+
+ok('un lien réseau tombé est **nommé** (ECONNRESET)',
+  causeDe(avecCause('fetch failed', codeSysteme('read ECONNRESET', 'ECONNRESET')))
+    === 'fetch failed (ECONNRESET)');
+
+ok('un DNS cassé est **nommé** (ENOTFOUND)',
+  causeDe(avecCause('fetch failed', codeSysteme('getaddrinfo ENOTFOUND api.telegram.org', 'ENOTFOUND')))
+    === 'fetch failed (ENOTFOUND)');
+
+ok('un refus de connexion est **nommé** (ECONNREFUSED)',
+  causeDe(avecCause('fetch failed', codeSysteme('connect ECONNREFUSED 127.0.0.1:5678', 'ECONNREFUSED')))
+    === 'fetch failed (ECONNREFUSED)');
+
+ok('une cause sans code rend au moins son message',
+  causeDe(avecCause('fetch failed', new Error('unable to verify the first certificate')))
+    === 'fetch failed (unable to verify the first certificate)',
+  'le cas du certificat de l’antivirus');
+
+ok('un abandon volontaire reste inchangé',
+  causeDe(new Error('This operation was aborted')) === 'This operation was aborted',
+  'il n’a pas de cause, et n’est pas une panne réseau');
+
+ok('une erreur sans cause est rendue telle quelle',
+  causeDe(new Error('fetch failed sur https://api.telegram.org/botX/getUpdates'))
+    === 'fetch failed sur https://api.telegram.org/botX/getUpdates');
+
+ok('une précision **déjà présente** n’est pas répétée',
+  causeDe(avecCause('echec ECONNRESET', codeSysteme('x', 'ECONNRESET'))) === 'echec ECONNRESET',
+  'sans quoi l’alerte se redirait à elle-même');
+
+ok('ni null ni undefined ne font tomber la fonction',
+  causeDe(null) === 'erreur inconnue' && causeDe(undefined) === 'erreur inconnue');
+
+{
+  /*
+   * LE POINT CRITIQUE : ajouter la cause ne doit pas ouvrir une fuite de
+   * jeton. L'assertion porte sur la PROPRIÉTÉ — le jeton est absent — et non
+   * sur une chaîne exacte, qu'une retouche du masque ferait mentir.
+   */
+  const fuite = avecCause(
+    `fetch failed sur https://api.telegram.org/bot${JETON}/getUpdates`,
+    codeSysteme('read ECONNRESET', 'ECONNRESET')
+  );
+  const sorti = masquer(causeDe(fuite));
+  ok('**le jeton reste absent** quand la cause est ajoutée',
+    !sorti.includes(JETON) && sorti.includes('bot•••') && sorti.includes('(ECONNRESET)'),
+    sorti);
 }
 
 /* ================================================================== *

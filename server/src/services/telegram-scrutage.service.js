@@ -83,6 +83,43 @@ const MARGE_MS = 10000; // au-delà de l'attente longue, on considère la requê
 export const masquer = (texte) => String(texte ?? '').replace(/\/bot[^/\s"']+/g, '/bot•••');
 
 /**
+ * Rend lisible une erreur de `fetch`.
+ *
+ * POURQUOI CETTE FONCTION EXISTE, ET CE QU'A COÛTÉ DE NE PAS L'AVOIR.
+ * `fetch` enveloppe TOUTE panne réseau dans un seul message muet
+ * — « fetch failed » — et range la vraie cause dans `erreur.cause.code`.
+ * Journaliser `erreur.message` seul produit donc des pages d'alertes
+ * identiques, incapables de distinguer un lien Wi-Fi tombé (`ECONNRESET`)
+ * d'un DNS cassé (`ENOTFOUND`), d'un pare-feu (`ECONNREFUSED`) ou d'un
+ * certificat refusé.
+ *
+ * Le 6 novembre, le back-end a écrit **349 lignes** « Telegram est
+ * injoignable : fetch failed ». Aucune ne disait ce qui avait lâché : il a
+ * fallu dater la fenêtre de panne à l'arithmétique des reprises
+ * (349 × 5 s ≈ 29 min), puis la recouper avec le journal Wi-Fi de Windows,
+ * pour établir ce qu'une seule ligne aurait dit. Et le projet l'avait déjà
+ * payé une fois, avec un `ENOTFOUND` pris pour une régression du code.
+ *
+ *   LA LEÇON : une alerte qui ne nomme pas sa cause coûte le diagnostic
+ *   entier. Le code système est le renseignement le plus utile de la pile —
+ *   c'est précisément celui qu'on jetait.
+ */
+export const causeDe = (erreur) => {
+  const message = String(erreur?.message ?? erreur ?? 'erreur inconnue');
+  const cause = erreur?.cause;
+  if (!cause) return message;
+
+  /*
+   * `code` d'abord : c'est lui qui NOMME la panne. À défaut, le message de la
+   * cause vaut mieux que rien. Et on ne répète pas une précision déjà
+   * contenue dans le message, sans quoi l'alerte se redirait à elle-même.
+   */
+  const precision = cause.code ?? cause.message ?? null;
+  if (!precision || message.includes(String(precision))) return message;
+  return `${message} (${precision})`;
+};
+
+/**
  * Fabrique un scrutateur.
  *
  * Toutes les dépendances externes sont injectables : la suite de tests fait
@@ -158,7 +195,7 @@ export function creerScrutateur({
       }
       return true;
     } catch (erreur) {
-      alerter(`n8n est injoignable : ${erreur.message}. Le message reste en file.`);
+      alerter(`n8n est injoignable : ${causeDe(erreur)}. Le message reste en file.`);
       return false;
     }
   };
@@ -176,7 +213,7 @@ export function creerScrutateur({
     } catch (erreur) {
       if (!actif) return 0; // interruption demandée : ce n'est pas une panne
       compte.echecs += 1;
-      alerter(`Telegram est injoignable : ${erreur.message}`);
+      alerter(`Telegram est injoignable : ${causeDe(erreur)}`);
       return reprise;
     }
 
