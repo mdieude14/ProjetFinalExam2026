@@ -6,6 +6,8 @@ import Follow from '../models/Follow.js';
 import Relation from '../models/Relation.js';
 import User from '../models/User.js';
 import { ApiError } from '../utils/ApiError.js';
+import { motifPrefixe } from '../utils/texte.js';
+import { idsMasquesPour } from './access.service.js';
 
 /**
  * ===========================================================================
@@ -24,6 +26,105 @@ import { ApiError } from '../utils/ApiError.js';
 
 /** Extrait affiché dans la liste des conversations. */
 const EXTRAIT_MAX = 200;
+
+/* ================================================================== *
+ *  CHOISIR UN DESTINATAIRE
+ * ================================================================== */
+
+/** Nombre de destinataires proposés, et plafond dur. */
+const DESTINATAIRES_DEFAUT = 10;
+const DESTINATAIRES_MAX = 30;
+
+/** Les champs dont `versionPublique()` a besoin pour être complète. */
+const CHAMPS_PUBLICS =
+  'pseudo nom prenom avatar bio type ville sports diplome premium stripeAccount stats visibilite createdAt';
+
+/**
+ * Cherche, parmi MES relations acceptées, à qui je peux écrire.
+ *
+ * POURQUOI CE POINT D'ENTRÉE EXISTE PLUTÔT QUE DE RÉUTILISER LES LISTES
+ * D'ABONNÉS. `GET /follow/:identifiant/abonnes` est paginé, n'accepte aucun
+ * filtre texte, et RECALE au passage le compteur dénormalisé du profil. Le
+ * réutiliser pour une saisie au clavier voudrait dire charger des pages
+ * entières pour les filtrer dans le navigateur — donc ne jamais trouver
+ * quelqu'un au-delà de la première page — et déclencher une écriture à
+ * chaque frappe.
+ *
+ * LES DEUX SENS COMPTENT. Un abonné (il me suit) comme un abonnement (je le
+ * suis) sont des liens que l'un des deux a posés, et les deux ouvrent le
+ * droit d'écrire. Ce n'est pas pour autant un droit d'être LU :
+ * `ouvrirConversation` place ensuite la conversation dans le sas quand la
+ * cible ne me suit pas, et la restriction l'y remet même entre abonnés.
+ *
+ * CE QUI EST EXCLU ICI L'EST POUR LA MÊME RAISON QU'AILLEURS — un blocage
+ * dans l'un ou l'autre sens, un compte désactivé — et par les MÊMES helpers.
+ * Proposer quelqu'un que `ouvrirConversation` refuserait ensuite en 404
+ * offrirait une impasse à l'utilisateur, et le 404 y perdrait sa discrétion :
+ * la liste aurait déjà confirmé que le compte existe.
+ */
+export async function rechercherDestinataires(utilisateur, { q, limite } = {}) {
+  const plafond = Math.min(
+    Math.max(Number.parseInt(limite, 10) || DESTINATAIRES_DEFAUT, 1),
+    DESTINATAIRES_MAX
+  );
+
+  /*
+   * LES DEUX SENS EN UNE SEULE REQUÊTE. `statut: 'accepte'` écarte les
+   * demandes de suivi encore pendantes : une demande non acceptée n'est pas
+   * un lien, et s'en servir pour écrire contournerait le profil privé.
+   */
+  const liens = await Follow.find({
+    statut: 'accepte',
+    $or: [{ follower: utilisateur._id }, { following: utilisateur._id }],
+  })
+    .select('follower following')
+    .lean();
+
+  if (liens.length === 0) return [];
+
+  const moi = String(utilisateur._id);
+  const ids = [
+    ...new Set(
+      liens.map((l) => (String(l.follower) === moi ? String(l.following) : String(l.follower)))
+    ),
+  ].filter((id) => id !== moi);
+
+  if (ids.length === 0) return [];
+
+  const masques = (await idsMasquesPour(utilisateur)).map(String);
+  const retenus = masques.length ? ids.filter((id) => !masques.includes(id)) : ids;
+  if (retenus.length === 0) return [];
+
+  const filtre = { _id: { $in: retenus }, isActive: true };
+
+  /*
+   * RECHERCHE PAR PRÉFIXE, PAS PAR `$text`. On répond à une frappe au
+   * clavier : `$text` cherche des mots entiers et ne trouve jamais « Martin »
+   * sur « mar ». Même choix et même index que `suggestions()` du module 10.
+   *
+   * En dessous de deux lettres, `motifPrefixe` rend `null` : on ne propose
+   * alors RIEN plutôt que tout le carnet d'adresses, qui n'aiderait personne
+   * à choisir.
+   */
+  const saisie = typeof q === 'string' ? q.trim() : '';
+  if (saisie) {
+    const motif = motifPrefixe(saisie);
+    if (!motif) return [];
+    filtre.termesRecherche = motif;
+  }
+
+  /*
+   * SANS SAISIE, ON PROPOSE QUAND MÊME. Ouvrir la fenêtre sur une liste vide
+   * obligerait à deviner un nom avant de voir quoi que ce soit ; les comptes
+   * les plus suivis d'abord donnent un point de départ.
+   */
+  const trouves = await User.find(filtre)
+    .select(CHAMPS_PUBLICS)
+    .sort({ 'stats.followersCount': -1, pseudo: 1 })
+    .limit(plafond);
+
+  return trouves.map((u) => u.versionPublique());
+}
 
 /* ================================================================== *
  *  OUVERTURE D'UNE CONVERSATION

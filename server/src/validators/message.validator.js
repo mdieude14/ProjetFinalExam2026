@@ -58,6 +58,19 @@ export const reglesListeMessages = [
   query('limite').optional().isInt({ min: 1, max: 100 }).toInt(),
 ];
 
+/**
+ * Recherche de destinataires.
+ *
+ * `q` est FACULTATIF : sans saisie, la fenetre propose les comptes les plus
+ * suivis parmi mes relations, pour ne pas s ouvrir sur un vide. La borne de
+ * 60 signes n a rien d arbitraire — au-dela, aucun pseudo ni nom du modele ne
+ * peut correspondre, et laisser passer une chaine longue ferait construire une
+ * expression reguliere pour rien.
+ */
+export const reglesDestinataires = [
+  query('q').optional().isString().trim().isLength({ max: 60 }),
+  query('limite').optional().isInt({ min: 1, max: 30 }).toInt(),
+];
 export const reglesListeConversations = [
   query('statut').optional().isIn(['en_attente', 'accepte', 'refuse']),
 ];

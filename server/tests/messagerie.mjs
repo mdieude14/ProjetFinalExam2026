@@ -579,6 +579,160 @@ const sansSession = await appel('/messages/conversations');
 ok('liste refusée sans session', sansSession.statut === 401);
 
 /* ================================================================== *
+ *  À QUI PUIS-JE ÉCRIRE — GET /messages/destinataires
+ * ================================================================== */
+
+section('Destinataires possibles');
+
+/*
+ * CE QUE CE POINT D'ENTRÉE DOIT GARANTIR, ET POURQUOI IL EXISTE.
+ * La page Messages propose depuis le 6 novembre 2026 de démarrer une
+ * conversation sans passer par un profil. Il lui faut donc une liste de
+ * destinataires légitimes, filtrable à la frappe.
+ *
+ * CETTE SECTION EST PLACÉE EN DERNIER, APRÈS « Ordre des routes », parce
+ * qu'elle AJOUTE des relations de suivi. Les placer plus haut changerait le
+ * sas d'entrée des sections précédentes — et l'échec ressemblerait alors à
+ * une régression du sas, pas à un effet de bord du jeu de données.
+ */
+
+// Alice suit Carol : Carol devient un ABONNEMENT. Bob suit Alice depuis la
+// mise en place : il est un ABONNÉ. Dave reste sans aucun lien.
+const suiviCarol = await appel(`/follows/${carol.id}`, { methode: 'POST', token: alice.token });
+ok('Alice suit Carol', [200, 201].includes(suiviCarol.statut), suiviCarol.json?.message);
+
+const sansJetonDest = await appel('/messages/destinataires');
+ok('**sans session : 401**', sansJetonDest.statut === 401, `statut ${sansJetonDest.statut}`);
+
+const liste = await appel('/messages/destinataires', { token: alice.token });
+ok('la liste répond 200', liste.statut === 200, `statut ${liste.statut}`);
+const pseudos = (liste.json?.destinataires ?? []).map((d) => d.pseudo);
+
+/*
+ * L'ANCRE AVANT LES ABSENCES. Une liste vide validerait « Dave n'est pas
+ * proposé » sans avoir rien vérifié : c'est le faux vert consigné au 28
+ * octobre. On exige donc d'abord que les DEUX sens soient présents.
+ */
+const lesDeuxSens = pseudos.includes(bob.pseudo) && pseudos.includes(carol.pseudo);
+ok('**les deux sens comptent** — un abonné ET un abonnement sont proposés',
+  lesDeuxSens, pseudos.join(', '));
+
+ok('**Dave, sans aucun lien, n’est PAS proposé**',
+  lesDeuxSens && !pseudos.includes(dave.pseudo),
+  lesDeuxSens ? '' : 'NON CONCLUANT : la liste ne contient pas mes relations');
+ok('**je ne me propose pas à moi-même**',
+  lesDeuxSens && !pseudos.includes(alice.pseudo),
+  lesDeuxSens ? '' : 'NON CONCLUANT : liste sans mes relations');
+
+ok('le nombre annoncé correspond à la liste rendue',
+  liste.json?.nombre === (liste.json?.destinataires ?? []).length,
+  `${liste.json?.nombre} annoncé(s)`);
+
+/* ------------------------- Le filtre par préfixe ------------------------- */
+
+const parPrefixe = await appel(`/messages/destinataires?q=${bob.pseudo}`, { token: alice.token });
+const pp = (parPrefixe.json?.destinataires ?? []).map((d) => d.pseudo);
+ok('un préfixe complet ramène la bonne personne', pp.includes(bob.pseudo), pp.join(', '));
+ok('et elle seule', pp.length === 1, `${pp.length} résultat(s)`);
+
+const uneLettre = await appel('/messages/destinataires?q=m', { token: alice.token });
+ok('**une seule lettre ne propose rien** — en dessous de deux, on ne devine pas',
+  (uneLettre.json?.destinataires ?? []).length === 0);
+
+const introuvable = await appel('/messages/destinataires?q=zzzpersonne', { token: alice.token });
+ok('un préfixe sans correspondance rend une liste vide',
+  introuvable.statut === 200 && (introuvable.json?.destinataires ?? []).length === 0);
+
+/* --------------------- Les bornes du validateur --------------------- */
+
+ok('`q` au-delà de 60 signes : 400',
+  (await appel(`/messages/destinataires?q=${'a'.repeat(61)}`, { token: alice.token })).statut === 400);
+ok('`limite` à 0 : 400',
+  (await appel('/messages/destinataires?limite=0', { token: alice.token })).statut === 400);
+ok('`limite` à 31 : 400',
+  (await appel('/messages/destinataires?limite=31', { token: alice.token })).statut === 400);
+const borne = await appel('/messages/destinataires?limite=1', { token: alice.token });
+ok('`limite=1` est respectée', (borne.json?.destinataires ?? []).length <= 1,
+  `${(borne.json?.destinataires ?? []).length} resultat(s)`);
+
+/* ----------------------- Le blocage ferme la porte ----------------------- */
+
+/*
+ * PROPOSER QUELQU'UN QUE L'OUVERTURE REFUSERAIT ENSUITE EN 404 SERAIT PIRE
+ * QU'INUTILE : la liste aurait déjà confirmé l'existence du compte, et le
+ * 404 d'`ouvrirConversation` — choisi précisément pour ne rien confirmer —
+ * perdrait sa discrétion.
+ */
+await appel(`/users/${carol.id}/blocage`, { methode: 'POST', token: alice.token });
+
+const apresBlocage = await appel('/messages/destinataires', { token: alice.token });
+const pb = (apresBlocage.json?.destinataires ?? []).map((d) => d.pseudo);
+ok('**un compte que J’AI bloqué disparaît de mes destinataires**',
+  pb.includes(bob.pseudo) && !pb.includes(carol.pseudo),
+  pb.join(', ') || 'liste vide');
+
+const vuDeCarol = await appel('/messages/destinataires', { token: carol.token });
+const pc = (vuDeCarol.json?.destinataires ?? []).map((d) => d.pseudo);
+ok('**et je disparais de SA liste** — le blocage n’est pas à sens unique',
+  !pc.includes(alice.pseudo), pc.join(', ') || 'liste vide');
+
+/*
+ * LA COHÉRENCE AVEC L'OUVERTURE, VÉRIFIÉE ET NON SUPPOSÉE. C'est le seul
+ * moyen de prouver que la liste et l'ouverture appliquent bien la même règle.
+ */
+const ouvertureBloquee = await appel('/messages/conversations', {
+  methode: 'POST', token: alice.token, corps: { destinataire: carol.id },
+});
+ok('**ce que la liste cache, l’ouverture le refuse aussi** (404)',
+  ouvertureBloquee.statut === 404, `statut ${ouvertureBloquee.statut}`);
+
+await appel(`/users/${carol.id}/blocage`, { methode: 'DELETE', token: alice.token });
+
+/* ------------------- Une demande de suivi n'est pas un lien ------------------- */
+
+/*
+ * UN SUIVI « en_attente » NE DOIT PAS OUVRIR LA MESSAGERIE. S'en servir
+ * contournerait le profil privé : il suffirait de demander à suivre pour
+ * obtenir le droit d'écrire, sans jamais avoir été accepté.
+ */
+await bdd.collection('follows').updateOne(
+  { follower: new ObjectId(bob.id), following: new ObjectId(alice.id) },
+  { $set: { statut: 'en_attente' } }
+);
+
+const avecAttente = await appel('/messages/destinataires', { token: alice.token });
+const pa = (avecAttente.json?.destinataires ?? []).map((d) => d.pseudo);
+ok('**un suivi encore « en_attente » ne rend pas destinataire**',
+  !pa.includes(bob.pseudo), pa.join(', ') || 'liste vide');
+
+await bdd.collection('follows').updateOne(
+  { follower: new ObjectId(bob.id), following: new ObjectId(alice.id) },
+  { $set: { statut: 'accepte' } }
+);
+
+/* ------------------------ Un compte désactivé ------------------------ */
+
+await bdd.collection('users').updateOne(
+  { _id: new ObjectId(carol.id) },
+  { $set: { isActive: false } }
+);
+const avecInactif = await appel('/messages/destinataires', { token: alice.token });
+const pi = (avecInactif.json?.destinataires ?? []).map((d) => d.pseudo);
+ok('**un compte désactivé n’est pas proposé**',
+  pi.includes(bob.pseudo) && !pi.includes(carol.pseudo),
+  pi.join(', ') || 'liste vide');
+await bdd.collection('users').updateOne(
+  { _id: new ObjectId(carol.id) },
+  { $set: { isActive: true } }
+);
+
+/* ------------------------- L'ordre des routes ------------------------- */
+
+ok('**`/destinataires` n’est pas lu comme un identifiant de conversation**',
+  liste.statut === 200 && !/identifiant/i.test(liste.texte));
+
+
+/* ================================================================== *
  *  NETTOYAGE
  * ================================================================== */
 

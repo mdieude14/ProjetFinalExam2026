@@ -8,6 +8,7 @@ import {
   repondreDemande,
   marquerLu,
   nonLus,
+  destinataires,
   supprimer,
   basculerLikeMessage,
 } from '../controllers/message.controller.js';
@@ -20,6 +21,7 @@ import {
   reglesReponseDemande,
   reglesListeMessages,
   reglesListeConversations,
+  reglesDestinataires,
 } from '../validators/message.validator.js';
 
 import { validate } from '../middlewares/validate.middleware.js';
@@ -46,6 +48,9 @@ const router = Router();
 /* --------------------------- Segments fixes --------------------------- */
 
 router.get('/non-lus', protect, nonLus);
+
+// Segment FIXE, donc declare avant tout `/:id` — meme piege que `/non-lus`.
+router.get('/destinataires', protect, reglesDestinataires, validate, destinataires);
 
 router.get(
   '/conversations',

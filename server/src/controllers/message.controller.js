@@ -332,6 +332,26 @@ export const marquerLu = asyncHandler(async (req, res) => {
  * ================================================================== */
 
 /** Total pour la pastille de la navigation. */
+/* ================================================================== *
+ *  GET /api/messages/destinataires
+ * ================================================================== */
+
+/**
+ * A qui puis-je ecrire ? Mes relations acceptees, filtrees a la frappe.
+ *
+ * PAS DE PAGINATION, ET C EST DELIBERE. On alimente une liste de choix qui
+ * se reduit a mesure qu on tape : une seconde page ne serait jamais demandee,
+ * et l offrir obligerait a stabiliser un ordre que la saisie change de toute
+ * facon a chaque lettre. Le plafond dur du service suffit.
+ */
+export const destinataires = asyncHandler(async (req, res) => {
+  const personnes = await messageService.rechercherDestinataires(req.user, {
+    q: req.query.q,
+    limite: req.query.limite,
+  });
+
+  return res.json({ succes: true, nombre: personnes.length, destinataires: personnes });
+});
 export const nonLus = asyncHandler(async (req, res) => {
   const total = await messageService.totalNonLus(req.user._id);
   return res.json({ succes: true, nombre: total });
