@@ -15469,3 +15469,177 @@ Le bilan de campagne imprime désormais, **juste sous le total**, un bloc
   > suites au vert en même temps.** *Annoncer « 2258/2258 d'un seul tenant » serait le
   > mensonge exact que le bloc (g) a été écrit pour empêcher. Le poste ne tient pas la
   > campagne entière sous 2 Go de mémoire libre — il en avait 1,19 à la fin.*
+
+---
+
+## 15.86 — Démarrer une conversation depuis la messagerie, et le budget de jetons réglé à la source  `VÉRIFIÉ`
+
+### MODULE 11 — ÉCRIRE À QUELQU'UN SANS PASSER PAR SON PROFIL
+
+- [x] **Le besoin, tel que posé** : jusqu'ici, joindre un sportif ou un coach supposait
+      d'ouvrir **sa page de profil**. Ce chemin reste en place ; un second part désormais de
+      `/messages`, comme sur les messageries usuelles — on ouvre ses messages, **puis** on
+      choisit.
+- [x] **L'API savait déjà presque tout faire.** `POST /messages/conversations` existait et
+      applique le sas d'entrée, le blocage dans les deux sens, la restriction et la course à
+      l'ouverture. **Il ne manquait que la recherche de destinataires.**
+
+  > *Mesuré avant d'écrire : la tentation était d'ajouter un service de conversation. Il
+  > n'en fallait aucun — seulement un point d'entrée pour CHOISIR.*
+
+- [x] **`GET /messages/destinataires?q=&limite=`**, garde `protect`, cherche parmi
+      l'**union de mes abonnés et de mes abonnements**.
+
+### POURQUOI UN POINT D'ENTRÉE NEUF PLUTÔT QUE LES LISTES D'ABONNÉS
+
+- [x] `GET /follow/:identifiant/abonnes` est **paginé**, n'accepte **aucun filtre texte**, et
+      **RECALE au passage le compteur dénormalisé** du profil. Le réutiliser pour une saisie
+      au clavier voudrait dire :
+      1. charger des pages entières pour les filtrer dans le navigateur — donc **ne jamais
+         trouver quelqu'un au-delà de la première page** ;
+      2. **déclencher une écriture à chaque frappe.**
+
+  > **Et le défaut n° 1 ne se verrait qu'avec un carnet d'adresses fourni, c'est-à-dire en
+  > production.** *Un filtrage côté navigateur passe tous les tests d'un jeu de données de
+  > quatre comptes.*
+
+- [x] **La recherche est par PRÉFIXE, pas `$text`** — même choix et même index que
+      `suggestions()` du module 10 : `$text` cherche des mots entiers et ne trouve jamais
+      « Martin » sur « mar ». En dessous de deux lettres, on ne propose **rien** plutôt que
+      tout le carnet.
+- [x] **Les exclusions ne sont pas réécrites, elles sont APPELÉES** : `idsMasquesPour()`
+      pour le blocage des deux côtés, `isActive` pour les comptes désactivés.
+
+  > **Proposer quelqu'un que l'ouverture refuserait ensuite en 404 serait pire qu'inutile :
+  > la liste aurait déjà confirmé que le compte existe**, et le 404 — choisi précisément
+  > pour ne rien confirmer — y perdrait sa discrétion. *C'est vérifié par une assertion, et
+  > non supposé : « ce que la liste cache, l'ouverture le refuse aussi ».*
+
+### LA CONVERSATION N'EST CRÉÉE QU'À L'ENVOI, ET C'EST UNE DÉCISION MESURÉE
+
+- [x] **`listeConversations` ne filtre que sur les participants** : elle ne saute **pas** les
+      conversations sans message. Ouvrir le fil au clic sur une personne laisserait donc une
+      **conversation vide dans la liste dès qu'on se ravise** — un déchet visible, et
+      impossible à distinguer d'un échange réel effacé.
+- [x] La fenêtre appelle donc `ouvrir` **puis** `envoyer` d'affilée, au moment du seul geste
+      qui exprime une intention : **l'envoi**.
+
+  > *La conception a été tranchée par une mesure du comportement existant, pas par une
+  > préférence. Et l'assertion qui la défend est explicite : « se raviser ne laisse AUCUNE
+  > conversation vide ».*
+
+- [x] **Et reprendre un fil existant ne le dédouble pas** : `ouvrir` est idempotent, la base
+      le garantit par un index unique sur la paire triée. Vérifié — une seule conversation
+      Alice–Bob après un second envoi.
+- [x] **Le sas d'entrée reste appliqué** : ce chemin neuf appelle `ouvrirConversation`, pas
+      une création directe. Vérifié sur un destinataire qui me suit *(« accepte »)*.
+
+### QUATRE DÉFAUTS DE MES PROPRES TESTS, ET TROIS ÉTAIENT DES FAUX VERTS
+
+- [x] **`getByText` apparie aussi la VALEUR d'un `textarea`.** Mon assertion « le message est
+      envoyé » trouvait le **brouillon resté dans la fenêtre** alors que rien n'était parti —
+      elle était verte pendant que quatre autres tombaient. Réancrée sur
+      `[data-testid="fil-messages"]`, plus la fermeture de la fenêtre.
+
+  > **LA LEÇON, ET C'EST LA MÊME FAMILLE QUE LA PAGE VIDE : un sélecteur de texte plus large
+  > que l'endroit où la chose doit apparaître valide l'intention au lieu du résultat.**
+
+- [x] **« une seule conversation Alice–Bob » était vrai AVANT le test.** Si rien ne partait,
+      l'assertion restait verte : elle ne concluait rien. Ancrée sur la livraison effective.
+- [x] **Mes assertions d'absence étaient validées par une liste vide** — mes appels de suivi
+      avaient tous échoué *(`/follow` au singulier au lieu de `/follows`)*, et « un inconnu
+      n'est pas proposé » passait sur une liste… sans personne. Ancrées sur la présence des
+      deux relations attendues.
+- [x] **Rouvrir la fenêtre dans la foulée d'un Échap visait le mauvais champ** : l'ancienne
+      modale était encore en cours de démontage, deux champs portaient le même sélecteur.
+      Rechargement de la page entre les deux passages.
+
+### LE DIAGNOSTIC QUI A TRANCHÉ : LE CODE MARCHAIT, LE TEST MENTAIT
+
+- [x] Face à une suite qui affirmait « message affiché » **et** « conversation absente de la
+      base », j'ai rejoué le parcours **dans un navigateur instrumenté** — réseau, console,
+      erreurs de page.
+- [x] **Verdict en une passe** : `POST /messages/conversations` **201**,
+      `POST …/messages` **201**, URL passée à `?c=…`, fenêtre fermée, conversation `accepte`.
+      **La fonctionnalité était juste du premier coup.**
+
+  > **LA LEÇON : deux assertions qui se contredisent désignent l'instrument, pas le produit.**
+  > *Chercher la contradiction dans le code aurait coûté la soirée.*
+
+### LE BUDGET DE JETONS : RÉGLÉ À LA SOURCE, ET LE PROJET LE SAVAIT DÉJÀ
+
+- [x] **J'avais relevé à 3000 ; c'était encore trop bas.** La référence Anthropic donne
+      **~16000** comme défaut pour une requête **NON diffusée** — exactement le cas du nœud
+      HTTP de n8n : en dessous la sortie se fait couper en pleine phrase, bien au-dessus la
+      requête risque le délai HTTP du client.
+- [x] **ET UN PLAFOND HAUT NE COÛTE RIEN PAR LUI-MÊME** : la facturation porte sur les jetons
+      **réellement produits**, pas sur le plafond. Le relever supprime une panne **sans
+      contrepartie**.
+- [x] **LE RAISONNEMENT ÉTAIT DÉJÀ ÉCRIT DANS CE PROJET**, au nœud de classement de
+      `construire-agent-support.mjs` : *« Haiku 5.5 réfléchit par défaut, et cette réflexion
+      est décomptée de `max_tokens` : un plafond serré serait consommé avant le JSON […]
+      Un plafond large ne coûte rien : seuls les jetons produits sont facturés. »*
+
+  > **CE N'ÉTAIT DONC PAS UNE DÉCOUVERTE, C'ÉTAIT UNE INCOHÉRENCE.** *Un flux portait la
+  > bonne analyse ; trois autres gardaient des plafonds serrés qu'aucune relecture n'avait
+  > rapprochés d'elle. Le défaut n'était pas dans le savoir du projet, mais dans sa
+  > diffusion.*
+
+- [x] **Alignés, et à la SOURCE** *(les `.json` sont des artefacts générés)* :
+
+      | flux / nœud | avant | après |
+      |---|---|---|
+      | `agent-telegram` / Préparer le courriel | 1 500 | **16 000** |
+      | `agent-telegram` / Préparer la rédaction | 1 200 | **16 000** |
+      | `agent-courriel` / Préparer la rédaction | 1 500 | **16 000** |
+      | `agent-support` / rédaction **et** brouillon | 4 000 | **16 000** |
+      | `agent-messagerie` / Préparer les brouillons | 1 500 | **16 000** |
+
+- [x] **Les nœuds de CLASSEMENT restent à 2000** : leur sortie est bornée par un schéma, et
+      ce plafond-là est un choix délibéré, documenté sur place. *On n'uniformise pas ce qui a
+      une raison d'être différent.*
+- [x] **La borne du CONTENU reste ailleurs, et elle est explicite** : 4 000 caractères côté
+      API, **4 096 cadre compris** côté Telegram.
+
+### DÉPLOIEMENT, AVEC LES DEUX PIÈGES CONSIGNÉS
+
+- [x] Cinq flux réimportés, **les cinq remis à `active = 0` par l'import** comme toujours,
+      réactivés, **puis conteneur redémarré**. **6/6 actifs**, certificat Avast en place
+      *(1 526 octets)*, **sortie TLS vers Anthropic à 401** — la réponse attendue sans clé.
+- [x] **Les nouveaux budgets relus dans la base de n8n**, pas seulement dans les fichiers.
+- [x] **Et deux JSON de messagerie n'apparaissent PAS au commit, à juste titre** : le
+      `.gitignore` les exclut depuis le 28 octobre parce que le générateur y **grave en dur**
+      l'identifiant de conversation Telegram. Le `.mjs` est la source, il est suivi, et
+      aucune suite ne lit ces JSON. *Vérifié avant de m'en inquiéter.*
+
+### PERFORMANCE : MESURÉE SUR LES DEUX CHEMINS TOUCHÉS
+
+- [x] **`test:perf` : 18/18.** L'autocomplétion — qui emprunte le chemin où vivent mes deux
+      nouvelles fiches — reste à **16 ms de médiane** *(seuil du projet : 250 ms)*.
+- [x] **Le nouveau point d'entrée, 30 tours chacun** : sans saisie **31 ms** de médiane
+      *(p95 106)*, avec préfixe **32 ms** *(p95 56)*, préfixe sans correspondance **23 ms**.
+- [x] **La base de connaissance à 27 fiches : 0,030 ms par recherche**, sur 2 000 appels.
+      *Deux fiches de plus sur un score en mémoire ne se mesurent pas.*
+
+### TESTS
+
+- [x] `server/tests/messagerie.mjs` : **62 → 83** *(21 vérifications, placées en DERNIER
+      car elles ajoutent des relations de suivi — les mettre plus haut changerait le sas
+      d'entrée des sections précédentes, et l'échec ressemblerait à une régression du sas)*.
+- [x] `client/tests/messagerie.mjs` : **26 → 44**.
+- [x] Et les suites des flux retouchés : `test:canaux` **296/296**,
+      `test:messagerie-agent` **104/104**, `test:releve` **78/78**.
+
+### LES IMAGES DOCKER : LA PLACE EST LIBÉRÉE, MAIS PAS RENDUE À WINDOWS
+
+- [x] **Retirées** : `n8nio/n8n:1.121.0` *(1,68 Go, remplacée par 1.121.3)* et
+      `cloudflare/cloudflared:2025.8.1` *(94 Mo — le tunnel a disparu de l'architecture)*.
+- [x] **Docker voit bien la place** : images de **7,047 à 5,507 Go**, soit **1,54 Go**.
+- [ ] **MAIS `C:` N'A PAS BOUGÉ.** `docker_data.vhdx` fait toujours **12,37 Go** : un disque
+      virtuel ne rétrécit pas tout seul. Docker réutilisera cet espace sans grossir, mais
+      Windows ne le récupère qu'après **compaction**.
+
+  > **ET LA COMPACTION EXIGE `wsl --shutdown` — l'opération même qui a bloqué ce poste le
+  > 5 novembre**, six processus `wsl` figés et un redémarrage pour en sortir. *À faire
+  > posément, pas au milieu d'une session de travail.* Annoncer « 1,8 Go récupérés sur C: »
+  > aurait été faux : la mesure dit 7,6 Go libres avant **et** après.
