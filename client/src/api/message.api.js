@@ -11,6 +11,14 @@ import api from './axios';
  */
 export const messageApi = {
   /** Ouvre une conversation, ou retrouve celle qui existe déjà. */
+  /*
+   * A qui puis-je ecrire : mes abonnes et mes abonnements, filtres par le
+   * SERVEUR. `q` est facultatif — sans saisie, la fenetre propose les comptes
+   * les plus suivis parmi mes relations plutot que de s ouvrir sur un vide.
+   */
+  destinataires: ({ q, limite } = {}) =>
+    api.get('/messages/destinataires', { params: { q: q || undefined, limite } }),
+
   ouvrir: (destinataire) => api.post('/messages/conversations', { destinataire }),
 
   /** Mes conversations, les plus récemment actives en tête. */

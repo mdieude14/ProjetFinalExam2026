@@ -127,7 +127,7 @@ async function seConnecter(page, pseudo) {
 /* ------------------------- Accès direct à la base ------------------------ */
 
 const requireServeur = createRequire(new URL('../../server/package.json', import.meta.url));
-const { MongoClient } = requireServeur('mongodb');
+const { MongoClient, ObjectId } = requireServeur('mongodb');
 
 const uriMongo = readFileSync(new URL('../../server/.env', import.meta.url), 'utf8')
   .split(/\r?\n/)
@@ -542,6 +542,182 @@ await pageDave.screenshot({ path: DOSSIER_CAPTURES + '/messagerie-demande.png' }
 /* ================================================================== *
  *  RESPONSIVE ET CONSOLE
  * ================================================================== */
+
+/* ================================================================== *
+ *  DÉMARRER UNE CONVERSATION DEPUIS /messages
+ * ================================================================== */
+
+section('Nouvelle conversation depuis la page Messages');
+
+/*
+ * CE QUE CETTE SECTION DÉFEND.
+ * Jusqu'au 6 novembre 2026, écrire à quelqu'un supposait de passer par sa
+ * page de profil. Ce chemin reste ouvert ; celui-ci part de la messagerie,
+ * comme on le fait partout ailleurs : on ouvre ses messages, PUIS on choisit.
+ *
+ * Frank n'a AUCUNE conversation avec Alice, et c'est le seul dans ce cas :
+ * Bob et Carol en ont déjà une. Grace, elle, n'a aucune relation — elle sert
+ * d'ancre négative, et sans elle la liste pourrait proposer n'importe qui
+ * sans qu'aucune assertion ne tombe.
+ */
+const frank = await inscrire('frontfrank', 'Frank');
+const grace = await inscrire('frontgrace', 'Grace');
+await appel(`/follows/${alice.id}`, { methode: 'POST', token: frank.token });
+
+ok('Frank suit Alice, Grace n’a aucun lien', Boolean(frank.token && grace.token));
+
+await pageAlice.setViewportSize({ width: 1280, height: 950 });
+await pageAlice.goto(BASE + '/messages', { waitUntil: 'domcontentloaded' });
+
+const boutonNouveau = pageAlice.locator('[data-test="ouvrir-nouvelle-conversation"]');
+ok('**un bouton « Nouveau message » est proposé sur /messages**',
+  await rendu(boutonNouveau));
+
+await boutonNouveau.click();
+
+const fenetre = pageAlice.locator('[data-test="nouvelle-conversation"]');
+ok('la fenêtre de choix s’ouvre', await rendu(fenetre));
+
+const champRecherche = pageAlice.locator('[data-test="recherche-destinataire"]');
+ok('une barre de recherche est présente', await rendu(champRecherche));
+
+/* --- sans saisie : mes relations sont déjà proposées --- */
+
+const listeInitiale = pageAlice.locator('[data-test="liste-destinataires"]');
+ok('**la liste ne s’ouvre pas sur un vide** — mes relations sont proposées d’emblée',
+  await rendu(listeInitiale));
+
+/* --- la saisie filtre, et l’absence est ancrée sur une présence --- */
+
+await champRecherche.fill('frontfrank');
+
+const ligneFrank = pageAlice.locator(`[data-test="destinataire"][data-pseudo="${frank.pseudo}"]`);
+const frankVisible = await rendu(ligneFrank);
+ok('le préfixe « frontfrank » ramène Frank', frankVisible);
+
+/*
+ * L'ABSENCE D'EVE NE CONCLUT QUE SI DAVE EST LÀ. Une fenêtre qui n'aurait
+ * rien rendu validerait cette assertion sans avoir rien vérifié — c'est le
+ * faux vert consigné dans `tests/evenements.mjs`.
+ */
+const texteListe = frankVisible ? await pageAlice.locator('[data-test="liste-destinataires"]').innerText() : '';
+ok('**Grace, sans aucun lien, n’est PAS proposée**',
+  frankVisible && !texteListe.includes(grace.pseudo),
+  frankVisible ? '' : 'NON CONCLUANT : la liste n’a rien rendu');
+
+/* --- on se ravise : AUCUNE conversation vide ne doit rester --- */
+
+await ligneFrank.click();
+ok('le champ de message apparaît après le choix',
+  await rendu(pageAlice.locator('[data-test="message-nouvelle-conversation"]')));
+
+await pageAlice.keyboard.press('Escape');
+await pageAlice.waitForTimeout(600);
+
+const convsApresAbandon = await bdd.collection('conversations').countDocuments({
+  participants: { $all: [new ObjectId(alice.id), new ObjectId(frank.id)] },
+});
+ok('**se raviser ne laisse AUCUNE conversation vide** — elle n’est créée qu’à l’envoi',
+  convsApresAbandon === 0,
+  `${convsApresAbandon} conversation(s) Alice–Frank en base`);
+
+/* --- et maintenant, l’envoi réel --- */
+
+/*
+ * RECHARGEMENT AVANT LE SECOND PASSAGE, ET CE N'EST PAS UN RAFISTOLAGE.
+ * Rouvrir la fenêtre dans la foulée d'un Échap laisse l'ancienne modale en
+ * cours de démontage : deux champs portent alors le même sélecteur, et celui
+ * qu'on remplit n'est pas celui qu'on voit. Le rechargement supprime cette
+ * ambiguïté et reproduit mieux le geste réel — on y revient plus tard.
+ */
+await pageAlice.goto(BASE + '/messages', { waitUntil: 'domcontentloaded' });
+await rendu(boutonNouveau);
+await boutonNouveau.click();
+await rendu(fenetre);
+await champRecherche.fill('frontfrank');
+await rendu(ligneFrank);
+await ligneFrank.click();
+
+const MESSAGE_NEUF = 'Premier message, depuis la page Messages.';
+await pageAlice.locator('[data-test="message-nouvelle-conversation"]').fill(MESSAGE_NEUF);
+await pageAlice.locator('[data-test="envoyer-nouvelle-conversation"]').click();
+
+/*
+ * ON ATTEND LE MESSAGE DANS LE FIL, pas une durée. C'est la seule preuve
+ * qui couvre toute la chaîne : ouverture, envoi, rechargement de la liste,
+ * puis bascule de l'URL sur le fil neuf.
+ */
+/*
+ * ON VISE LE FIL (`fil-messages`), PAS LA PAGE ENTIERE.
+ * `getByText` apparie aussi la VALEUR d'un `textarea` : le brouillon resté
+ * dans la fenêtre suffisait à valider « le message est envoyé » alors que
+ * rien n'était parti. Même famille de faux vert qu'une assertion d'absence
+ * sur une page vide — et il a trompé la première version de cette section.
+ */
+const dansLeFil = pageAlice.locator('[data-testid="fil-messages"]').getByText(MESSAGE_NEUF);
+const messageAffiche = await rendu(dansLeFil, 20000);
+ok('**le message est envoyé ET le fil s’ouvre dessus**', messageAffiche);
+ok('**la fenêtre s’est refermée d’elle-même**',
+  (await pageAlice.locator('[data-test="nouvelle-conversation"]').count()) === 0);
+
+ok('l’URL porte la conversation neuve', /\?c=[a-f0-9]{24}/.test(pageAlice.url()),
+  pageAlice.url().replace(BASE, ''));
+
+const convFrank = await bdd.collection('conversations').findOne({
+  participants: { $all: [new ObjectId(alice.id), new ObjectId(frank.id)] },
+});
+ok('la conversation existe désormais en base', Boolean(convFrank));
+
+const msgFrank = convFrank
+  ? await bdd.collection('messages').findOne({ conversation: convFrank._id })
+  : null;
+ok('et elle porte bien le message envoyé', msgFrank?.contenu === MESSAGE_NEUF,
+  msgFrank?.contenu ?? 'aucun message');
+
+/*
+ * LE SAS D'ENTRÉE RESTE APPLIQUÉ. Frank suit Alice, donc la conversation
+ * s'ouvre « accepte ». Ce chemin neuf ne doit pas contourner la règle qui
+ * protège du harcèlement — il appelle `ouvrirConversation`, pas une
+ * création directe.
+ */
+ok('**le sas d’entrée est respecté** — Frank suit Alice, donc « accepte »',
+  convFrank?.statut === 'accepte', convFrank?.statut);
+
+/* --- reprendre un fil existant ne le dédouble pas --- */
+
+await pageAlice.goto(BASE + '/messages', { waitUntil: 'domcontentloaded' });
+await rendu(boutonNouveau);
+await boutonNouveau.click();
+await rendu(fenetre);
+await champRecherche.fill('frontbob');
+const ligneBob = pageAlice.locator(`[data-test="destinataire"][data-pseudo="${bob.pseudo}"]`);
+const bobVisible = await rendu(ligneBob);
+ok('Bob, avec qui un fil existe déjà, reste proposé', bobVisible);
+
+if (bobVisible) {
+  await ligneBob.click();
+  await pageAlice.locator('[data-test="message-nouvelle-conversation"]').fill('Reprise du fil.');
+  await pageAlice.locator('[data-test="envoyer-nouvelle-conversation"]').click();
+
+  /*
+   * L'ANCRE EST LA LIVRAISON, PAS LE COMPTE. « une seule conversation
+   * Alice–Bob » était déjà vrai avant ce test : sans exiger d'abord que le
+   * message soit arrivé DANS LE FIL, l'assertion restait verte même si rien
+   * ne partait — elle ne concluait rien du tout.
+   */
+  const repriseLivree = await rendu(
+    pageAlice.locator('[data-testid="fil-messages"]').getByText('Reprise du fil.'),
+    20000
+  );
+  ok('la reprise est bien livrée', repriseLivree);
+
+  const convsBob = await bdd.collection('conversations').countDocuments({
+    participants: { $all: [new ObjectId(alice.id), new ObjectId(bob.id)] },
+  });
+  ok('**écrire à quelqu’un déjà contacté ne crée PAS un second fil**',
+    repriseLivree && convsBob === 1,
+    repriseLivree ? `${convsBob} conversation(s) Alice–Bob` : 'NON CONCLUANT : rien n’a été livré');
+}
 
 section('Responsive et console');
 

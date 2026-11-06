@@ -6,8 +6,10 @@ import useAuth from '@/hooks/useAuth';
 import useSocket from '@/hooks/useSocket';
 import ConversationList from '@/components/message/ConversationList';
 import ChatWindow from '@/components/message/ChatWindow';
+import NouvelleConversation from '@/components/message/NouvelleConversation';
 import Alert from '@/components/ui/Alert';
 import Spinner from '@/components/ui/Spinner';
+import Button from '@/components/ui/Button';
 
 /**
  * Messagerie — /messages
@@ -33,6 +35,7 @@ export default function Messages() {
   const [conversations, setConversations] = useState([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState(null);
+  const [nouvelle, setNouvelle] = useState(false);
 
   const moi = utilisateur?._id;
 
@@ -120,7 +123,17 @@ export default function Messages() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-ardoise-900">Messages</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-ardoise-900">Messages</h1>
+
+        <Button
+          taille="sm"
+          onClick={() => setNouvelle(true)}
+          data-test="ouvrir-nouvelle-conversation"
+        >
+          Nouveau message
+        </Button>
+      </div>
 
       {erreur && <Alert variante="erreur">{erreur}</Alert>}
 
@@ -157,6 +170,22 @@ export default function Messages() {
           </div>
         </div>
       </div>
+
+      <NouvelleConversation
+        ouvert={nouvelle}
+        onFermer={() => setNouvelle(false)}
+        /*
+         * ON RECHARGE **PUIS** ON OUVRE LE FIL.
+         * Le fil affiche est cherche dans `conversations` : poser `?c=` avant
+         * que la liste ne contienne la conversation neuve laisserait
+         * `ouverte` a `null`, et l ecran resterait vide alors que le message
+         * est parti.
+         */
+        surCreation={async (conversation) => {
+          await charger();
+          setParametres({ c: conversation._id });
+        }}
+      />
     </div>
   );
 }
