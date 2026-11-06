@@ -414,7 +414,18 @@ function preparerRedaction() {
 
   const corpsClaude = {
     model: demande.modele,
-    max_tokens: 4000,
+    /*
+     * 16000, PAR COHERENCE AVEC LE RAISONNEMENT DEJA ECRIT PLUS HAUT dans
+     * ce meme fichier, au noeud de classement : la reflexion du modele est
+     * decomptee de `max_tokens`, et un plafond large ne coute rien puisque
+     * seuls les jetons PRODUITS sont factures.
+     *
+     * 4000 n a jamais ete atteint ici — mais c est aussi ce qu on croyait des
+     * 1500 du flux Telegram, jusqu a ce que `stop_reason: max_tokens` refuse
+     * un brouillon le 5 novembre 2026. La borne du CONTENU est ailleurs, et
+     * elle est explicite : `slice(0, 4000)` juste apres la lecture.
+     */
+    max_tokens: 16000,
     fallbacks: 'default',
     output_config: { effort: demande.effortRedaction, format: { type: 'json_schema', schema } },
     system: systeme,
@@ -716,7 +727,18 @@ function preparerBrouillon() {
 
   const corpsClaude = {
     model: demande.modele,
-    max_tokens: 4000,
+    /*
+     * 16000, PAR COHERENCE AVEC LE RAISONNEMENT DEJA ECRIT PLUS HAUT dans
+     * ce meme fichier, au noeud de classement : la reflexion du modele est
+     * decomptee de `max_tokens`, et un plafond large ne coute rien puisque
+     * seuls les jetons PRODUITS sont factures.
+     *
+     * 4000 n a jamais ete atteint ici — mais c est aussi ce qu on croyait des
+     * 1500 du flux Telegram, jusqu a ce que `stop_reason: max_tokens` refuse
+     * un brouillon le 5 novembre 2026. La borne du CONTENU est ailleurs, et
+     * elle est explicite : `slice(0, 4000)` juste apres la lecture.
+     */
+    max_tokens: 16000,
     fallbacks: 'default',
     output_config: { effort: demande.effortRedaction, format: { type: 'json_schema', schema } },
     system: systeme,

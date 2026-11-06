@@ -391,7 +391,17 @@ export function preparerBrouillons() {
       ...c,
       corpsClaude: {
         model: config.modeleRedaction,
-        max_tokens: 1500,
+        /*
+         * 16000 : MEME RAISON QUE PARTOUT AILLEURS DANS CE PROJET. La reflexion
+         * du modele est decomptee de `max_tokens`, et seuls les jetons PRODUITS
+         * sont factures — un plafond large supprime la troncature sans rien
+         * couter. 1500 etait la valeur qui a fait refuser un brouillon le
+         * 5 novembre 2026 dans le flux Telegram, pour ce motif exact.
+         *
+         * Le noeud de CLASSEMENT reste a 2000 : sa sortie est bornee par un
+         * schema, et ce plafond-la est un choix delibere, documente sur place.
+         */
+        max_tokens: 16000,
         fallbacks: 'default',
         output_config: { effort: config.effortRedaction },
         system: systeme,

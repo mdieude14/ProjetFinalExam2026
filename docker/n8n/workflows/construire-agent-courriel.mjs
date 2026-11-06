@@ -463,7 +463,26 @@ export function preparerRedaction() {
 
   const corpsClaude = {
     model: demande.modele,
-    max_tokens: 3000,
+    /*
+     * 16000 : LE DÉFAUT DOCUMENTÉ POUR UNE REQUÊTE NON DIFFUSÉE.
+     *
+     * Le nœud HTTP de n8n ne diffuse pas, et c’est pour ce cas que la
+     * référence Anthropic donne ~16000. En dessous, la sortie se fait couper
+     * en pleine phrase ; bien au-dessus, la requête risque le délai HTTP.
+     *
+     * LA RÉFLEXION DU MODÈLE EST DÉCOMPTÉE DE CE MÊME BUDGET — c’est ce qui
+     * rendait 1200 et 1500 insuffisants alors qu’aucun brouillon n’a jamais
+     * atteint les 4000 caractères que l’API accepte. Le symptôme ressemblait
+     * à une limite de longueur ; la cause était le budget.
+     *
+     * ET UN PLAFOND HAUT NE COÛTE RIEN PAR LUI-MÊME : la facturation porte
+     * sur les jetons RÉELLEMENT produits, pas sur le plafond. Le relever ne
+     * dépense donc pas davantage — cela supprime une panne, sans contrepartie.
+     *
+     * La borne du CONTENU reste ailleurs, et elle est mesurée : 4000
+     * caractères côté API, 4096 cadre compris côté Telegram.
+     */
+    max_tokens: 16000,
     fallbacks: 'default',
     output_config: { effort: demande.effortRedaction },
     system: systeme,
