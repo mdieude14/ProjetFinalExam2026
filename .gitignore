@@ -5,6 +5,14 @@ node_modules/
 .env
 .env.local
 .env.*.local
+# TOUTE variante de .env, et pas seulement celles qu on a prevues.
+# Le 6 novembre 2026, une sauvegarde `server/.env.avant-stripe-listen`, creee
+# le temps de synchroniser un secret de webhook, est restee NON ignoree : un
+# `git add .` l aurait publiee avec le secret dedans. Les regles enumeraient
+# les noms attendus, et un nom imprevu passait au travers.
+#   LA LECON : pour des fichiers de secrets, on ignore la FAMILLE puis on
+#   reautorise l exception nommee, jamais l inverse.
+.env.*
 !.env.example
 
 # Builds

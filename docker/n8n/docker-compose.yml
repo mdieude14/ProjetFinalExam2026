@@ -28,7 +28,32 @@
 
 services:
   n8n:
-    image: n8nio/n8n:1.121.0
+    # ---------------------------------------------------------------------
+    # 1.121.3 — ET LE CHOIX DE CETTE VERSION-LÀ EST DÉLIBÉRÉ.
+    # ---------------------------------------------------------------------
+    #
+    # La version précédente, 1.121.0, était le correctif de CVE-2026-21858
+    # (CVSS 10.0, SANS authentification) — elle restait en revanche dans deux
+    # plages affectées, toutes deux exploitables par un compte authentifié :
+    #
+    #   CVE-2025-68613  injection d'expression -> exécution de code, CVSS 9.9
+    #                   >= 1.121.0, < 1.121.1
+    #   CVE-2026-21877  écriture de fichier -> exécution de code
+    #                   >= 0.123.0, < 1.121.3
+    #
+    # 1.121.3 EST LE PLUS PETIT PAS QUI SORT DES DEUX. La ligne 1.x offrait
+    # aussi 1.123.92, et la dernière stable est 2.46.6 : passer en 2.x est une
+    # MIGRATION MAJEURE, pas un correctif. À quelques jours d'une soutenance,
+    # le moindre changement qui ferme les deux failles vaut mieux qu'un saut
+    # qui en ouvrirait d'autres, inconnues.
+    #
+    #   LA LEÇON : quand une mise à jour est une mesure de sécurité, on choisit
+    #   la plus PETITE qui atteigne l'objectif — pas la plus récente.
+    #
+    # La version est épinglée, jamais `latest` : un conteneur recréé six mois
+    # plus tard doit revenir identique, sans quoi une panne devient
+    # inexplicable.
+    image: n8nio/n8n:1.121.3
     container_name: coachconnect-n8n
     restart: unless-stopped
 
