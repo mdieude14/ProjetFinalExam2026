@@ -42,18 +42,112 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 const NOTRES = ['node', 'node.exe', 'nodemon', 'nodemon.exe'];
 
 /**
+ * SECOND RELEVÉ SOUS WINDOWS, quand `Get-NetTCPConnection` ne voit rien.
+ *
+ * ---------------------------------------------------------------------------
+ * POURQUOI CE REPLI EXISTE — MESURÉ LE 6 NOVEMBRE 2026
+ * ---------------------------------------------------------------------------
+ *
+ * La cause première est traitée plus haut : `-State Listen` écartait un
+ * écouteur dont la pile réseau laisse l'état vide. Ce repli répond à un SECOND
+ * constat, distinct et mesuré le même jour — les deux outils se contredisent,
+ * et pas toujours dans le même sens :
+ *
+ *     a) PID 27232 tenait 0.0.0.0:5000 ET [::]:5000
+ *        netstat -ano                       ->  LISTENING, PID visible
+ *        Get-NetTCPConnection -State Listen ->  RIEN
+ *
+ *     b) PID 24712 écoutait sur :: et répondait 200
+ *        netstat -ano                       ->  AUCUNE ligne en écoute
+ *        Get-NetTCPConnection (sans -State) ->  entrée présente, RemotePort 0
+ *
+ *   LA LEÇON : chacun des deux outils a eu son angle mort, à quelques minutes
+ *   d'écart, sur la même machine. Une source unique ne permet donc pas de
+ *   conclure « libre » — car c'est une conclusion POSITIVE tirée d'une
+ *   non-réponse.
+ *
+ * ET LE COMMENTAIRE D'ORIGINE N'AVAIT RAISON QU'À MOITIÉ : il écartait
+ * `netstat` parce que « sa sortie est localisée ». C'est vrai du MOT D'ÉTAT
+ * (`LISTENING`, `À L'ÉCOUTE`…), pas des adresses ni du PID. On ne lit donc pas
+ * l'état : un écouteur se reconnaît à son adresse DISTANTE nulle
+ * (`0.0.0.0:0`, `[::]:0`), ce qui ne dépend d'aucune langue.
+ */
+function parNetstat() {
+  try {
+    const sortie = execFileSync('netstat', ['-ano'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const pids = new Set();
+    for (const ligne of sortie.split(/\r?\n/)) {
+      const champs = ligne.trim().split(/\s+/);
+      if (champs.length < 4) continue;
+      if (champs[0].toUpperCase() !== 'TCP') continue;
+      if (!new RegExp(`:${port}$`).test(champs[1])) continue;
+      // Adresse distante nulle = socket en écoute, dans toutes les langues.
+      if (!/^(0\.0\.0\.0:0|\[::\]:0|\*:\*)$/.test(champs[2])) continue;
+      const pid = Number(champs[champs.length - 1]);
+      if (Number.isInteger(pid) && pid > 0) pids.add(pid);
+    }
+
+    /*
+     * LE NOM EST INDISPENSABLE, et pas décoratif : plus bas, un occupant dont
+     * le nom n'est pas des nôtres n'est PAS arrêté. Un repli qui rendrait des
+     * noms vides ferait donc refuser tout démarrage.
+     */
+    return [...pids].map((pid) => {
+      let nom = '';
+      try {
+        const brut = execFileSync('tasklist', ['/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        nom = (brut.match(/^"([^"]+)"/m)?.[1] ?? '').toLowerCase();
+      } catch {
+        /* le processus a pu disparaître entre les deux appels */
+      }
+      return { pid, nom };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Qui écoute sur ce port ? Renvoie une liste de { pid, nom }.
  *
  * DEUX IMPLÉMENTATIONS, PARCE QUE LES OUTILS DIFFÈRENT. Sous Windows,
- * `Get-NetTCPConnection` donne le PID propriétaire ; ailleurs, `lsof`. On
- * n'utilise PAS `netstat` : sa sortie est localisée, donc son analyse
- * dépendrait de la langue du système.
+ * `Get-NetTCPConnection` donne le PID propriétaire — complété par `netstat`
+ * quand il ne voit rien, voir `parNetstat()` ci-dessus ; ailleurs, `lsof`.
  */
 function quiEcoute() {
   try {
     if (process.platform === 'win32') {
+      /*
+       * ON NE FILTRE PLUS SUR `-State Listen`, ET C'EST LA CORRECTION DU
+       * 6 NOVEMBRE 2026.
+       *
+       * Mesuré sur le serveur du projet, en train d'écouter et de répondre 200 :
+       *
+       *     LocalAddress  : ::
+       *     LocalPort     : 5000
+       *     RemotePort    : 0          <- c'est bien un écouteur
+       *     State         : <null>     <- et c'est pour cela qu'il échappait
+       *     OwningProcess : 24712
+       *
+       * `-State Listen` écartait donc un écouteur bien réel, ce script annonçait
+       * `[PORT] 5000 libre.`, et le serveur plantait la seconde suivante sur
+       * `EADDRINUSE` — l'erreur exacte qu'il existe pour empêcher.
+       *
+       *   LA LEÇON : un écouteur se reconnaît à l'ABSENCE DE PAIR DISTANT
+       *   (`RemotePort = 0`), fait structurel, et non à une étiquette d'état que
+       *   la pile réseau ne remplit pas toujours. *Filtrer sur le champ le plus
+       *   bavard plutôt que sur le plus fiable.*
+       */
       const commande = [
-        `$c = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue;`,
+        `$c = Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue |`,
+        '     Where-Object { $_.RemotePort -eq 0 };',
         'if ($c) {',
         '  $c.OwningProcess | Sort-Object -Unique | ForEach-Object {',
         '    $p = Get-Process -Id $_ -ErrorAction SilentlyContinue;',
@@ -68,7 +162,7 @@ function quiEcoute() {
         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
       );
 
-      return sortie
+      const vus = sortie
         .split(/\r?\n/)
         .map((l) => l.trim())
         .filter(Boolean)
@@ -77,6 +171,13 @@ function quiEcoute() {
           return { pid: Number(pid), nom: String(nom ?? '').toLowerCase() };
         })
         .filter((p) => Number.isInteger(p.pid));
+
+      /*
+       * ON NE CONCLUT PAS « LIBRE » SUR UN SEUL SILENCE. Si le premier relevé
+       * ne voit rien, le second tranche — et c'est lui qui avait raison le
+       * 6 novembre 2026.
+       */
+      return vus.length > 0 ? vus : parNetstat();
     }
 
     const pids = execFileSync(
