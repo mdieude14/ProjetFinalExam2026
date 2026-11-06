@@ -37,7 +37,8 @@
     "test:reponse": "node tests/reponse-support.mjs",
     "test:courriel": "node tests/courriel-support.mjs",
     "test:escalade": "node tests/escalade-support.mjs",
-    "test:scrutage": "node tests/telegram-scrutage.mjs"
+    "test:scrutage": "node tests/telegram-scrutage.mjs",
+    "test:controles": "node tests/controles-exploitation.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

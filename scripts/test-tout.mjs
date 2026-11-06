@@ -39,7 +39,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, statfsSync } from 'node:fs';
 import { freemem, totalmem } from 'node:os';
 
 const RACINE = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -58,6 +58,14 @@ const CLIENT_URL = 'http://localhost:5173';
  * sans navigateur. Une régression de fond se signale ainsi en quelques
  * secondes, sans attendre huit minutes de Playwright.
  */
+/*
+ * LE SEUIL DE MÉMOIRE EST AU NIVEAU DU MODULE, et c'est délibéré : il sert aux
+ * prérequis AVANT la campagne et au bilan APRÈS. Deux constantes jumelles
+ * finiraient par divergir, et le bilan annoncerait un seuil que les prérequis
+ * n'appliquent plus.
+ */
+const SEUIL_MEMOIRE_GO = 2;
+
 const SUITES = [
   { paquet: 'server', script: 'test:api', libelle: 'API — régression générale' },
   { paquet: 'server', script: 'test:stripe', libelle: 'API — Stripe Connect' },
@@ -78,6 +86,7 @@ const SUITES = [
   { paquet: 'server', script: 'test:escalade', libelle: 'API — escalade forcée du support' },
   { paquet: 'server', script: 'test:messagerie-agent', libelle: 'Workflows — assistant de messagerie' },
   { paquet: 'server', script: 'test:scrutage', libelle: 'Canal — scrutage Telegram' },
+  { paquet: 'server', script: 'test:controles', libelle: 'Exploitation — contrôles d’envoi et de flux' },
   { paquet: 'server', script: 'test:perf', libelle: 'API — performance' },
 
   { paquet: 'client', script: 'test:ui', libelle: 'Navigateur — parcours général' },
@@ -317,6 +326,258 @@ async function verifierPrerequis() {
     });
   }
 
+  /* ---- Le jeton Gmail, qui meurt tous les sept jours ---- */
+
+  /*
+   * POURQUOI CE CONTRÔLE EXISTE, ET POURQUOI IL ÉTAIT LE PLUS MANQUANT.
+   *
+   * Le jeton OAuth de Gmail expire au bout de SEPT JOURS — règle du mode Test
+   * de l'application Google, pas incident. Le 2 novembre 2026 il est mort à
+   * 13 h 44, et la campagne du 4 novembre a rendu **2106/2106** pendant que
+   * l'envoi était hors service.
+   *
+   * AUCUNE DES 2106 VÉRIFICATIONS NE REGARDAIT LÀ, et c'est logique :
+   *   - les dossiers de test visent des domaines réservés (`.local`, `.test`),
+   *     donc aucun envoi réel n'a lieu pendant une campagne — c'est voulu ;
+   *   - la section « portée de l'identifiant d'envoi » de `test:mot-de-passe`
+   *     LIT LES SOURCES sans rien exécuter — c'est son objet, et elle ne peut
+   *     donc pas voir un jeton mort.
+   *
+   *   LA LEÇON : un chiffre vert ne vaut que pour ce qu'il mesure. La seule
+   *   façon de savoir ce qu'il ne mesure pas est de le chercher.
+   *
+   * `verifierSmtp()` authentifie SANS RIEN ENVOYER : on peut donc l'appeler à
+   * chaque campagne sans risque d'écrire à qui que ce soit.
+   */
+  if (lireEnv('GOOGLE_OAUTH_REFRESH_TOKEN') || lireEnv('SMTP_PASS')) {
+    /*
+     * UN PROCESSUS SÉPARÉ, AVEC `server/` POUR RÉPERTOIRE COURANT, ET CE N'EST
+     * PAS UN DÉTAIL DE STYLE. `config/env.js` appelle `dotenv.config()`, qui lit
+     * le `.env` du répertoire courant, puis `process.exit(1)` s'il manque une
+     * variable requise. Importer le service ICI — la campagne tourne depuis la
+     * racine, où il n'y a pas de `.env` — TUERAIT la campagne au lieu de la
+     * renseigner.
+     */
+    const sonde = spawnSync(process.execPath, [join('scripts', 'verifier-envoi.mjs')], {
+      cwd: join(RACINE, 'server'),
+      encoding: 'utf8',
+    });
+    const verdict = (sonde.stdout ?? '').trim();
+
+    if (sonde.status !== 0 && verdict) {
+      manques.push({
+        quoi: null,
+        rappel:
+          `ENVOI DE COURRIELS HORS SERVICE.\n      ${verdict.split('\n').join('\n      ')}\n` +
+          '      La campagne passera quand même au vert : aucune de ses\n' +
+          '      vérifications n’envoie de courriel réel. Mais le back-office,\n' +
+          '      le mot de passe oublié et les réponses du support, eux, échouent.',
+      });
+    } else if (sonde.status !== 0) {
+      manques.push({
+        quoi: null,
+        rappel:
+          'Le contrôle du jeton d’envoi n’a pas pu s’exécuter :\n      ' +
+          ((sonde.stderr ?? '').trim().split('\n')[0] || 'cause inconnue'),
+      });
+    }
+  }
+
+  /* ---- Les flux n8n qui échouent en silence ---- */
+
+  /*
+   * VINGT-SEPT ÉCHECS D'AFFILÉE N'ONT ALERTÉ PERSONNE PENDANT TROIS JOURS.
+   *
+   * Le flux courriel tourne toutes les dix minutes. Quand son garde-fou refuse
+   * de lire une boîte qu'il ne pourrait pas marquer — ce qui est le bon
+   * comportement — il échoue PROPREMENT, et donc silencieusement. Rien, dans
+   * l'application comme dans la campagne, ne relevait ces erreurs.
+   *
+   * On lit la base de n8n, pas son journal : `docker logs` s'est déjà révélé
+   * trompeur après une recréation de conteneur.
+   *
+   * ------------------------------------------------------------------------
+   * CORRIGÉ LE 5 NOVEMBRE 2026 : COMPTER LES `error` NE SUFFIT PAS.
+   * ------------------------------------------------------------------------
+   *
+   * La première version de ce contrôle a attrapé sa première vraie panne —
+   * `ccAgentCourri01=26` — et c'est en vérifiant son verdict qu'on a découvert
+   * ce qu'elle ne pouvait PAS voir. Mesuré sur 24 h, même justificatif Gmail
+   * mort pour les trois flux :
+   *
+   *     ccAgentCourri01    error     29 exécutions, 27 avec échec d'authentification
+   *     ccMessagerieCor1   success   19 exécutions, 17 avec échec d'authentification
+   *     ccMessagerieTri1   success   19 exécutions, 17 avec échec d'authentification
+   *
+   * TRENTE-QUATRE EXÉCUTIONS SE SONT DÉCLARÉES RÉUSSIES EN ÉCHOUANT À
+   * S'AUTHENTIFIER. Leurs données contiennent `invalid_grant`, et leur statut
+   * dit `success` : le flux rattrape l'erreur du nœud Gmail et continue.
+   *
+   *   LA LEÇON, et c'est celle du projet appliquée à mon propre instrument :
+   *   un contrôle qui fait confiance au statut déclaré hérite des faux verts
+   *   de ce qu'il surveille. La campagne a rendu 2106/2106 pendant que l'envoi
+   *   était mort ; ce contrôle rendait « 26 échecs » pendant qu'il y en avait
+   *   60. *Le même piège, un cran plus loin.*
+   *
+   * ON LIT DONC LES DONNÉES, PAS SEULEMENT LE STATUT. Deux chiffres distincts
+   * sont rendus par flux, parce qu'ils ne veulent pas dire la même chose : un
+   * échec déclaré se voit dans l'éditeur, un échec avalé ne se voit nulle part.
+   */
+  {
+    const requete =
+      'cd $(npm root -g)/n8n && node -e \'' +
+      'const s=require("sqlite3");' +
+      'const db=new s.Database("/home/node/.n8n/database.sqlite", s.OPEN_READONLY);' +
+      'const d=new Date(Date.now()-86400000).toISOString().slice(0,19).replace("T"," ");' +
+      'const re=/invalid_grant|expired or revoked|"code":401|"httpCode":"401"/i;' +
+      'db.all("SELECT e.workflowId w, e.status st, e.startedAt sa, d.data da FROM execution_entity e JOIN execution_data d ON d.executionId = e.id WHERE e.startedAt > ? ORDER BY e.startedAt ASC", [d], (e,r)=>{' +
+      'if(e||!r){console.log("");process.exit(0);}' +
+      'console.log("N|"+r.length);' +
+      'const a={};' +
+      'r.forEach(x=>{const k=x.w;a[k]=a[k]||{err:0,faux:0,dernierMauvais:"",dernierEtat:"sain"};' +
+      'const mauvaisAuth=re.test(String(x.da||""));' +
+      'const mauvais=(x.st=="error")||(x.st=="success"&&mauvaisAuth);' +
+      'if(x.st=="error"){a[k].err++;}' +
+      'else if(x.st=="success"&&mauvaisAuth){a[k].faux++;}' +
+      'if(mauvais){a[k].dernierMauvais=x.sa;}' +
+      'a[k].dernierEtat=mauvais?"mauvais":"sain";});' +
+      'Object.keys(a).sort().forEach(k=>{' +
+      'const v=a[k];const etat=v.dernierEtat=="mauvais"?"ENCOURS":"RESOLU";' +
+      'if(v.err){console.log("E|"+k+"|"+v.err+"|"+v.dernierMauvais+"|"+etat);}' +
+      'if(v.faux){console.log("F|"+k+"|"+v.faux+"|"+v.dernierMauvais+"|"+etat);}});' +
+      'db.close();});\'';
+
+    const lu = spawnSync('docker', ['exec', 'coachconnect-n8n', 'sh', '-c', requete], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+    /*
+     * UNE LIGNE PAR CONSTAT : `E|<flux>|<n>|<dernier mauvais>|<ENCOURS|RESOLU>`
+     * pour les échecs déclarés, `F|…` pour les exécutions qui se disent
+     * réussies alors que leurs données portent un refus d'authentification.
+     *
+     * ------------------------------------------------------------------------
+     * POURQUOI L'ÉTAT COMPTE AUTANT QUE LE NOMBRE, et c'est la correction du
+     * 6 novembre 2026.
+     * ------------------------------------------------------------------------
+     *
+     * La fenêtre est de 24 h. Juste après la réparation du justificatif Gmail,
+     * à 23 h 45, ce contrôle annonçait encore `ccAgentCourri01=31` et
+     * `ccMessagerieTri1=19` — chiffres exacts, et complètement trompeurs : les
+     * trois flux tournaient de nouveau sans erreur depuis vingt minutes.
+     *
+     *   LA LEÇON : un avertissement qui continue de crier après la réparation
+     *   apprend à l'ignorer. Et un avertissement qu'on a appris à ignorer ne
+     *   protège plus de rien — c'est exactement l'état d'esprit qui a laissé
+     *   27 échecs passer trois jours.
+     *
+     * On distingue donc une panne EN COURS d'une panne RÉSOLUE, sur un critère
+     * mesuré et non sur une heure de garde : l'état de la DERNIÈRE exécution du
+     * flux dans la fenêtre.
+     */
+    const declares = [];
+    const avales = [];
+    let examinees = null;
+    for (const ligne of (lu.stdout ?? '').trim().split('\n')) {
+      const compte = ligne.trim().match(/^N\|(\d+)$/);
+      if (compte) {
+        examinees = Number(compte[1]);
+        continue;
+      }
+      const m = ligne.trim().match(/^([EF])\|([^|]+)\|(\d+)\|([^|]*)\|(ENCOURS|RESOLU)$/);
+      if (!m) continue;
+      const [, genre, flux, nombre, dernier, etat] = m;
+      (genre === 'E' ? declares : avales).push({ flux, nombre, dernier, resolu: etat === 'RESOLU' });
+    }
+
+    /*
+     * ANCRER L'ABSENCE SUR UNE PRÉSENCE — la règle du projet, appliquée ici à
+     * un trou qu'on a trouvé en se la posant.
+     *
+     * Ce contrôle conclut « rien à signaler » quand il ne trouve aucun échec.
+     * Mais il concluait EXACTEMENT LA MÊME CHOSE s'il ne trouvait aucune
+     * exécution du tout — base vide après une recréation de conteneur, flux
+     * tous désactivés, purge d'historique. Un silence pour cause de santé et un
+     * silence pour cause de cécité se ressemblaient trait pour trait.
+     *
+     *   LA LEÇON, déjà écrite pour les pages vides des suites navigateur : une
+     *   assertion d'absence ne vaut que si l'on a prouvé qu'on regardait au bon
+     *   endroit. « Zéro erreur sur zéro exécution » n'est pas une bonne
+     *   nouvelle, c'est l'absence de nouvelle.
+     */
+    if (lu.status === 0 && examinees === 0) {
+      manques.push({
+        quoi: null,
+        rappel:
+          'AUCUNE EXÉCUTION n8n SUR LES DERNIÈRES 24 H — et ce n’est pas un bon signe.\n' +
+          '      Les flux tournent à l’horloge : le relevé Telegram seul en produit\n' +
+          '      plus de deux cents par jour. Zéro signifie qu’ils ne tournent plus,\n' +
+          '      pas qu’ils vont bien.\n' +
+          '      Causes déjà vues : flux désactivés après `n8n import:workflow`,\n' +
+          '      qui remet toujours `active: false` ; conteneur recréé ; historique\n' +
+          '      purgé.\n' +
+          '      À vérifier :  node docker/n8n/etat-telegram.mjs',
+      });
+    }
+
+    /*
+     * Une panne en cours se dit d'abord. Une panne résolue reste mentionnée —
+     * elle explique des données manquantes de la journée — mais elle ne doit
+     * pas se faire passer pour une urgence.
+     */
+    const decrire = (liste) =>
+      liste
+        .map(
+          (x) =>
+            `${x.flux}=${x.nombre}` +
+            (x.resolu
+              ? ` (RÉSOLU, dernier le ${x.dernier.slice(0, 19)})`
+              : ` (EN COURS, dernier le ${x.dernier.slice(0, 19)})`)
+        )
+        .join('\n      ');
+
+    if (lu.status === 0 && declares.length) {
+      const enCours = declares.some((x) => !x.resolu);
+      manques.push({
+        quoi: null,
+        rappel:
+          `FLUX n8n EN ÉCHEC SUR LES DERNIÈRES 24 H :\n      ${decrire(declares)}\n` +
+          (enCours
+            ? '      Ces échecs ne remontent nulle part ailleurs : un flux qui refuse\n' +
+              '      proprement de travailler échoue en silence.\n' +
+              '      Pour en lire la cause :  node docker/n8n/etat-telegram.mjs\n' +
+              '      ou, dans l’éditeur n8n, l’onglet « Executions » du flux nommé.'
+            : '      Plus aucun échec depuis : la cause a été traitée. Ces lignes\n' +
+              '      restent affichées parce que la fenêtre couvre 24 h, et parce\n' +
+              '      qu’elles expliquent les données manquantes de la journée.'),
+      });
+    }
+
+    if (lu.status === 0 && avales.length) {
+      const enCours = avales.some((x) => !x.resolu);
+      manques.push({
+        quoi: null,
+        rappel:
+          `FLUX n8n QUI SE DISENT RÉUSSIS EN ÉCHOUANT À S’AUTHENTIFIER :\n      ${decrire(avales)}\n` +
+          (enCours
+            ? '      PIRE QUE LES ÉCHECS DÉCLARÉS : ceux-là n’apparaissent nulle part.\n' +
+              '      Leur statut dit « success », leurs données portent `invalid_grant`.\n' +
+              '      L’onglet « Executions » les affiche en vert : il faut ouvrir une\n' +
+              '      exécution et lire le nœud concerné pour voir le refus.\n' +
+              '      Cause la plus fréquente : un justificatif OAuth expiré que le\n' +
+              '      flux rattrape au lieu de propager.'
+            : '      Plus aucun refus depuis : le justificatif a été reconnecté.\n' +
+              '      Ces lignes restent affichées parce que la fenêtre couvre 24 h.'),
+      });
+    }
+    /*
+     * Pas de `try` : `spawnSync` ne lève pas quand la commande échoue, il rend
+     * un statut. n8n éteint donne donc un statut non nul, et les contrôles
+     * précédents l'ont déjà dit — inutile de le répéter ici.
+     */
+  }
+
   /* ---- La mémoire libre du poste ---- */
   /*
    * UN PRÉREQUIS AU MÊME TITRE QUE LE RELAIS STRIPE, et pour la même raison :
@@ -332,7 +593,6 @@ async function verifierPrerequis() {
    * utile pour tout ce qui ne mesure pas une durée, et c'est au porteur du
    * projet de décider s'il ferme ses fenêtres.
    */
-  const SEUIL_MEMOIRE_GO = 2;
   const libreGo = freemem() / 1e9;
   if (libreGo < SEUIL_MEMOIRE_GO) {
     manques.push({
@@ -344,6 +604,64 @@ async function verifierPrerequis() {
         '      Fermer les fenêtres du navigateur fait partie des prérequis,\n' +
         '      au même titre que `stripe listen`.',
     });
+  }
+
+  /* ---- L'ESPACE DISQUE, et le 5 novembre 2026 l'a démontré ---- */
+
+  /*
+   * POURQUOI CE CONTRÔLE EXISTE, ET CE QU'IL A COÛTÉ DE NE PAS L'AVOIR.
+   *
+   * Le 5 novembre 2026, `C:` est descendu à **0,01 Go libre sur 221**. Neuf
+   * mégaoctets. Tout s'est arrêté d'un coup, et AUCUN des symptômes ne nommait
+   * le disque :
+   *
+   *   - `docker ps` sans réponse en 120 s, `docker version` en 180 s ;
+   *   - `vmmemWSL` tombé à 38 Mo — la machine virtuelle ne pouvait plus
+   *     étendre son image ;
+   *   - `[DB] Connexion impossible`, donc un back-end qui paraît cassé ;
+   *   - `wsl --shutdown` qui ne rend jamais la main.
+   *
+   * ET LE DIAGNOSTIC A COMMENCÉ PAR SE TROMPER DE RESSOURCE. La mémoire libre
+   * était basse elle aussi — 0,77 Go, navigateurs à 1 133 Mo — donc elle a été
+   * accusée, mesurée, et commentée, pendant que la vraie contrainte était à
+   * côté.
+   *
+   *   LA LEÇON : un chiffre inquiétant n'est pas une cause. Il faut encore
+   *   montrer qu'il produit le symptôme observé. Mémoire et disque sont deux
+   *   ressources distinctes, et leurs pannes se ressemblent assez pour que
+   *   l'une serve d'explication commode à l'autre.
+   *
+   * ET LIBÉRER LE DISQUE APRÈS COUP N'A PAS SUFFI : WSL était resté figé au
+   * niveau du service, et seul un redémarrage du poste l'a remis d'aplomb.
+   * D'où le seuil ci-dessous, qui avertit AVANT d'y arriver.
+   *
+   * ON AVERTIT, ON NE BLOQUE PAS — même règle que pour la mémoire. Mais on le
+   * dit tôt, parce qu'une campagne écrit : Mongo journalise, n8n journalise,
+   * Vite met en cache, et les suites navigateur déposent des captures.
+   */
+  const SEUIL_DISQUE_GO = 5;
+  try {
+    const fs = statfsSync(RACINE);
+    const disqueLibreGo = (fs.bavail * fs.bsize) / 1e9;
+    if (disqueLibreGo < SEUIL_DISQUE_GO) {
+      manques.push({
+        quoi: null, // un rappel, pas un blocage
+        rappel:
+          `Espace disque libre : ${disqueLibreGo.toFixed(2)} Go sur ` +
+          `${((fs.blocks * fs.bsize) / 1e9).toFixed(0)}.\n` +
+          `      Sous ${SEUIL_DISQUE_GO} Go, une campagne qui écrit peut figer Docker et WSL,\n` +
+          '      et les symptômes accusent alors la base ou le code : `docker ps`\n' +
+          '      sans réponse, `[DB] Connexion impossible`, `wsl --shutdown` bloqué.\n' +
+          '      Libérer le disque APRÈS COUP ne suffit pas — il faut redémarrer\n' +
+          '      le poste. Mieux vaut donc faire de la place maintenant.',
+      });
+    }
+  } catch {
+    /*
+     * `statfsSync` existe depuis Node 18.15. Si elle manque ou refuse le
+     * chemin, on se taît : un prérequis qui ne peut pas mesurer n'a rien à
+     * dire, et surtout rien à empêcher.
+     */
   }
 
   /* ---- Le canal Telegram muet, nouvelle cause ---- */
@@ -636,6 +954,131 @@ async function principal() {
   }
 
   console.log(`\n  Total : ${totalReussies}/${totalVerifications} vérifications`);
+
+  /* ------------------- CE QUE CE TOTAL NE COUVRE PAS ------------------- */
+
+  /*
+   * ============================================================================
+   * POURQUOI CE BLOC EXISTE, ET C'EST LA RÉPONSE DE FOND AU 2106/2106
+   * ============================================================================
+   *
+   * Le 4 novembre 2026 cette campagne a affiché **2106/2106** pendant que
+   * l'envoi de courriels était hors service depuis deux jours, que le flux
+   * courriel de n8n échouait toutes les dix minutes, et que le back-office
+   * montrait `invalid_grant` à l'exploitant.
+   *
+   * AUCUNE DES 2106 VÉRIFICATIONS N'ÉTAIT FAUSSE. Le total était exact. Ce
+   * qu'il ne disait pas, c'est ce qu'il ne regardait pas — et personne ne peut
+   * deviner l'étendue d'une mesure à partir de son résultat.
+   *
+   *   LA LEÇON : un nombre vert invite à la confiance À PROPORTION DE SA
+   *   TAILLE, jamais de sa couverture. « 2106/2106 » rassure mille fois plus
+   *   que « 21/21 », pour une couverture qui n'a rien à voir. *Le remède n'est
+   *   pas de tester plus, c'est d'afficher les limites AU MÊME ENDROIT que le
+   *   total.*
+   *
+   * ET LA MÊME ERREUR A ÉTÉ REFAITE DEUX FOIS DEPUIS, un cran plus loin
+   * chaque fois : le contrôle des flux n8n annonçait « 26 échecs » quand il y
+   * en avait 60, parce qu'il croyait le statut déclaré ; puis il criait encore
+   * « 31 échecs » vingt minutes après la réparation, parce qu'il ne distinguait
+   * pas la panne de son souvenir. *Trois fois le même piège, à trois étages.*
+   *
+   * ON ÉNONCE DONC DEUX SORTES DE LIMITES, et le mélange des deux serait une
+   * faute :
+   *
+   *   - les limites STRUCTURELLES, qui tiennent au dessin de la campagne et ne
+   *     changent pas d'un lancement à l'autre ;
+   *   - les limites MESURÉES À CE LANCEMENT-CI, qui dépendent de l'état du
+   *     poste et de ce qui a réellement tourné.
+   *
+   * Les secondes sont calculées, jamais écrites à la main : une liste figée
+   * finirait par mentir, et un avertissement qui ment est pire que pas
+   * d'avertissement.
+   */
+
+  const limites = [];
+
+  /* ---- Ce qui tient au dessin de la campagne ---- */
+
+  limites.push(
+    'aucun courriel RÉEL n’est envoyé : les dossiers de test visent des domaines\n' +
+      '      réservés (`.local`, `.test`), et c’est voulu — une campagne ne doit pas\n' +
+      '      écrire à des inconnus. Un jeton d’envoi mort reste donc invisible ici.'
+  );
+
+  limites.push(
+    'les flux n8n ne sont PAS exercés : ils tournent à l’horloge, dans un\n' +
+      '      conteneur, déclenchés par Gmail et Telegram. Rien ici ne les démarre ni ne\n' +
+      '      les observe. Leur état se lit dans les prérequis (`--prerequis`).'
+  );
+
+  limites.push(
+    'certaines sections LISENT LES SOURCES au lieu de les exécuter — ainsi la\n' +
+      '      « portée de l’identifiant d’envoi » de `test:mot-de-passe`. C’est leur objet,\n' +
+      '      et cela ne peut par construction rien dire d’un justificatif expiré.'
+  );
+
+  /* ---- Ce qui dépend de CE lancement, et qui est donc mesuré ---- */
+
+  /*
+   * LES SUITES QUI N'ONT PAS RENDU DE SCORE. Une suite peut finir en code 0
+   * sans compteur lisible : ses vérifications n'entrent alors dans aucun
+   * total, et son absence passerait inaperçue au milieu d'un grand nombre.
+   */
+  /*
+   * UN COMPTEUR À ZÉRO EST AUSSI AVEUGLE QU'UN COMPTEUR ABSENT, et ce défaut-ci
+   * a été trouvé en relisant la sortie de ce bloc même.
+   *
+   * La campagne du 6 novembre 2026 a affiché `Total : 2130/2130` avec une suite
+   * interrompue à `0/0` — le relais Stripe ne tournait pas. Le total restait
+   * parfaitement vrai ET parfaitement muet sur une suite entière de couverture
+   * manquante, parce que `0/0` se fond dans une addition.
+   *
+   *   LA LEÇON : `n/n` n'est pas rassurant par construction. `0/0` satisfait
+   *   « tout est au vert » sans avoir rien vérifié. *Une addition ne distingue
+   *   pas ce qui est réussi de ce qui n'a pas été tenté.*
+   */
+  const sansScore = bilan.filter((b) => !b.score || b.score.total === 0);
+  if (sansScore.length > 0) {
+    limites.push(
+      `${sansScore.length} suite(s) n’ont rendu AUCUNE vérification, donc ne pèsent rien dans\n` +
+        `      le total : ${sansScore.map((b) => b.script).join(', ')}.\n` +
+        '      Un compteur à zéro se fond dans l’addition : la couverture manque sans\n' +
+        '      que le total ne baisse d’une unité.'
+    );
+  }
+
+  /*
+   * LA MÉMOIRE AU MOMENT DU BILAN. Sous le seuil, toute assertion de DURÉE a
+   * mesuré la machine ; le reste de la campagne garde sa valeur. La distinction
+   * compte : jeter un total entier pour cette raison serait aussi faux que de
+   * le croire sans réserve.
+   */
+  const memoireFinGo = freemem() / 1e9;
+  if (memoireFinGo < SEUIL_MEMOIRE_GO) {
+    limites.push(
+      `les assertions de DURÉE ne valent rien pour ce lancement : ${memoireFinGo.toFixed(2)} Go de\n` +
+        `      mémoire libre en fin de campagne, sous le seuil de ${SEUIL_MEMOIRE_GO} Go. Les suites\n` +
+        '      navigateur ont chronométré la machine. Le reste des vérifications tient.'
+    );
+  }
+
+  /*
+   * LES SUITES ABSENTES DE CE LANCEMENT, par filtre d'arguments ou autrement.
+   * Un total partiel présenté comme un total est exactement le piège qu'on
+   * cherche à fermer.
+   */
+  if (bilan.length < SUITES.length) {
+    const lancees = new Set(bilan.map((b) => b.script));
+    const absentes = SUITES.filter((s) => !lancees.has(s.script)).map((s) => s.script);
+    limites.push(
+      `${absentes.length} suite(s) sur ${SUITES.length} N’ONT PAS ÉTÉ LANCÉES : ${absentes.join(', ')}.\n` +
+        '      Ce total est donc partiel.'
+    );
+  }
+
+  console.log('\n  CE QUE CE TOTAL NE COUVRE PAS :');
+  for (const limite of limites) console.log(`    • ${limite}`);
 
   /*
    * LE DÉTAIL DE CHAQUE SUITE EN ÉCHEC, PAS SEULEMENT DE LA PREMIÈRE.
