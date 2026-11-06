@@ -97,8 +97,48 @@ const bdd = clientMongo.db();
 const fichiersPour = (adresse) =>
   existsSync(BOITE) ? readdirSync(BOITE).filter((f) => f.endsWith(`-${adresse}.json`)).sort() : [];
 
+/**
+ * UN FICHIER À MOITIÉ ÉCRIT N'EST PAS UNE ERREUR, C'EST UNE COURSE.
+ *
+ * ---------------------------------------------------------------------------
+ * POURQUOI CE `try` EXISTE — MESURÉ LE 6 NOVEMBRE 2026
+ * ---------------------------------------------------------------------------
+ *
+ * Cette suite rendait 52/52. Elle s'est mise à s'interrompre à 4/4 sur
+ * `INTERROMPU : Unexpected end of JSON input`, de façon reproductible.
+ *
+ * Ce qui a été vérifié, dans cet ordre :
+ *   - les 344 fichiers de `.boite-mails/` sont TOUS du JSON valide, contrôlés
+ *     un par un APRÈS l'échec ;
+ *   - le seul `JSON.parse` non protégé de la suite est celui-ci — celui de
+ *     `appel()` rend déjà `null` en cas d'échec ;
+ *   - `attendreMail()` scrute toutes les 150 ms, et l'envoi part APRÈS la
+ *     réponse HTTP, donc pendant que la suite lit.
+ *
+ * La lecture tombait donc sur un fichier EN COURS D'ÉCRITURE. Et le courriel
+ * de réinitialisation pèse 2 379 octets contre 302 à 373 pour les autres :
+ * plus gros, plus long à écrire, plus facile à surprendre. *C'est pour cela que
+ * la panne est apparue sur cette section-là.*
+ *
+ *   LA LEÇON : un fichier qu'un autre processus est en train d'écrire n'est pas
+ *   un fichier invalide, et le traiter comme une erreur fatale fait échouer la
+ *   suite sur un défaut qui n'existe pas dans le produit. On l'ignore, et la
+ *   scrutation suivante — 150 ms plus tard — le lira complet.
+ *
+ * ON NE RALENTIT PAS LA SCRUTATION POUR AUTANT : attendre « assez longtemps »
+ * serait un pari sur la vitesse du disque, c'est-à-dire la même course avec un
+ * sursis.
+ */
 const mailsPour = (adresse) =>
-  fichiersPour(adresse).map((f) => JSON.parse(readFileSync(BOITE + f, 'utf8')));
+  fichiersPour(adresse)
+    .map((f) => {
+      try {
+        return JSON.parse(readFileSync(BOITE + f, 'utf8'));
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
 
 /**
  * Attend qu'un e-mail de plus arrive pour cette adresse. L'envoi part APRÈS
