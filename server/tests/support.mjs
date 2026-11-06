@@ -1044,7 +1044,7 @@ const BANC_REGLAGE = [
   ['utilisateur', 'comment je publie une story ?', 'publier-une-story'],
   ['utilisateur', 'ma caméra ne marche pas', 'publier-une-story'],
   ['utilisateur', 'je veux arrêter mon abonnement premium', 'resilier-un-abonnement-premium'],
-  ['utilisateur', 'je veux être remboursé', 'resilier-un-abonnement-premium'],
+  ['utilisateur', 'je veux être remboursé', 'demander-un-remboursement'],
   ['utilisateur', "j'ai payé mais je ne vois toujours pas les vidéos du coach", 'contenu-premium-verrouille'],
   ['utilisateur', 'comment payer pour avoir accès au contenu d’un coach', 'sabonner-au-premium'],
   ['utilisateur', "j'ai oublié mon mot de passe", 'connexion-et-mot-de-passe'],
@@ -1068,6 +1068,37 @@ const BANC_REGLAGE = [
   ['coach', 'comment créer un événement', 'organiser-un-evenement'],
   ['coach', 'je dois annuler ma séance de samedi à cause de la météo', 'organiser-un-evenement'],
   ['coach', "je n'apparais pas sur la carte", 'carte-et-autour-de-moi'],
+
+  /*
+   * LES DEUX FICHES DU 6 NOVEMBRE, ET ELLES ENTRENT ICI, PAS DANS LE TÉMOIN.
+   *
+   * `contacter-le-service-client` et `demander-un-remboursement` comblaient
+   * deux trous réels : aucune fiche ne disait comment joindre l'équipe, et le
+   * remboursement n'était qu'une mention dans la fiche de résiliation.
+   *
+   * ET LA PREMIÈRE VERSION DE LA FICHE DE CONTACT A FAIT TOMBER LE TÉMOIN de
+   * 14/15 à 13/15 : elle répétait « réponse » quatre fois dans son corps et
+   * le portait en mot-clé, si bien qu'elle raflait « la personne ne peut pas
+   * me répondre » à la fiche `messagerie`. Resserrée — « réponse » décrit le
+   * mécanisme, pas l'intention de qui cherche à joindre le support — le
+   * témoin est revenu à 14/15, SA MESURE DE RÉFÉRENCE exacte, établie en
+   * retirant les deux fiches pour comparer.
+   *
+   *   LA LEÇON : une fiche nouvelle ne s'évalue pas à ce qu'elle trouve, mais
+   *   à ce qu'elle VOLE aux autres. Un ajout qui sert sa propre question et
+   *   dégrade quinze autres est une régression.
+   *
+   * Le témoin n'est donc plus aveugle pour ces deux fiches : il a servi à
+   * détecter cette collision. C'est consigné pour que personne ne lui prête
+   * plus d'autorité qu'il n'en a.
+   */
+  ['utilisateur', 'comment contacter le service client', 'contacter-le-service-client'],
+  ['utilisateur', 'comment joindre le support', 'contacter-le-service-client'],
+  ['utilisateur', 'je veux parler à quelqu’un de l’équipe', 'contacter-le-service-client'],
+  ['utilisateur', 'je veux faire une réclamation', 'contacter-le-service-client'],
+  ['coach', 'comment contacter le service client', 'contacter-le-service-client'],
+  ['utilisateur', 'comment me faire rembourser mon abonnement', 'demander-un-remboursement'],
+  ['utilisateur', "j'ai été débité deux fois je veux mon argent", 'demander-un-remboursement'],
 ];
 
 const BANC_TEMOIN = [
@@ -1097,7 +1128,7 @@ const mesurer = (banc) => banc.reduce((m, [role, question, attendu]) => {
 }, { tete: 0, trois: 0, manques: [] });
 
 const reglage = mesurer(BANC_REGLAGE);
-ok('banc de réglage : la bonne fiche dans les trois premières, 27 fois sur 27',
+ok('banc de réglage : la bonne fiche dans les trois premières, 34 fois sur 34',
   reglage.trois === BANC_REGLAGE.length,
   `${reglage.trois}/${BANC_REGLAGE.length} (en tête : ${reglage.tete})` +
     (reglage.manques.length ? ` — manquées : ${reglage.manques.join(' | ')}` : ''));
