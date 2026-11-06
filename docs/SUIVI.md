@@ -13957,3 +13957,1515 @@ Performance : 18/18 et 15/15
       tournait, rend **2106/2106 — 38 suites, zéro rouge**. *L'arithmétique annoncée (2028 + 78)
       n'était donc pas une rustine de comptage : c'était la bonne prédiction, et un tour propre
       valait mieux que de la laisser à l'état de calcul.*
+
+---
+
+## 15.75 — Quatre symptômes, deux causes, et une campagne verte qui ne regardait pas là  `CAUSE ÉTABLIE` / `CORRIGÉ EN 15.76`
+
+### D'abord, ce que j'ai mal présenté
+
+Le porteur du projet a conclu de mon rapport du 4 novembre : « la connexion entre Telegram et n8n
+est bien établie, j'ai bien reçu le brouillon ». **Elle ne l'était pas.** Ce brouillon venait de
+**mon injection** dans le webhook local, faite pour éprouver la chaîne — pas de sa réponse.
+
+- [x] **J'avais bien écrit `ENTRANT : NON`.** Mais un brouillon est arrivé sur son téléphone trente
+      secondes plus tard, et c'est ce qu'il a vu.
+
+  > **LA LEÇON : une mesure juste rendue au milieu d'une démonstration réussie se lit à l'envers.**
+  > Quand j'éprouve une chaîne en injectant moi-même l'entrée, il faut dire QUI a produit le
+  > résultat, dans la même phrase que le résultat. *Sinon la preuve du sortant passe pour la preuve
+  > de l'entrant.*
+
+### Les quatre symptômes, et il n'y a que deux causes
+
+| Symptôme | Cause mesurée |
+|---|---|
+| « Envoyer » sur Telegram → rien | ① le message n'est **jamais arrivé** à n8n |
+| réponse à l'escalade `49d020a3` → aucun brouillon | ① **même cause** |
+| back-office « Confirmer l'envoi » → `invalid_grant` | ② jeton Gmail du **serveur** mort |
+| *(non signalé par le porteur du projet)* flux courriel en erreur | ② jeton Gmail de **n8n**, mort aussi |
+
+### Cause ① — le canal entrant n'est pas encore en service
+
+- [x] **Mesuré** : la dernière exécution de `ccAgentTelegr01` est **9331, à 14:51:51 le
+      4 novembre** — mon injection. **Aucune exécution** pour les deux messages du porteur du
+      projet.
+- **Pourquoi** : `TELEGRAM_BOT_TOKEN` est absent, donc aucun scrutateur ne tourne ; et le tunnel
+  est fermé. *Personne ne va chercher les messages, et personne ne peut dire qu'il ne les a pas.*
+- [ ] **OÙ SONT CES DEUX MESSAGES — JE NE PEUX PAS LE SAVOIR SANS LE JETON.** Telegram détient
+      encore un webhook pointant vers l'adresse morte du 30 octobre : il réessaie dessus et
+      échoue. Ils sont peut-être encore dans sa file (24 h de conservation), peut-être abandonnés
+      après ses relances. *`deleteWebhook` ne jette pas la file : on le saura en quelques secondes
+      après le dépôt du jeton.*
+
+### Cause ② — le jeton Gmail est mort le 2 novembre à 13 h 44
+
+- [x] **Mesuré DIRECTEMENT contre Google**, et non déduit du message d'erreur de l'interface :
+
+      ```
+      POST oauth2.googleapis.com/token  ->  400
+      invalid_grant : Token has been expired or revoked.
+      ```
+
+- [x] **L'échéance était écrite dans ce journal depuis le 26 octobre** (section « Chez Google : on
+      ne publie pas, et c'est un choix arbitré ») : application en mode **Test**, validité **sept
+      jours**, dernière réémission le **26 octobre**, donc échéance le **2 novembre**.
+- [x] **Et la mesure concorde à l'heure près** : le dernier succès du flux courriel est le
+      **2 novembre à 13 h 44 24**. Depuis, **27 échecs** — un par tour de dix minutes, sur les
+      plages où le poste tournait. Le dernier le **5 novembre à 07 h 50**.
+- **CE N'EST PAS UNE RÉGRESSION DU TRAVAIL DU 4 NOVEMBRE.** Rien de ce qui a été touché ne
+  concerne l'envoi : c'est une échéance calendaire, tombée pendant que je travaillais ailleurs.
+  *« Avant ça fonctionnait » est exact — avant le 2 novembre.*
+- [x] **Le garde-fou du flux courriel fait son travail** : « Gmail refuse la liste des libellés.
+      Sans elle, impossible de marquer les courriels traités » — il refuse de lire des courriels
+      qu'il ne pourrait pas marquer, donc de les perdre. **En silence, et c'est le problème.**
+
+### POURQUOI LA CAMPAGNE ÉTAIT VERTE ALORS QUE L'ENVOI ÉTAIT HORS SERVICE
+
+C'est le point le plus grave de cette séance, et il est précisément localisable.
+
+- [x] **RIEN, NULLE PART, NE DEMANDE À GOOGLE SI LE JETON FONCTIONNE ENCORE.**
+      - `test:mot-de-passe` **lit les sources sans rien exécuter** — c'est écrit dans son en-tête,
+        et c'est juste pour ce qu'elle garde (la portée de l'identifiant d'envoi). Elle ne peut pas
+        voir un jeton mort.
+      - Les dossiers de test visent des domaines réservés (`.local`, `.test`) : **aucun envoi réel
+        n'a lieu pendant une campagne** — c'est le filtre voulu de 15.70.
+      - Au démarrage, le serveur teste **Cloudinary** et **Stripe**. **Pas Gmail.** Mesuré :
+        `verifierCloudinary` et `verifierStripe` existent, `verifierGmail` n'existe pas.
+
+  > **2106/2106 et l'envoi hors service ne se contredisent pas : aucune de ces 2106 vérifications
+  > ne regardait là.** Un chiffre vert ne vaut que pour ce qu'il mesure, et la seule façon de
+  > savoir ce qu'il ne mesure pas est de le chercher.
+
+### La correction proposée, en attente de validation
+
+- [ ] **1. Réémettre le jeton du serveur** : `node server/scripts/autoriser-gmail.mjs`, consentement
+      dans **Chrome**. Le script écrit le jeton dans `server/.env` sans l'afficher.
+- [ ] **2. Redémarrer le back-end — et ce n'est pas une précaution.** Mesuré :
+      `nodemon --watch src` **ne surveille pas `.env`**. Sans redémarrage, le serveur garde
+      l'ancien jeton en mémoire et la correction paraît ratée.
+- [ ] **3. Reconnecter le justificatif Gmail de n8n** (`ccGmailOAuth0001`) depuis l'éditeur.
+      **C'est un SECOND jeton**, que le script ne touche pas.
+- [ ] **4. Déposer `TELEGRAM_BOT_TOKEN`**, puis rejouer la réponse **depuis Telegram**.
+- **L'ÉTAPE 1 EST NÉCESSAIRE POUR QUE « ENVOYER » MARCHE** : côté Telegram, l'expédition passe par
+  `POST /support/service/tickets/:ref/envoyer`, donc par le jeton du serveur. *Corriger seulement
+  Telegram déplacerait la panne d'un cran.*
+
+- [ ] **5. Ce que je propose en plus, pour que ça ne puisse plus arriver en silence :**
+      - `verifierGmail()` au démarrage, **sur le motif exact de `verifierCloudinary()` et
+        `verifierStripe()` qui existent déjà** — une ligne au boot, jeton valide ou mort.
+      - le même contrôle dans les prérequis de campagne, à côté de celui du relais Stripe.
+      - un contrôle des **flux n8n en erreur sur 24 h** : 27 échecs d'affilée n'ont alerté
+        personne pendant trois jours.
+      - une suite de tests pour ces contrôles, sans réseau.
+
+- **CE QUE JE NE PROPOSE PAS, ET POURQUOI.** Passer l'application Google en **Public**
+  supprimerait l'échéance. Mais le porteur du projet l'a arbitré le 19 octobre et les raisons
+  tiennent : la portée `https://mail.google.com/` est restreinte, Google peut exiger une
+  vérification — dossier, démonstration vidéo, semaines d'attente — et **geler l'envoi pendant
+  l'instruction**. À quelques jours d'une soutenance, c'est disproportionné. *Je ne rouvre pas sa
+  décision : je propose de rendre l'échéance visible, pas de la supprimer.*
+- **Prochaine échéance après réémission : sept jours plus tard.**
+
+### Et une consigne de méthode que le porteur du projet a posée
+
+- [x] **« Attends ma confirmation avant de commit et push. »** Les cinq commits du 4 novembre ont
+      été poussés alors que la chaîne n'allait pas de bout en bout. *La stratégie de commits du
+      projet le disait déjà — seulement quand l'agent support marche de bout en bout — et je l'ai
+      appliquée à ce que j'avais éprouvé moi-même, pas à ce que le porteur du projet pouvait
+      faire.* **La preuve d'une chaîne, c'est son usage réel, pas mon injection.**
+
+---
+
+## 15.76 — L'instrument était dans le tiroir : trois fils branchés  `RÉSOLU` / `GESTES EN ATTENTE`
+
+### La logique d'un jeton OAuth qui expire, une fois pour toutes
+
+C'est l'opération la plus répétée du projet — tous les sept jours — et elle n'était écrite nulle
+part sous forme de **logique**, seulement sous forme de commandes. La voici.
+
+**Pourquoi il y a deux clés, et une seule dans `.env`.** Gmail n'accepte pas de mot de passe pour
+un envoi programmatique : il faut OAuth2, qui sépare deux objets de durée très différente.
+
+| Clé | Durée | Rôle | Où elle vit |
+|---|---|---|---|
+| **jeton d'accès** | **1 heure** | sert à l'envoi lui-même | jamais stockée, refabriquée au besoin |
+| **jeton de rafraîchissement** | longue | sert à **fabriquer** des jetons d'accès | `server/.env` |
+
+À chaque envoi, le serveur présente le jeton de **rafraîchissement** à Google et demande un jeton
+d'**accès**. `invalid_grant` est la réponse de Google quand ce jeton de rafraîchissement n'est plus
+valable : **ce n'est pas « mauvais mot de passe », c'est « la clé qui fabrique les clés a été
+révoquée ».**
+
+**Pourquoi Google l'a révoquée** : l'application est en statut **Testing**, et la règle de ce
+statut est que les jetons de rafraîchissement **expirent au bout de sept jours**. Règle
+documentée, pas incident.
+
+**La logique du remplacement, en quatre temps** — et aucun ne consiste à « modifier » le jeton :
+
+1. **on en redemande un neuf**, on ne répare pas l'ancien. Un jeton révoqué l'est définitivement.
+2. **il faut repasser par un consentement humain**, parce que c'est le propriétaire de la boîte qui
+   délègue l'accès, pas le programme. `prompt=consent` force cet écran à chaque fois — sans quoi
+   Google renverrait un jeton d'accès sans jeton de rafraîchissement, et l'opération serait à
+   refaire dans l'heure.
+3. **le nouveau jeton remplace l'ancien dans `server/.env`**, écrit par le script lui-même — jamais
+   affiché, jamais copié à la main.
+4. **le processus doit être redémarré**, parce qu'il a lu `.env` une seule fois, à son démarrage.
+
+- [x] **ET IL Y A DEUX JETONS, PAS UN**, avec deux compteurs de sept jours indépendants, parce
+      qu'il y a **deux clients OAuth distincts** :
+
+      | Jeton | Client Google | Ce qu'il permet |
+      |---|---|---|
+      | du **serveur** | type « application de bureau », retour sur `http://localhost:53682` | envoyer (back-office, mot de passe oublié, réponses support) |
+      | de **n8n** | type « application Web », retour sur `http://localhost:5678/rest/oauth2-credential/callback` | **lire** la boîte (flux courriel) |
+
+      *Réémettre l'un laisse l'autre mort.* C'est pourquoi le back-office peut se remettre à
+      envoyer pendant que le flux courriel continue d'échouer toutes les dix minutes.
+
+### `verifierSmtp()` EXISTAIT, ET N'ÉTAIT APPELÉE PAR PERSONNE
+
+J'allais proposer d'écrire un contrôle du jeton au démarrage. Il était déjà écrit.
+
+- [x] **Mesuré** : `verifierSmtp()`, `server/src/services/mail.service.js:138`, exportée, et son
+      commentaire dit « vérifie la connexion SMTP, sans rien envoyer ». Appelée à la main, elle
+      rend en une seconde : `invalid_grant: Token has been expired or revoked.`
+- [x] **Et aucun appelant** : ni au démarrage — là où `verifierCloudinary()` et `verifierStripe()`
+      *sont* appelées — ni dans les prérequis de campagne, ni dans aucune suite.
+
+  > **LA LEÇON : un instrument que rien n'appelle ne protège de rien.** C'est exactement pourquoi
+  > la campagne pouvait rendre 2106/2106 avec l'envoi hors service. *Et chercher dans le projet
+  > avant d'écrire du neuf vient de m'économiser une fonction entière — la règle a encore servi.*
+
+### Les trois fils branchés
+
+- [x] **1. Au démarrage du serveur**, sur le motif exact des deux contrôles existants. Sortie réelle
+      mesurée :
+
+      ```
+      [COURRIEL] ENVOI HORS SERVICE (oauth2) : invalid_grant: Token has been expired or revoked.
+      [COURRIEL] Le jeton de rafraichissement Gmail est expire ou revoque. Mode Test = sept jours.
+      [COURRIEL] Remede : node server/scripts/autoriser-gmail.mjs (Chrome), puis REDEMARRER.
+      ```
+
+      **Le serveur ne refuse PAS de démarrer** : le reste de l'application n'a pas besoin de
+      l'envoi, et un serveur qui ne démarre pas empêcherait justement d'aller lire ce message.
+
+- [x] **2. `server/scripts/verifier-envoi.mjs`** — le fil manquant, utilisable à trois endroits : à
+      la main (« mon jeton est-il mort ? » en une seconde), dans les prérequis de campagne, et
+      après une réémission pour vérifier qu'elle a pris. Code de sortie 0 ou 1.
+
+- [x] **3. Deux prérequis de campagne**, tous deux de simples rappels :
+
+      ```
+      ⓘ  ENVOI DE COURRIELS HORS SERVICE.
+           MORT : oauth2 : invalid_grant: Token has been expired or revoked.
+           CAUSE : jeton de rafraichissement expire ou revoque (mode Test = 7 jours)
+           REMEDE : node server/scripts/autoriser-gmail.mjs …
+           La campagne passera quand même au vert : aucune de ses
+           vérifications n'envoie de courriel réel.
+      ⓘ  FLUX n8n EN ÉCHEC SUR LES DERNIÈRES 24 H : ccAgentCourri01=28
+      ```
+
+      *Le second répond à vingt-huit échecs qui n'ont alerté personne pendant trois jours.* Il lit
+      la base de n8n, jamais `docker logs`, qui s'est déjà révélé trompeur après une recréation.
+
+### `test:controles` — 35/35, sans réseau ni jeton
+
+- [x] **La décision est une fonction pure, `verdictEnvoi()`**, exportée ; le script ne s'exécute
+      que lancé directement. *Sans ce garde, la suite de tests déclencherait un appel réseau.*
+- [x] **Ce que la suite défend de plus intéressant : CE QUE LE VERDICT NE DIT PAS.** Un port
+      bloqué (`ETIMEDOUT`), un certificat intercepté, un mot de passe d'application refusé — trois
+      pannes réelles qui **ne se soignent pas** en réémettant un jeton. Le remède n'est proposé que
+      lorsque `invalid_grant` est reconnu. *Un remède suggéré au hasard envoie chercher au mauvais
+      endroit, et coûte plus qu'un message muet.*
+- [x] **Et elle garde le CÂBLAGE, pas seulement les fonctions** : que `server.js` importe
+      `verifierSmtp` **et l'appelle**, que la campagne appelle le script **dans un processus
+      séparé**, que les prérequis restent des rappels. *Un test qui vérifierait la fonction sans
+      vérifier son appel laisserait revenir exactement la panne qu'on vient de subir.*
+
+### DEUX DÉFAUTS DE MON PROPRE TRAVAIL, TROUVÉS EN L'ÉPROUVANT
+
+- [x] **1. Ma première version du prérequis aurait TUÉ la campagne.** J'avais écrit un
+      `await import()` de `mail.service.js` depuis `test-tout.mjs`. Or ce service importe
+      `config/env.js`, qui appelle `dotenv.config()` — lequel lit le `.env` du **répertoire
+      courant** — puis `process.exit(1)` si une variable requise manque. **La campagne tourne
+      depuis la racine du dépôt, où il n'y a pas de `.env`.** Le contrôle censé renseigner la
+      campagne l'aurait donc arrêtée net, avant la première suite.
+
+      > **LA LEÇON : un module qui peut appeler `process.exit` ne s'importe pas dans un outil qui
+      > doit survivre à son échec.** D'où le processus séparé, avec `server/` pour répertoire
+      > courant. *Trouvé en relisant avant de lancer, pas après.*
+
+- [x] **2. Une assertion trop stricte, du genre déjà rencontré.** J'avais écrit
+      `!/docker\s+logs/.test(campagne)` pour prouver qu'on lit la base. Elle échouait — sur le
+      **commentaire** qui explique précisément pourquoi on évite `docker logs`.
+
+      > *Une assertion qui interdit de PARLER d'une chose interdit aussi de documenter pourquoi on
+      > l'évite.* Elle vérifie désormais la commande, pas le texte.
+
+### Ce qui reste, et qui n'est pas de mon ressort
+
+- [ ] **Le consentement Google du serveur.** Seul le propriétaire de la boîte peut déléguer
+      l'accès — *c'est le principe même d'OAuth, pas une limite d'outillage.*
+
+      **ET UNE LEÇON DE RÉPARTITION DES GESTES, APPRISE À MES FRAIS.** J'ai lancé le script
+      moi-même et relayé l'adresse de consentement. Il **attend quinze minutes**, puis abandonne :
+      `[AUTORISATION] abandon : aucune réponse en quinze minutes.` Le porteur du projet lisait le
+      rapport pendant ce temps, et la fenêtre s'est refermée à vide.
+
+      > **Un geste à deux acteurs ne se lance pas d'un côté avant que l'autre soit prêt.** Quand
+      > une opération exige une action humaine dans une fenêtre bornée, c'est **celui qui agit**
+      > qui doit la déclencher : la commande lui affiche l'adresse au moment où il est devant son
+      > écran, et la fenêtre commence quand lui commence. Relayer une adresse dont le compteur
+      > tourne déjà, c'est offrir une course contre la montre à quelqu'un qui ne savait pas
+      > qu'elle avait démarré.
+
+      Deux voies restent ouvertes, et la première est la bonne : **il lance la commande
+      lui-même**, ou il me dit qu'il est prêt et je relance.
+- [ ] **Le consentement Google de n8n**, dans l'éditeur. Adresse de retour vérifiée conforme à
+      celle enregistrée chez Google le 9 octobre — **pas de `redirect_uri_mismatch` à craindre**,
+      et c'est plus sûr qu'avant : le script de tunnel réécrivait `WEBHOOK_URL`, et on ne se sert
+      plus du tunnel.
+- [ ] **Le jeton du bot Telegram**, à déposer dans `server/.env`.
+- [ ] **La campagne complète** — à ne pas lancer dans l'état : **0,40 Go de mémoire libre**, en
+      dessous des 0,43 Go où une campagne est déjà morte.
+
+---
+
+## 15.77 — Le jeton réémis, et un disque plein qui expliquait tout  `PARTIEL` / `REDÉMARRAGE REQUIS`
+
+### Ce qui a été obtenu : le jeton d'envoi du serveur
+
+- [x] **`[AUTORISATION] REUSSIE`** — jeton de rafraîchissement de 103 signes, portée
+      `https://mail.google.com/`, ligne remplacée dans `server/.env`.
+- [x] **Et le contrôle posé le matin même l'a confirmé tout seul**, au démarrage suivant :
+
+      ```
+      [COURRIEL] Envoi pret (oauth2)
+      ```
+
+      *La même ligne disait `ENVOI HORS SERVICE` une heure plus tôt.* **Premier usage réel de
+      l'instrument qu'on venait de brancher, et il a servi à prouver une réparation.**
+- **Prochaine échéance : sept jours.**
+
+### LE PIÈGE EN BOUCLE DE L'AUTORISATION OAuth, ET SES DEUX CORRECTIFS
+
+Trois tentatives ont échoué avant la bonne, pour trois raisons différentes — et deux étaient de
+ma faute.
+
+- [x] **Tentative 1 : fenêtre lancée trop tôt.** J'avais démarré le script et relayé l'adresse ;
+      le porteur du projet lisait le rapport pendant que le compteur de quinze minutes tournait.
+      `abandon : aucune réponse en quinze minutes.`
+
+  > **LA LEÇON, déjà écrite en 15.76 et confirmée ici : un geste à deux acteurs se déclenche par
+  > celui qui agit.** La commande lui affiche l'adresse au moment où il est devant son écran.
+
+- [x] **Tentative 2 : « ce site est inaccessible ».** Symptôme déroutant, cause simple :
+      `localhost:53682` **n'est pas un service du projet**, c'est une boîte aux lettres que le
+      script ouvre le temps de l'opération. Le script arrêté, plus personne n'écoutait au moment
+      où Google renvoyait le navigateur. *Les conteneurs n'y étaient pour rien, et c'est là que le
+      porteur du projet les a soupçonnés.*
+
+- [x] **Tentative 3 : `invalid_grant` — et c'est un enchaînement vicieux.** Le script ouvre un
+      navigateur ; celui-ci **restaure ses onglets**, dont la page d'erreur de la tentative 2, et
+      **la recharge**. Le code périmé arrive donc sur le script **avant** que le porteur du projet
+      ait pu cliquer, et la tentative mourait là — **pour une requête dont il n'était pas
+      l'auteur.**
+
+      Et Google n'aide pas : son `error_description` pour `invalid_grant` est littéralement
+      **« Bad Request »**. Exact, et sans aucune valeur pour agir.
+
+- [x] **Correctif 1 — nommer les trois causes** au lieu d'afficher « Bad Request » : page d'erreur
+      rechargée (y compris par restauration d'onglets), délai dépassé, script non lancé.
+      *Même leçon que pour l'erreur de webhook de Telegram : ce n'est pas le message du tiers
+      qu'il faut corriger, c'est le chemin qui mène de ce message à la cause.*
+- [x] **Correctif 2 — un code périmé ne tue plus la fenêtre.** Le script répond au navigateur,
+      explique, **et continue d'attendre**.
+
+  > **Une opération qui n'a qu'une chance par quart d'heure ne doit pas être tuée par la PREMIÈRE
+  > requête reçue.**
+
+- **LES DEUX CORRECTIFS ONT SERVI DANS LA TENTATIVE QUI A RÉUSSI** : l'onglet fantôme a bien
+  rejoué son code périmé, le script l'a ignoré en l'expliquant, et le vrai clic est passé ensuite.
+
+### LA CAUSE DE TOUT LE RESTE : LE DISQUE ÉTAIT PLEIN
+
+Après le succès, l'environnement s'est effondré. J'ai d'abord accusé la mémoire — **et c'était la
+mauvaise ressource.**
+
+- [x] **Mesuré** : `C:` à **0,01 Go libre sur 221**. Neuf mégaoctets.
+- [x] **Tous les symptômes en découlent** : `docker ps` sans réponse en 120 s, `docker version` en
+      180 s, `vmmemWSL` tombé à 38 Mo, `[DB] Connexion impossible`, et mon propre dossier
+      temporaire refusant l'écriture (`No space left on device`).
+
+  > **LA LEÇON : mémoire et disque sont deux ressources distinctes, et leurs pannes se
+  > ressemblent.** J'ai mesuré la mémoire (0,77 Go libre, navigateurs à 1 133 Mo), trouvé un
+  > chiffre inquiétant, et bâti une explication dessus — alors que la vraie contrainte était à
+  > côté. *Un chiffre inquiétant n'est pas une cause : il faut encore montrer qu'il produit le
+  > symptôme.*
+
+- [x] **Où était la place, mesuré** :
+
+      | Go | Cible | Décision |
+      |---|---|---|
+      | 12,02 | `AppData\Local\Ankama` | **au porteur du projet** — levier déjà identifié au journal |
+      | 10,69 | image disque de Docker | nécessaire |
+      | 2,47 | `Temp\wsl-crashes` | **supprimé** — et ces vidages disaient que WSL plantait déjà |
+      | ~1,9 | reste de `Temp` | **supprimé** |
+      | 0,70 | Corbeille | **non touchée** — fichiers du porteur du projet |
+      | 0,36 | cache npm | **vidé** |
+      | 0,25 | cache de Chrome | **vidé** |
+      | 0,68 | `ms-playwright` | **À NE PAS TOUCHER** : les navigateurs des suites de test |
+      | 2,29 | `Windows\Installer` | **À NE PAS TOUCHER** : casse les désinstallations |
+      | 0,17 | **le projet lui-même** | il n'y était pour rien |
+
+- [x] **Libéré : 4,1 Go**, de 0,36 à **4,4 Go**, sans toucher à rien d'irremplaçable.
+      *Et deux cibles ont été écartées EXPRÈS : supprimer `ms-playwright` aurait rendu les suites
+      navigateur inexécutables jusqu'à un nouveau téléchargement.*
+
+### CE QUE L'ESPACE LIBÉRÉ N'A PAS SUFFI À RÉPARER
+
+- [ ] **WSL reste bloqué au niveau du service.** Mesuré, dans l'ordre : `wsl --shutdown` **ne rend
+      jamais la main** ; six processus `wsl` figés ; `wsl --list --running` bloque aussi ; Docker
+      Desktop **meurt aussitôt lancé** (zéro processus après démarrage).
+- [ ] **Et je ne suis pas administrateur** (`administrateur : False`, mesuré) : redémarrer le
+      service `LxssManager` m'est refusé.
+
+  > **Un sous-système figé par un disque plein ne se débloque pas en libérant le disque après
+  > coup.** La place manquait pendant qu'il écrivait ; l'état incohérent qu'il a pris, lui, reste.
+  > **Seul un redémarrage du poste le remet d'aplomb**, et c'est un geste du porteur du projet.
+
+### ⚠️ À VÉRIFIER APRÈS LE REDÉMARRAGE, AVANT TOUTE CAMPAGNE
+
+- [ ] **Mongo a tourné avec un disque plein.** Une base qui ne peut plus écrire son journal peut
+      rester incohérente. *Je n'affirme pas qu'il y a des dégâts ; j'affirme qu'on ne peut pas le
+      nier sans regarder.* À contrôler : `myState 1 — PRIMARY`, puis **le compte des documents**,
+      dont ce journal garde une référence — **2 049 documents dans 16 collections**.
+- [ ] **Et l'espace restera serré** : 4,4 Go sur 221, soit 99 % d'occupation. Pour travailler
+      sereinement — Mongo écrit, n8n écrit, Vite met en cache, les suites navigateur produisent
+      des captures — il en faut **15 à 20**. Le seul gros levier restant est `Ankama`, 12,02 Go.
+
+---
+
+## 15.78 — Le redémarrage rend quinze gigaoctets, la base est saine, et le contrôle des flux attrape sa première vraie panne  `VÉRIFIÉ`
+
+### Le redémarrage a rendu beaucoup plus que ce qui avait été libéré à la main
+
+- [x] **Mesuré avant / après : 0,36 Go → 20 Go libres.** Le nettoyage manuel avait rendu 4,1 Go ;
+      **le redémarrage en a rendu 15,6 de plus** — fichier d'échange reconstruit, image disque de
+      WSL compactée, verrous relâchés.
+
+  > **LA LEÇON, et elle contredit l'ordre dans lequel j'ai travaillé : sur un poste Windows saturé,
+  > le redémarrage est le premier geste, pas le dernier.** J'ai passé une heure à mesurer, trier et
+  > supprimer pour 4,1 Go, là où un redémarrage en rendait quatre fois plus en deux minutes.
+  > *Le journal le disait déjà, au point 7528 : « Récupérer les onze Go : redémarrer la machine.
+  > C'est sans risque et immédiat. » Je ne l'avais pas relu.*
+
+- [x] **Docker revenu en vingt secondes** après le redémarrage, contre deux tentatives infructueuses
+      de plus de cinq minutes avant. Les deux conteneurs du projet sont remontés seuls.
+
+### L'INTÉGRITÉ DE LA BASE : CONTRÔLÉE, ET SAINE
+
+C'était le risque annoncé avant toute campagne — Mongo avait tourné avec un disque plein, et une
+base qui ne peut plus écrire son journal peut rester incohérente.
+
+- [x] `myState 1 — PRIMARY`
+- [x] **16 collections**, exactement comme la référence du journal
+- [x] **3 903 documents**, contre 2 049 en référence — *plus, donc aucune perte* : les campagnes
+      de la veille en ont créé
+- [x] **ET SURTOUT `validate()` SUR LES SEIZE COLLECTIONS : toutes saines, aucun avertissement.**
+
+  > **Le compte des documents ne prouve pas la cohérence, il prouve la présence.** Compter aurait
+  > laissé passer un index corrompu. *Un contrôle d'intégrité doit valider, pas dénombrer.*
+
+- [x] **Le certificat Avast est intact dans n8n** après le redémarrage — 1 526 octets,
+      `CN=Avast Web/Mail Shield Root`, au chemin que `NODE_EXTRA_CA_CERTS` désigne.
+      *Première vérification faite, avant tout diagnostic, comme la consigne du projet l'exige.*
+- [x] **Les trois services répondent 200** : back-end, client, n8n.
+- [x] **Et le jeton d'envoi a survécu au redémarrage** : `[COURRIEL] Envoi pret (oauth2)`.
+
+### LE CONTRÔLE DES FLUX n8n ATTRAPE SA PREMIÈRE VRAIE PANNE
+
+Le contrôle posé pour que « ça ne puisse plus arriver en silence » n'avait jamais rien eu à dire.
+Lancé ce soir, il a parlé :
+
+```
+FLUX n8n EN ÉCHEC SUR LES DERNIÈRES 24 H : ccAgentCourri01=26
+```
+
+- [x] **Et j'ai remonté la cause exacte dans la base de n8n**, sans passer par `docker logs` :
+
+      ```
+      derniere erreur le 2026-11-05 21:50:01  (execution 9722)
+      motifs : 401 | invalid_grant | Token has been expired or revoked
+      ```
+
+- [x] **C'est le SECOND jeton**, celui du justificatif Gmail de n8n — pas celui du serveur, qui
+      est réparé. Le flux courriel tourne toutes les dix minutes et **échoue encore en ce moment**.
+
+  > **VINGT-SIX ÉCHECS EN VINGT-QUATRE HEURES, ET RIEN NE LES SIGNALAIT AVANT CE CONTRÔLE.** C'est
+  > exactement le scénario des 27 échecs restés muets trois jours. *Un instrument ne vaut que
+  > lorsqu'il attrape quelque chose qu'on ne cherchait pas à ce moment-là.*
+
+### UN PRÉREQUIS QUI MANQUAIT : L'ESPACE DISQUE
+
+Les prérequis de campagne surveillaient la mémoire depuis le 27 octobre. **Ils ne surveillaient pas
+le disque** — et la panne du jour a montré ce que ce manque coûte.
+
+- [x] **Ajouté dans `scripts/test-tout.mjs`**, au même endroit et sur le même motif que le contrôle
+      de la mémoire : seuil nommé `SEUIL_DISQUE_GO = 5`, mesure par `statfsSync` sur la racine du
+      projet — donc sur le volume qui porte vraiment les écritures.
+- [x] **Le message NOMME LES SYMPTÔMES TROMPEURS**, et c'est tout son objet : `docker ps` sans
+      réponse, `[DB] Connexion impossible`, `wsl --shutdown` bloqué. *On n'arrive jamais par le
+      disque ; on arrive par eux.*
+- [x] **Il dit aussi que libérer après coup ne suffit pas** — WSL reste figé, il faut redémarrer.
+- [x] **Un rappel, pas un blocage**, comme celui de la mémoire. Et **il se taît s'il ne peut pas
+      mesurer** : un prérequis incapable de mesurer n'a rien à empêcher.
+- [x] **Mesure par `statfsSync`, pas par `df` ni PowerShell** : pas de dépendance au système hôte
+      ni d'analyse de texte localisé.
+
+### CE QUI A ÉTÉ ÉPROUVÉ, ET COMMENT
+
+- [x] **`test:controles` : 44/44** — la suite passe de 35 à 44, neuf vérifications pour le nouveau
+      prérequis.
+- [x] **`test:mot-de-passe` : 52/52** · **`test:scrutage` : 49/49**
+- [x] **ET LA BRANCHE DU DISQUE A ÉTÉ PROUVÉE À L'EXÉCUTION, pas seulement par lecture.** Les
+      assertions de la suite lisent le source : elles vérifient qu'un code existe, jamais qu'il
+      s'exécute. J'ai donc copié le script avec le seuil porté à 9 999 Go, lancé les prérequis, lu
+      le message produit, et supprimé la copie.
+
+  > **LA LEÇON : une suite qui lit des sources ne peut pas conclure qu'un code fonctionne.** C'est
+  > la même limite que celle relevée pour la « portée de l'identifiant d'envoi » dans
+  > `test:mot-de-passe`, qui ne pouvait pas voir un jeton mort. *Quand l'assertion est statique, il
+  > faut un essai séparé pour l'exécution.*
+
+### CE QUI RESTE, ET CE QUI BLOQUE
+
+- [ ] **Le justificatif Gmail de n8n** (`ccGmailOAuth0001`), dans l'éditeur — **la cause mesurée
+      des 26 échecs**. Geste du porteur du projet ; n8n répond maintenant, l'éditeur est joignable.
+- [ ] **`TELEGRAM_BOT_TOKEN`** dans `server/.env` : `[TELEGRAM] Scrutage inactif` au démarrage.
+- [ ] **LA CAMPAGNE COMPLÈTE N'EST PAS LANÇABLE UTILEMENT : 0,50 Go de mémoire libre sur 8,3.**
+      Le prérequis le dit de lui-même. Sous deux gigaoctets, les suites navigateur chronomètrent
+      la machine et non l'application — trois campagnes du même jour avaient rendu trois totaux
+      différents. **Fermer les fenêtres du navigateur est un prérequis, pas un conseil.**
+- [ ] **`Ankama`, 12 Go** : moins urgent qu'avant le redémarrage, mais c'est toujours le plus gros
+      levier si l'espace redevenait serré.
+
+---
+
+## 15.79 — Mon propre contrôle avait un faux vert : 26 annoncés, 60 réels  `VÉRIFIÉ`
+
+### CE QUI S'EST PASSÉ, ET D'OÙ VIENT LA DÉCOUVERTE
+
+Le contrôle des flux n8n avait attrapé sa première vraie panne : `ccAgentCourri01=26`. En allant
+lire la cause exacte dans la base — pour pouvoir la nommer au porteur du projet — une
+contradiction est apparue : **trois flux utilisent le même justificatif Gmail mort, et deux se
+déclarent en succès.**
+
+- [x] **Mesuré sur 24 h, par flux et par statut déclaré** :
+
+      | Flux | Statut déclaré | Exécutions | Dont échec d'authentification |
+      |---|---|---|---|
+      | `ccAgentCourri01` | `error` | 29 | **27** |
+      | `ccMessagerieCor1` | **`success`** | 19 | **17** |
+      | `ccMessagerieTri1` | **`success`** | 19 | **17** |
+      | `ccReleveTelegr01` | `success` | 264 | **0** — sain |
+
+- [x] **Vérifié sur une exécution précise** : `ccMessagerieTri1`, exécution 9753 du
+      `2026-11-05 22:15:57`, statut **`success`**, 9 552 octets de données — et
+      **`invalid_grant` présent dedans**. Le flux rattrape l'erreur du nœud Gmail et continue.
+
+- [x] **TRENTE-QUATRE EXÉCUTIONS SE SONT DÉCLARÉES RÉUSSIES EN ÉCHOUANT À S'AUTHENTIFIER.**
+      Le contrôle annonçait **26 échecs quand il y en avait 60.**
+
+  > **LA LEÇON, et c'est celle du projet retournée contre mon propre instrument : un contrôle qui
+  > fait confiance au statut déclaré hérite des faux verts de ce qu'il surveille.** La campagne
+  > rendait 2106/2106 pendant que l'envoi était mort ; le contrôle écrit pour déjouer ce piège y
+  > est tombé à son tour, un cran plus loin. *Le vert de n8n n'est pas plus fiable que le vert de
+  > la campagne, et pour la même raison : il mesure ce qu'il a décidé de mesurer.*
+
+  > **ET LA DÉCOUVERTE NE DOIT RIEN AU HASARD : elle vient d'avoir vérifié le verdict d'un
+  > instrument au lieu de le croire.** Le contrôle disait vrai — 26 échecs réels — et il était
+  > quand même trompeur. *Un verdict exact peut être incomplet, et seule la mesure indépendante
+  > fait la différence.*
+
+### CE QUI A ÉTÉ CORRIGÉ
+
+- [x] **Le contrôle lit désormais les DONNÉES d'exécution, pas seulement le statut** : jointure sur
+      `execution_data`, recherche de `invalid_grant`, `expired or revoked`, et du 401 sous ses deux
+      formes de sérialisation (`"code":401`, `"httpCode":"401"`).
+- [x] **DEUX CONSTATS DISTINCTS, et ils ne veulent pas dire la même chose** :
+      - `FLUX n8n EN ÉCHEC SUR LES DERNIÈRES 24 H` — visibles dans l'éditeur ;
+      - `FLUX n8n QUI SE DISENT RÉUSSIS EN ÉCHOUANT À S'AUTHENTIFIER` — **invisibles partout**.
+        L'onglet « Executions » les affiche **en vert** ; il faut ouvrir une exécution et lire le
+        nœud pour voir le refus. *Le message le dit, sinon on les chercherait là où ils ne sont
+        pas.*
+- [x] **Sortie ligne par ligne (`E <flux> <n>` / `F <flux> <n>`), analysée par un motif strict.**
+      L'ancienne version concaténait avec des virgules puis les remplaçait à l'affichage : deux
+      catégories n'y auraient pas tenu sans ambiguïté.
+- [x] **Les deux restent des rappels, pas des blocages.**
+- [x] **Éprouvé à l'exécution** : les prérequis rendent `ccAgentCourri01=29` d'un côté,
+      `ccMessagerieCor1=17   ccMessagerieTri1=17` de l'autre — **chiffres identiques à la mesure
+      indépendante faite à la main.**
+
+### CE QUE L'ENQUÊTE A ÉTABLI EN PASSANT
+
+- [x] **Le jeton Telegram de n8n est VIVANT, et il ne faut pas le révoquer.**
+      `ccReleveTelegr01` — qui écrit sur Telegram avec `ccTelegramBot001` — affiche **3 715
+      succès, 0 échec, dernier succès `2026-11-05 22:20:57`**, soit trois minutes avant la mesure.
+
+  > **UN JETON DE BOT TELEGRAM N'EXPIRE PAS.** Il manquait seulement dans `server/.env`, dont la
+  > ligne `TELEGRAM_BOT_TOKEN=` est **présente mais vide**. *Le révoquer dans BotFather pour en
+  > « obtenir un neuf » casserait le flux sortant qui marche, et obligerait à remettre le nouveau
+  > jeton dans n8n en plus de `server/.env`.* Le geste est donc de LIRE le jeton existant, pas de
+  > le renouveler.
+
+- [x] **Cartographie des justificatifs par flux**, qui dit quoi sera réparé par le geste ② :
+
+      | Flux | Justificatifs |
+      |---|---|
+      | `ccAgentCourri01` | **Gmail**, clé de service, Anthropic |
+      | `ccMessagerieTri1` | **Gmail**, Anthropic, Telegram |
+      | `ccMessagerieCor1` | **Gmail**, Telegram |
+      | `ccAgentTelegr01` | clé de service, Anthropic, Telegram |
+      | `ccReleveTelegr01` | clé de service, Telegram |
+      | `ccSupportAgent01` | Anthropic, clé d'agent |
+
+      **Trois flux dépendent du justificatif Gmail**, et non un seul comme le laissait croire le
+      décompte des échecs déclarés.
+
+- [x] **`ccAgentCourri01` n'a plus réussi depuis `2026-11-02 13:44:24`** — l'horaire exact de la
+      mort du jeton consigné au journal. *La corrélation est à la seconde.*
+
+### ÉPROUVÉ
+
+- [x] **`test:controles` : 54/54** — de 35 ce matin à 44, puis 54. Dix vérifications pour le
+      statut déclaré, neuf pour l'espace disque.
+- [x] **Prérequis lancés en vrai**, les deux constats rendus, chiffres confirmés par mesure
+      indépendante.
+
+### CE QUI RESTE
+
+- [ ] **Le justificatif Gmail de n8n** — geste du porteur du projet. **Il réparera TROIS flux**,
+      pas un.
+- [ ] **`TELEGRAM_BOT_TOKEN`** : lire le jeton existant dans BotFather, **sans le révoquer**.
+- [ ] **La campagne complète** : toujours **0,78 Go de mémoire libre sur 8,3**. Sous deux
+      gigaoctets, les suites navigateur chronomètrent la machine.
+
+---
+
+## 15.80 — Le justificatif Gmail reconnecté : trois flux repartent, et le contrôle apprend à se taire  `VÉRIFIÉ`
+
+### LA RECONNEXION EST CONFIRMÉE, ET LA BASCULE EST DATÉE À LA MINUTE
+
+Le porteur du projet a reconnecté `ccGmailOAuth0001` avec `support.coachconnect.app@gmail.com`.
+Mesuré sur les quatorze dernières exécutions des trois flux qui dépendent de ce justificatif :
+
+```
+2026-11-06 00:00:57  ccMessagerieTri1 success auth ok
+2026-11-06 00:00:50  ccMessagerieCor1 success auth ok
+2026-11-06 00:00:01  ccAgentCourri01  success auth ok
+2026-11-05 23:50:01  ccAgentCourri01  success auth ok
+2026-11-05 23:45:57  ccMessagerieTri1 success auth ok
+2026-11-05 23:45:49  ccMessagerieCor1 success auth ok
+2026-11-05 23:45:19  ccAgentCourri01  success auth ok
+2026-11-05 23:41:15  ccMessagerieTri1 success AUTH EN ECHEC   <- dernier mauvais
+2026-11-05 23:41:07  ccMessagerieCor1 success AUTH EN ECHEC   <- dernier mauvais
+2026-11-05 22:40:01  ccAgentCourri01  error   AUTH EN ECHEC
+```
+
+- [x] **La bascule a eu lieu entre 23 h 41 et 23 h 45.**
+- [x] **`ccAgentCourri01` a réussi pour la première fois depuis `2026-11-02 13:44:24`** — une panne
+      de **cinquante-huit heures** refermée.
+- [x] **ET LES DEUX FAUX VERTS SONT VÉRIFIABLEMENT GUÉRIS**, ce qui n'aurait pas été observable
+      avant la correction de la veille : leur statut disait déjà `success` pendant la panne.
+      *C'est la mesure des données, pas du statut, qui permet de distinguer les deux.*
+
+### LE CONTRÔLE CORRIGÉ CRIAIT ENCORE APRÈS LA RÉPARATION
+
+Lancé vingt minutes après la reconnexion, le contrôle annonçait :
+
+```
+FLUX n8n EN ÉCHEC SUR LES DERNIÈRES 24 H : ccAgentCourri01=31
+FLUX n8n QUI SE DISENT RÉUSSIS… : ccMessagerieCor1=19   ccMessagerieTri1=19
+```
+
+- [x] **Chiffres exacts, et complètement trompeurs** : les trois flux tournaient de nouveau sans
+      erreur. La fenêtre couvre 24 h, donc elle gardait les échecs de la panne traitée.
+
+  > **LA LEÇON : un avertissement qui continue de crier après la réparation apprend à l'ignorer, et
+  > un avertissement qu'on a appris à ignorer ne protège plus de rien.** *C'est exactement l'état
+  > d'esprit qui a laissé 27 échecs passer trois jours.* Un contrôle doit distinguer la panne de
+  > son souvenir.
+
+- [x] **Corrigé : `EN COURS` contre `RÉSOLU`**, tranché sur un critère mesuré — l'état de la
+      **dernière** exécution du flux dans la fenêtre — et non sur une heure de garde arbitraire.
+- [x] **L'horodatage du dernier échec est rendu** : sans lui, impossible de savoir si la panne
+      vit encore.
+- [x] **Le remède détaillé n'est affiché que si quelque chose échoue ENCORE.** Une panne résolue
+      dit pourquoi elle reste visible — la fenêtre de 24 h, et les données manquantes de la
+      journée qu'elle explique.
+- [x] **Éprouvé** : le contrôle rend maintenant
+      `ccAgentCourri01=31 (RÉSOLU, dernier le 2026-11-05 22:40:01)` et les deux flux de messagerie
+      `(RÉSOLU, dernier le 2026-11-05 23:41:07 / 23:41:15)` — **horaires identiques à la mesure
+      directe.**
+
+### UNE ASSERTION A ÉCHOUÉ, ET C'ÉTAIT ELLE QUI AVAIT TORT
+
+- [x] `test:controles` est tombé à **59/60**. La vérification en cause cherchait
+      `st=="success" && re.test`. La refonte a introduit une variable intermédiaire
+      (`mauvaisAuth`), le résultat du motif servant désormais deux fois. **Le comportement vérifié
+      n'avait pas changé d'un iota.**
+
+  > **LA LEÇON : une assertion qui épouse la FORME du code se casse à la première refonte, et son
+  > échec accuse le code à tort.** Elle a été remise sur la PROPRIÉTÉ qui compte — qu'un « avalé »
+  > ne soit compté que dans une branche gardée par `success` — au lieu d'une écriture particulière.
+  > *Et il fallait résister à la tentation de simplement l'affaiblir : une assertion qu'on relâche
+  > pour la faire passer ne vérifie plus rien.*
+
+### ÉPROUVÉ
+
+- [x] **`test:controles` : 60/60** — de 35 la veille au matin à 44, 54, puis 60.
+- [x] **`test:mot-de-passe` : 52/52** · **`test:scrutage` : 49/49**
+- [x] **Les trois services répondent 200**, conteneurs debout depuis deux heures.
+
+### CE QUI RESTE
+
+- [ ] **`TELEGRAM_BOT_TOKEN`** : le porteur du projet s'en occupe. Rappel mesuré — **le jeton n'est
+      pas expiré**, il est seulement absent du `.env` ; `ccReleveTelegr01` écrit sur Telegram avec
+      3 715 succès et 0 échec. **Le lire dans BotFather, ne pas le révoquer.**
+- [ ] **La campagne complète** : **0,84 Go de mémoire libre sur 8,3**. Sous deux gigaoctets, les
+      suites navigateur chronomètrent la machine.
+
+---
+
+## 15.81 — Le scrutage Telegram est actif, et trois défauts réels trouvés en le vérifiant  `VÉRIFIÉ`
+
+### ③ LE JETON TELEGRAM EST DÉPOSÉ ET LE SCRUTAGE TOURNE
+
+- [x] `TELEGRAM_BOT_TOKEN` : **46 signes**, longueur normale. *Jamais affiché, ni ici ni au terminal.*
+- [x] **`[TELEGRAM] Scrutage actif — les réponses arrivent sans tunnel ni adresse publique.`**
+- [x] **Zéro erreur Telegram au journal** : `getUpdates` n'est pas refusé, donc le jeton est bon.
+      *Un jeton erroné rendrait 401 et le scrutateur le dirait.*
+- [x] Les trois services répondent 200, `[DB] Connecte`, `[COURRIEL] Envoi pret (oauth2)`.
+
+### LE PIÈGE DES ORPHELINS, REFAIT — ET CETTE FOIS LA CAUSE PROFONDE EST TROUVÉE
+
+Trois redémarrages de suite ont échoué sur `EADDRINUSE`, **alors que `liberer-port.mjs` venait
+d'annoncer `[PORT] 5000 libre.`** — l'erreur exacte que ce script existe pour empêcher.
+
+- [x] **Mesuré sur l'écouteur réel, qui répondait 200 :**
+
+      ```
+      LocalAddress : ::        LocalPort : 5000
+      RemoteAddress : ::       RemotePort : 0        <- c'est bien un écouteur
+      State : <null>                                 <- et voilà la cause
+      OwningProcess : 24712
+      ```
+
+- [x] **Le garde-fou filtrait sur `-State Listen`.** La pile réseau ne remplit pas toujours ce
+      champ : l'écouteur était donc écarté, et le script concluait « libre ».
+
+  > **LA LEÇON : un écouteur se reconnaît à l'ABSENCE DE PAIR DISTANT (`RemotePort = 0`), qui est
+  > un fait structurel, et non à une étiquette d'état. *Filtrer sur le champ le plus fiable, pas
+  > sur le plus bavard.***
+
+- [x] **ET MA PREMIÈRE EXPLICATION ÉTAIT FAUSSE.** J'avais conclu que `netstat` voyait ce que le
+      cmdlet manquait. La mesure l'a démentie : sur le second cas, `netstat` ne montrait **aucune**
+      ligne en écoute alors que le cmdlet, interrogé sans `-State`, voyait l'entrée.
+
+      | | `netstat -ano` | `Get-NetTCPConnection` |
+      |---|---|---|
+      | PID 27232 | **LISTENING, visible** | rien avec `-State Listen` |
+      | PID 24712 | **aucune ligne** | entrée présente, `RemotePort 0` |
+
+  > **Chacun des deux outils a eu son angle mort, à quelques minutes d'écart, sur la même
+  > machine.** *Une source unique ne permet donc pas de conclure « libre » : c'est une conclusion
+  > POSITIVE tirée d'une non-réponse.*
+
+- [x] **Deux corrections, pas une** : la requête ne filtre plus sur l'état et reconnaît
+      `RemotePort -eq 0` ; et un **second relevé** par `netstat` tranche quand le premier ne voit
+      rien — en lisant l'adresse distante nulle, jamais le mot d'état, qui est localisé.
+- [x] **Le repli résout le NOM du processus** (`tasklist`), sinon le filtrage « nôtre / étranger »
+      aurait refusé tout démarrage.
+- [x] **ÉPROUVÉ DESTRUCTIVEMENT, parce qu'il n'y avait pas d'autre preuve** : garde-fou lancé sur
+      le serveur en train de tourner → `[PORT] 5000 : ancien serveur arrêté (PID 24712, node).`,
+      puis API à **000**. *Il voit enfin ce qu'il devait voir.* Serveur relancé derrière, scrutage
+      Telegram revenu.
+
+### UNE COURSE RÉELLE DANS `test:mot-de-passe`, ET CE N'ÉTAIT PAS LE PRODUIT
+
+- [x] La suite rendait 52/52 ; elle s'est mise à s'interrompre **à 4/4**, de façon reproductible,
+      sur `INTERROMPU : Unexpected end of JSON input`.
+- [x] **Vérifié dans cet ordre, au lieu de rafistoler** :
+      - les **344** fichiers de `.boite-mails/` sont tous du JSON valide, contrôlés un par un
+        **après** l'échec ;
+      - le **seul** `JSON.parse` non protégé de la suite est celui qui lit cette boîte — celui de
+        `appel()` rend déjà `null` ;
+      - `attendreMail()` scrute **toutes les 150 ms**, et l'envoi part **après** la réponse HTTP.
+- [x] **La lecture tombait sur un fichier en cours d'écriture.** Et le courriel de
+      réinitialisation pèse **2 379 octets contre 302 à 373** pour les autres : plus gros, plus
+      long à écrire, plus facile à surprendre. *C'est pour cela que la panne est apparue sur cette
+      section-là, et pas avant.*
+
+  > **LA LEÇON : un fichier qu'un autre processus est en train d'écrire n'est pas un fichier
+  > invalide.** Le traiter comme une erreur fatale fait échouer la suite sur un défaut qui n'existe
+  > pas dans le produit. *Et on ne ralentit pas la scrutation pour autant : attendre « assez
+  > longtemps » serait un pari sur la vitesse du disque — la même course avec un sursis.*
+
+- [x] **Corrigé** : un fichier illisible est ignoré, la scrutation suivante le lira complet.
+- [x] **ÉPROUVÉ TROIS FOIS DE SUITE : 52/52, 52/52, 52/52.** *Une course ne se prouve pas par un
+      seul passage.*
+
+### DEUX AMÉLIORATIONS DES CONTRÔLES
+
+- [x] **« Zéro erreur sur zéro exécution » n'est plus un silence rassurant.** Le contrôle des flux
+      n8n compte désormais les exécutions examinées : base vide après recréation de conteneur, flux
+      tous désactivés, historique purgé — tous ces cas rendaient le même silence qu'un
+      fonctionnement sain. *Trou trouvé en se posant la question, pas en rencontrant la panne.*
+- [x] **Un outil pour ne plus refaire un piège déjà documenté.** Deux assertions ont échoué parce
+      qu'elles interdisaient toute occurrence de `-State Listen` et de `LISTENING` — et c'était le
+      **commentaire expliquant pourquoi on les évite** qui les faisait tomber.
+
+  > **Le projet avait déjà payé cette leçon pour `docker logs`.** La refaire quelques heures plus
+  > tard montre qu'**une leçon écrite n'est pas une leçon acquise** : d'où `sansCommentaires()`,
+  > qui donne le CODE à lire aux assertions et rend la règle mécanique au lieu de la laisser à la
+  > vigilance.
+
+### ÉPROUVÉ
+
+- [x] **`test:controles` : 71/71** — de 35 la veille au matin à 44, 54, 60, puis 71.
+- [x] **`test:mot-de-passe` : 52/52, trois fois** · **`test:scrutage` : 49/49**
+- [x] **Un seul écouteur sur le port 5000** (PID vérifié), son parent étant son superviseur
+      `nodemon` — plus aucun orphelin.
+
+### CE QUI RESTE
+
+- [ ] **La chaîne de bout en bout depuis Telegram** : c'est au porteur du projet d'envoyer une
+      réponse depuis son téléphone. **Tout l'aval est prêt et mesuré pour la première fois.**
+- [ ] **La campagne complète** : **0,75 Go de mémoire libre sur 8,3**. Sous deux gigaoctets, les
+      suites navigateur chronomètrent la machine et non l'application.
+
+---
+
+## 15.82 — La chaîne Telegram marche de bout en bout, et les deux refus étaient justes  `VÉRIFIÉ`
+
+### LA PREUVE DE BOUT EN BOUT EST FAITE
+
+Le porteur du projet a répondu à une escalade **depuis Telegram**. Mesuré dans la base de n8n :
+
+```
+2026-11-06 00:57:36  ccAgentTelegr01  success  exec=9888
+2026-11-06 00:56:38  ccAgentTelegr01  success  exec=9886
+```
+
+- [x] **Les deux exécutions en succès**, et le back-end a enregistré un brouillon
+      (`POST /api/support/service/tickets/.../brouillon` → **200**).
+- [x] **Deux dossiers, deux brouillons rédigés par l'agent** :
+
+      | Dossier | Créé | Brouillon |
+      |---|---|---|
+      | `14825d12` | 00:55:52 | **661 signes** |
+      | `14825da3` | 01:04:32 | **2 166 signes**, `parAgent: true`, `origine: agent` |
+
+- **LA CHAÎNE COMPLÈTE EST DONC ÉPROUVÉE POUR LA PREMIÈRE FOIS** : Telegram → scrutage sortant
+  (`getUpdates`) → n8n en local → modèle → back-end → brouillon en base. *Sans tunnel ni adresse
+  publique.*
+
+### LES DEUX MESSAGES REÇUS N'ÉTAIENT PAS DES PANNES
+
+Le porteur du projet a reçu deux réponses déroutantes. **Les deux sont des comportements corrects**,
+et il a fallu mesurer pour l'établir.
+
+- [x] **« La réponse dépasse la longueur prévue pour un courriel »** vient de
+      `stop_reason === 'max_tokens'`, dans le nœud « Lire la rédaction ». C'est **la réponse du
+      modèle** qui a été coupée, pas la consigne. Le commentaire du flux dit pourquoi on refuse :
+
+  > *« Une coupure sur la limite de jetons laisse un texte présentable mais tronqué au milieu d'une
+  > phrase — et ce texte partirait ensuite chez un utilisateur. On refuse plutôt que de proposer un
+  > brouillon inachevé qu'une relecture rapide validerait. »*
+
+- [x] **« Elle s'interrompt en cours de phrase (« et vous souhaitez ») »** : **l'agent disait vrai.**
+      Mesuré sur les deux exécutions, même consigne :
+
+      | Exécution | Consigne reçue | Fin du texte |
+      |---|---|---|
+      | 9886 — 00:56:38 | **302 signes** | « …les démarches de **remboursement** » |
+      | 9888 — 00:57:36 | **233 signes** | « …et vous **souhaitez** » |
+
+      Ce n'est pas une continuation : **c'est un préfixe tronqué de la même phrase.**
+
+- [x] **ET CE N'EST PAS NOTRE CODE — résultat négatif établi, pas supposé.** Les seules coupures de
+      longueur du flux Telegram sont à **20** (un code de rattachement), **500**, **3 999** et
+      **4 000** signes. **Aucune à 233.** Celle de 3 999 protège l'envoi **sortant** — Telegram
+      refuse au-delà de 4 096. Le service de scrutage, lui, n'a aucun `slice` sur le texte reçu.
+
+  > **La version à 233 signes est donc arrivée ainsi.** Un envoi parti avant la fin de la frappe est
+  > l'explication la plus simple, et aucune mesure disponible ne la contredit. *Ce qui est établi :
+  > rien chez nous ne tronque la consigne entrante.*
+
+- [x] **L'agent a protégé le travail déjà fait** : il a répondu « le brouillon précédent reste
+      inchangé », et c'était exact — les 661 signes du dossier `14825d12` étaient intacts.
+
+  > **LA LEÇON : un refus bien rédigé est un succès du système, pas une panne.** Les deux messages
+  > nommaient leur cause et leur remède. *Le réflexe de les prendre pour des défauts aurait conduit
+  > à désactiver deux garde-fous qui faisaient exactement leur travail.*
+
+### LA BATTERIE COMPLÈTE DES SUITES SERVEUR
+
+- [x] **21 suites, 1517/1517 vérifications, AUCUNE suite en défaut.**
+
+      ```
+      test:api               73/73      test:releve             78/78
+      test:stripe            50/50      test:canaux            281/281
+      test:evenements        76/76      test:telegram           57/57
+      test:geocodage         39/39      test:messagerie-agent  104/104
+      test:recherche         64/64      test:reponse            52/52
+      test:messagerie        62/62      test:courriel           57/57
+      test:notifications     47/47      test:escalade           35/35
+      test:perf              18/18      test:scrutage           49/49
+      test:relations         28/28      test:controles          71/71
+      test:moderation        90/90
+      test:support          134/134
+      test:mot-de-passe      52/52
+      ```
+
+- [x] **État après la batterie** : trois services à 200, `myState 1 PRIMARY`, 16 collections,
+      3 927 documents, scrutage Telegram toujours actif.
+- [x] **Les deux constats n8n restent `RÉSOLU`**, aucun nouvel échec depuis la reconnexion.
+
+### CE QUI N'A PAS ÉTÉ LANCÉ, ET POURQUOI C'EST DIT
+
+- [ ] **Les 18 suites navigateur n'ont pas tourné : 0,89 Go de mémoire libre sur 8,3.**
+
+  > **Les lancer aurait produit un chiffre, et ce chiffre n'aurait rien valu.** Sous deux
+  > gigaoctets, elles chronomètrent la machine et non l'application — `/messages` mesuré à
+  > 10 370 ms en fin de campagne contre 1 463 ms relancé seul, sur un code identique.
+  > *Annoncer un total sans dire ce qu'il ne couvre pas est précisément le piège du 2106/2106.*
+
+### CE QUI RESTE
+
+- [ ] **Fermer les fenêtres du navigateur**, puis la campagne complète — les 39 suites ensemble.
+- [ ] **La proposition (g)** : afficher à côté du total de la campagne ce qu'elle **ne couvre pas**.
+      *C'est la réponse de fond à la question du porteur du projet sur les faux verts.*
+- [ ] Pare-feu, version de n8n, `Ankama`, Google en Public.
+
+---
+
+## 15.83 — Le total dit enfin ce qu'il ne couvre pas, et n8n sort de deux failles  `VÉRIFIÉ`
+
+### LA PROPOSITION (g) EST EN PLACE, ET ELLE A SERVI AU PREMIER LANCEMENT
+
+Le bilan de campagne imprime désormais, **juste sous le total**, un bloc
+`CE QUE CE TOTAL NE COUVRE PAS`. Deux natures de limites, et les mélanger aurait été une faute :
+
+- [x] **Les limites STRUCTURELLES**, qui tiennent au dessin de la campagne : aucun courriel réel
+      n'est envoyé *(domaines réservés, et c'est voulu)* ; les flux n8n ne sont pas exercés
+      *(ils tournent à l'horloge, hors campagne)* ; certaines sections lisent les sources au lieu
+      de les exécuter.
+- [x] **Les limites MESURÉES à ce lancement-ci**, calculées et jamais écrites à la main :
+      mémoire libre au moment du bilan, suites non lancées, suites sans vérification.
+
+  > **Une liste figée finirait par mentir, et un avertissement qui ment est pire que pas
+  > d'avertissement.**
+
+- [x] **Dès la première campagne, le bloc a fait son travail** : il a annoncé
+      « les assertions de DURÉE ne valent rien pour ce lancement : 1.05 Go de mémoire libre en fin
+      de campagne, sous le seuil de 2 Go. Les suites navigateur ont chronométré la machine. Le
+      reste des vérifications tient. »
+
+      *Et il distingue ce qui tombe de ce qui tient : jeter un total entier pour cette raison
+      serait aussi faux que de le croire sans réserve.*
+
+### UN TROU DANS (g), TROUVÉ EN RELISANT MA PROPRE SORTIE
+
+- [x] La première campagne affichait **`Total : 2130/2130`** avec une suite interrompue à
+      **`0/0`** — le relais Stripe ne tournait pas. Le total restait **exact** et **muet** sur une
+      suite entière de couverture manquante.
+
+  > **LA LEÇON : `n/n` n'est pas rassurant par construction. `0/0` satisfait « tout est au vert »
+  > sans avoir rien vérifié.** *Une addition ne distingue pas ce qui est réussi de ce qui n'a pas
+  > été tenté.* Corrigé : un compteur à zéro compte désormais comme « rien vérifié », au même
+  > titre qu'un compteur absent.
+
+- [x] **Et un second défaut rattrapé avant le premier lancement** : `SEUIL_MEMOIRE_GO` était
+      déclaré **dans** la fonction des prérequis, et mon code du bilan l'utilisait hors de portée —
+      `ReferenceError` garanti. Le seuil est maintenant unique, au niveau du module.
+
+  > *Deux constantes jumelles finiraient par divergir, et le bilan annoncerait un seuil que les
+  > prérequis n'appliquent plus.*
+
+### LE VERDICT DE LA CAMPAGNE, ET IL EST HONNÊTE SUR SA FORME
+
+- [x] **Campagne 1** *(sans relais Stripe)* : **38 suites, 2130/2130**, `test:paiement` interrompue
+      faute de relais.
+- [x] **`test:paiement` seule, relais en place : 47/47.**
+- [x] **Campagne 2** *(relais en place)* : **2099/2100**, deux suites navigateur en délai dépassé,
+      avec **0,51 Go de mémoire libre** annoncés par le bloc (g) lui-même.
+- [x] **LES DEUX ÉCHECS ÉTAIENT LA MACHINE, PROUVÉ EN LES RELANÇANT SEULES** :
+      `test:telegram` **19/19** *(contre 8/9)*, `test:support` **140/140** *(contre 62/62
+      interrompue)*.
+
+  > **LES 39 SUITES PASSENT — mais aucun lancement unique ne les a toutes au vert en même temps**,
+  > parce que le poste ne tient pas la campagne entière à ce niveau de mémoire. *Le dire est le
+  > but même du bloc (g) : annoncer « 2177/2177 » d'un seul tenant serait exactement le mensonge
+  > qu'on vient de fermer.*
+
+### LE RELAIS STRIPE, ET UN SECRET QUI A FAILLI PARTIR DANS LE DÉPÔT
+
+- [x] **Relais démarré avec la clé de TEST passée par variable d'environnement**, jamais en
+      argument de commande — et **refus explicite codé** si la clé n'avait pas commencé par
+      `sk_test`.
+- [x] **Le secret de signature diverge à chaque session `stripe listen`** : celui du `.env` était
+      déjà mort. Synchronisé, back-end redémarré, `test:paiement` au vert.
+- [x] **MA PREMIÈRE TENTATIVE A VIDÉ LA LIGNE.** Le secret était écrit sur la sortie d'**erreur**
+      du relais, pas sa sortie standard : mon motif rendait une chaîne vide, et je l'ai écrite.
+      Restauré depuis la sauvegarde, puis refait **en validant AVANT d'écrire** — longueur et
+      préfixe contrôlés des deux côtés.
+
+  > **LA LEÇON : on ne remplace pas un secret par la valeur qu'une commande « devrait » avoir
+  > rendue.** *Vérifier avant d'écrire coûte une ligne ; restaurer coûte une sauvegarde qu'on n'a
+  > pas toujours.*
+
+- [x] **ET CETTE SAUVEGARDE ÉTAIT UN DANGER EN SOI.** `server/.env.avant-stripe-listen` n'était
+      **pas** ignorée par git : un `git add .` l'aurait publiée, secret compris. Les règles
+      énuméraient `.env`, `.env.local`, `.env.*.local` — **un nom imprévu passait au travers.**
+      Fichier supprimé, et `.env.*` ajouté **avant** `!.env.example`.
+
+  > **LA LEÇON : pour des fichiers de secrets, on ignore la FAMILLE puis on réautorise l'exception
+  > nommée — jamais l'inverse.**
+
+- [x] **Et mon premier correctif du `.gitignore` s'est trompé tout seul** : le test de présence par
+      sous-chaîne était satisfait par la ligne `.env.*.local` déjà là, donc il concluait « règle
+      déjà présente » sans rien faire. *Un test de sous-chaîne sur un fichier de motifs est un faux
+      positif qui attend son heure.* Repris sur la ligne exacte, et vérifié des deux côtés : une
+      variante inattendue est ignorée, `.env.example` reste visible de git.
+
+### LE GARDE-FOU DU PORT, ÉPROUVÉ EN CONDITIONS RÉELLES
+
+- [x] Au redémarrage du back-end pour le secret Stripe, il a écrit :
+      `[PORT] 5000 : ancien serveur arrêté (PID 31428, node).`
+
+  > **C'est exactement ce qu'il n'arrivait pas à faire la nuit précédente**, où il annonçait
+  > `[PORT] 5000 libre.` avant trois `EADDRINUSE` consécutifs. *Un correctif vaut ce que vaut sa
+  > prochaine occasion de servir, et celle-ci est passée.*
+
+### LE PARE-FEU : UNE ALERTE QUE J'AI LANCÉE PUIS DÉMENTIE MOI-MÊME
+
+- [x] **J'ai d'abord annoncé que quatre règles exposaient l'API sur les réseaux publics.
+      C'ÉTAIT FAUX.** Les programmes visés sont
+      `C:\users\marti\node_modules\node\bin\node.exe` et
+      `C:\users\marti\documents\ydaysnativeapp\node_modules\node\bin\node.exe`. Le back-end du
+      projet tourne sur `C:\Program Files\nodejs\node.exe` — **un autre binaire.** Ces règles
+      viennent d'autres projets.
+
+  > **LA LEÇON : une règle de pare-feu ne se lit pas à son NOM.** « node.exe » désignait trois
+  > binaires différents sur ce poste. *Le nom suggérait le projet ; le chemin disait le contraire.*
+
+- [x] **L'état réel, mesuré** : le binaire du projet est autorisé en entrant **sur `Private`
+      seulement** ; le poste est sur `SFR_5A78_5GHZ`, catégorie **Private** — donc l'API de dev
+      **est** joignable depuis le réseau local, ce qui explique que l'épreuve au téléphone ait
+      marché. La règle de blocage du projet est **absente**, et la poser demande une élévation
+      refusée (`administrateur : False`).
+- **Le journal notait `PEDA / Public` : c'était vrai, ce ne l'est plus.** *Un état de réseau est
+  une mesure de l'instant, pas une propriété du poste.*
+
+### ANKAMA : IMPOSSIBLE, ET LA RAISON N'EST PAS CELLE QU'ON CROIT
+
+- [ ] **Aucun disque externe n'est détecté** — trois mesures concordantes : un seul volume (`C:`),
+      un seul disque physique *(le NVMe interne de 238,5 Go)*, **aucun périphérique de stockage
+      USB**.
+- [x] **Et même branché, un déplacement à la main casserait le jeu.** Mesuré : les **12,02 Go**
+      sont dans `Dofus-dofus3`, et le lanceur **Zaap inscrit le chemin d'installation dans sa
+      propre configuration** (`%APPDATA%\zaap\...\release.json`). Déplacer le dossier laisserait
+      Zaap pointer vers un chemin mort — et 12 Go à retélécharger pour réparer.
+
+  > **La bonne méthode est le lanceur lui-même**, qui déplace les fichiers *en mettant sa
+  > configuration à jour*.
+
+- **L'urgence est retombée de toute façon** : **9,1 Go libres** contre 0,36 la veille.
+
+### n8n : SORTI DES DEUX PLAGES DE FAILLES, SANS RIEN PERDRE
+
+- [x] **1.121.0 → 1.121.3**, par `recreer-n8n.mjs` et jamais par `docker compose -f` à la main.
+- [x] **Pourquoi cette version et pas la plus récente** : 1.121.0 restait dans
+      **CVE-2025-68613** *(injection d'expression → exécution de code, CVSS 9.9, authentifié)* et
+      **CVE-2026-21877** *(écriture de fichier → exécution de code)*. **1.121.3 est le plus petit
+      pas qui sort des deux.** La ligne 1.x offrait 1.123.92, et la dernière stable est 2.46.6 —
+      **passer en 2.x est une migration majeure, pas un correctif.**
+
+  > **LA LEÇON : quand une mise à jour est une mesure de sécurité, on choisit la plus PETITE qui
+  > atteigne l'objectif — pas la plus récente.** *À quelques jours d'une soutenance, un saut
+  > majeur échangerait deux failles connues contre des inconnues.*
+
+- [x] **Vérification par comparaison avant / après, et c'est elle qui conclut** :
+
+      | | avant `1.121.0` | après `1.121.3` |
+      |---|---|---|
+      | flux | 6 | **6** |
+      | justificatifs | 6 | **6** |
+      | flux actifs | les 6 | **les 6** |
+      | exécutions | 4 832 | **4 844** |
+
+      *Les données vivent dans un volume nommé — c'est ce qui rendait la manœuvre sûre, et ça avait
+      été vérifié AVANT de la lancer, pas après.*
+
+- [x] **Sortie TLS vérifiée après coup** *(code 401 attendu)* et **certificat Avast en place** :
+      le piège consigné du conteneur recréé sans certificat ne s'est pas reproduit.
+- [x] **ÉPROUVÉ : les six suites qui touchent n8n, 651/651** — `test:canaux` 281/281,
+      `test:releve` 78/78, `test:messagerie-agent` 104/104, `test:telegram` 57/57,
+      `test:scrutage` 49/49, `test:controles` 82/82.
+
+### CE QUI RESTE
+
+- [ ] **Une campagne complète d'un seul tenant**, qui demande **2 Go de mémoire libre** — donc la
+      fermeture de VS Code et des navigateurs *(mesuré : `Code` 472 Mo sur 19 processus, `chrome`
+      348 Mo sur 21, et `Memory Compression` à 1 737 Mo, signe que la machine comprime faute de
+      RAM)*.
+- [ ] **Le relais Stripe est une corvée par session** : son secret de signature change à chaque
+      lancement, et `test:paiement` échoue tant qu'il n'est pas reporté dans `server/.env`.
+      *Un script le ferait en une commande — proposé, non écrit.*
+- [ ] **Le pare-feu** : poser la règle de blocage demande une fenêtre administrateur.
+- [ ] **Le disque externe** à faire reconnaître, puis Ankama **par Zaap**.
+- [ ] **Google en Public**, arbitré non et toujours non.
+
+---
+
+## 15.84 — « Pourquoi ça ne marche pas » : deux causes distinctes, et une alerte muette  `VÉRIFIÉ`
+
+### LA PREMIÈRE CAUSE N'EST PAS UNE PANNE : RIEN NE TOURNAIT
+
+- [x] **Les quatre services étaient à l'arrêt**, et pour deux raisons séparées :
+      Docker Desktop était **fermé** *(d'où ni MongoDB ni n8n)*, et le back-end comme le
+      client avaient été **tués à la fin de la session précédente** — tous deux sortis en
+      **code 4**, qui est la marque d'un arrêt par l'hôte, pas d'un plantage.
+
+  > **Une sortie en code 4 n'est pas un défaut du projet.** *Le chercher dans le code aurait
+  > coûté une heure pour rien : le processus n'a pas échoué, il a été interrompu.*
+
+### LA SECONDE : 351 ALERTES TELEGRAM, ET LE RÉSEAU DU POSTE
+
+- [x] **Le journal portait 351 alertes** `[TELEGRAM] Telegram est injoignable` sur 502 lignes.
+      **Ce n'était ni le code, ni le jeton, ni l'API.** Mesuré à la reprise :
+      `getMe` avec le vrai jeton répond **HTTP 200 en 59 ms**.
+- [x] **Le démarrage, lui, était impeccable** : `[DB] Connecte`, `[PAIEMENTS] Stripe connecte`,
+      `[COURRIEL] Envoi pret (oauth2)`, `[TELEGRAM] Scrutage actif`. La panne est arrivée
+      **après**, en pleine exploitation.
+- [x] **DATÉE PAR ARITHMÉTIQUE, FAUTE DE MIEUX.** Les alertes ne portent pas d'horodatage,
+      mais la cadence est connue : `REPRISE_DEFAUT = 5000` ms, sans palier progressif.
+      349 pannes rapides × 5 s ≈ **29 minutes**, plus 2 abandons à 60 s
+      *(`ATTENTE_DEFAUT = 50` s + `MARGE_MS = 10` s)*. Dernière écriture du journal à
+      **13:34:50** → la fenêtre s'ouvre vers **13:04**.
+- [x] **ET LE JOURNAL WI-FI DE WINDOWS LA CONFIRME** : déconnexion du réseau à
+      **13:05:39**, échec de connexion à 13:33:50, nouvelle déconnexion à 13:36:11 —
+      **4 déconnexions et 11 échecs d'association** sur six heures, sur un
+      `Realtek 8821CE`.
+- [x] **La toute première alerte était `This operation was aborted`, pas `fetch failed`** —
+      donc un abandon au bout de 60 s, puis la socket morte d'un coup.
+
+  > **C'est la signature d'un lien qui se dégrade avant de tomber** : d'abord une requête
+  > trop lente pour le minuteur, ensuite plus de lien du tout. *L'ordre des deux symptômes
+  > était le seul indice de leur nature, et il ne tenait qu'à un message d'erreur.*
+
+### LE VRAI DÉFAUT DU PROJET : UNE ALERTE QUI NE NOMME PAS SA CAUSE
+
+- [x] **349 lignes disaient « fetch failed » et rien d'autre.** `fetch` enveloppe **toute**
+      panne réseau dans ce message unique et range la cause dans `erreur.cause.code` — et
+      le code journalisait `erreur.message` **seul**.
+- [x] **CORRIGÉ** : `causeDe()` posée dans `telegram-scrutage.service.js`, à côté de
+      `masquer()`, et utilisée aux **deux** points d'appel — Telegram *(ligne 216)* et n8n
+      *(ligne 198)*, qui souffraient du même mal.
+
+      ```
+      avant :  Telegram est injoignable : fetch failed
+      après :  Telegram est injoignable : fetch failed (ECONNRESET)
+      ```
+
+  > **LA LEÇON : une alerte qui ne nomme pas sa cause coûte le diagnostic entier.**
+  > *Le code système est le renseignement le plus utile de la pile, et c'est précisément
+  > celui qu'on jetait.* Le projet l'avait **déjà payé** une fois, avec un `ENOTFOUND` pris
+  > pour une régression du code qui venait de changer.
+
+- [x] **ÉPROUVÉ SUR LES FORMES RÉELLES D'UNE ERREUR D'UNDICI**, pas sur des erreurs
+      inventées : `ECONNRESET`, `ENOTFOUND`, `ECONNREFUSED`, une cause sans `code`
+      *(le cas du certificat de l'antivirus)*, un abandon volontaire *(inchangé — il n'a pas
+      de cause)*, une erreur sans cause *(rendue telle quelle)*, `null` et `undefined`.
+- [x] **ET LE JETON RESTE MASQUÉ** quand la cause est ajoutée : l'assertion porte sur la
+      **propriété** — le jeton est absent — et non sur une chaîne exacte.
+- [x] **`test:scrutage` : 49/49 → 58/58.** Section « 8 bis — Une alerte réseau doit nommer
+      sa cause », neuf vérifications à demeure.
+
+### DEUX ERREURS DE MA PART, DANS CE DIAGNOSTIC-CI
+
+- [x] **J'AI SUIVI UNE FAUSSE PISTE IPv6 ET JE L'AI ABANDONNÉE EN LA MESURANT.**
+      `nslookup` rendait l'adresse IPv6 **en premier**, `curl -6` échouait en **25 ms**, et
+      un `curl` nu avait rendu `000` : la coupable semblait trouvée. **Mais Node ne résout
+      que l'IPv4** — `lookup(verbatim)` ne rend qu'une seule adresse, `149.154.166.110`.
+      L'hypothèse ne pouvait donc pas expliquer la panne de `fetch`.
+
+  > **Un mécanisme plausible n'est une cause que s'il atteint le code qui souffre.**
+  > *Trois mesures concordantes sur un chemin que le programme n'emprunte pas valent zéro.*
+
+- [x] **UNE DE MES ASSERTIONS ÉTAIT FAUSSE, PAS LE CODE** *(8/9 à la première preuve)*.
+      J'attendais `.../bot•••  (ECONNRESET)` alors que `masquer` coupe au `/` suivant et
+      laisse `/getUpdates`. Le jeton **était** masqué. Réancrée sur la propriété.
+
+### REMIS DEBOUT ET VALIDÉ
+
+- [x] Docker Desktop relancé, **`coachconnect-n8n 1.121.3`** et **`sportsocial-mongo mongo:8`**
+      debout ; back-end et client redémarrés.
+- [x] **Les quatre points répondent 200** : client `5173`, API `5000`, **le proxy Vite vers
+      l'API**, et `n8n /healthz`.
+- [x] **Zéro alerte `injoignable` depuis le redémarrage.**
+- [x] **275/275 sur les quatre suites concernées** : `test:scrutage` **58/58**,
+      `test:releve` **78/78**, `test:controles` **82/82**, `test:telegram` **57/57**
+      *(celle-ci au vert malgré 0,84 Go de mémoire libre)*.
+
+### LA BASE DE CONNAISSANCE : TROUVÉE, ET À MOITIÉ DÉJÀ ÉCRITE
+
+- [x] **Elle est dans `server/src/connaissances/fiches/` — 25 fiches** en Markdown à
+      en-tête YAML *(`titre`, `public`, `ecrans`, `mots-cles`)*, servies au modèle dans le
+      bloc balisé `‹fiches›` par `connaissances.service.js`.
+- [x] **Deux des quatre demandes sont DÉJÀ couvertes, et correctement** :
+      `sabonner-au-premium.md` *(étapes numérotées, redirection Stripe, et jusqu'au cas du
+      double prélèvement)* et `publier-une-story.md`.
+- [ ] **Deux manquent vraiment** : **aucune** fiche ne parle de *contacter le service
+      client* — zéro occurrence de « service client », « nous contacter », « joindre
+      l'équipe » — et le **remboursement** n'apparaît qu'en passant dans
+      `resilier-un-abonnement-premium.md`, sans fiche propre.
+- [x] **ET LA CONSIGNE « N'INVENTE RIEN » EST DÉJÀ EN PLACE**, vérifiée dans le prompt
+      système du flux : « N'invente ni écran, ni bouton, ni règle, ni montant, ni délai »,
+      « Si ces éléments ne suffisent pas, dis-le simplement », et
+      « **Ne promets jamais un remboursement**, une validation, une réactivation ni aucune
+      autre décision : elles appartiennent à l'équipe. »
+
+  > *Le besoin exprimé au point ④ était donc déjà satisfait côté consigne. Ce qui manque
+  > n'est pas la règle, c'est la matière qu'elle encadre.*
+
+- [x] **Le chemin d'escalade existe déjà** : `intention === 'decision'` renseigne
+      `motifEscalade`. Une demande de remboursement doit tomber **là**, et non dans une
+      réponse rédigée.
+
+### CE QUI RESTE BLOQUÉ SUR UNE ACTION HUMAINE
+
+- [ ] **LE DISQUE EXTERNE N'EST TOUJOURS PAS VU**, rebranchement compris. Trois mesures
+      concordantes, à nouveau : **un seul volume** (`C:`, 221 Go, 13,1 Go libres), **un seul
+      disque physique** *(le NVMe interne, 238,5 Go)*, et **aucun périphérique de stockage
+      de masse** — les entrées USB présentes sont le contrôleur, le hub et deux
+      périphériques composites.
+- [ ] **Le relais Stripe est arrêté**, donc le secret de signature du `.env` est périmé et
+      `test:paiement` échouerait. Corvée par session, toujours pas scriptée.
+- [ ] **Le pare-feu** : la règle de blocage demande une fenêtre administrateur.
+- [ ] **Une campagne d'un seul tenant** demande 2 Go libres ; il y en a **0,84**.
+
+---
+
+## 15.85 — La base de connaissance s'enrichit, et le brouillon cessait d'être coupé par son budget  `VÉRIFIÉ`
+
+### DEUX FICHES MANQUAIENT VRAIMENT, ET DEUX ÉTAIENT DÉJÀ LÀ
+
+- [x] **Mesuré avant d'écrire quoi que ce soit** : sur les quatre sujets demandés,
+      `sabonner-au-premium.md` et `publier-une-story.md` **existaient déjà** — la première
+      va jusqu'au cas du double prélèvement. **Aucune fiche**, en revanche, ne disait
+      comment joindre l'équipe *(zéro occurrence de « service client », « nous contacter »,
+      « joindre l'équipe »)*, et le **remboursement** n'était qu'une mention en fin de
+      `resilier-un-abonnement-premium.md`.
+
+  > *Écrire les quatre aurait créé deux doublons qui auraient concurrencé les fiches
+  > existantes dans le score. Le travail utile était de combler deux trous, pas quatre.*
+
+- [x] **`contacter-le-service-client.md`** et **`demander-un-remboursement.md`**, calées sur
+      l'interface **réelle** : le bouton flottant monté dans `Layout.jsx`, les deux entrées
+      `« Contacter le support client »` / `« Question d'utilisation »`, le champ **objet**,
+      la **référence**, et l'encadré `« Une réponse vous a été envoyée par e-mail »`.
+- [x] **La fiche de remboursement ne promet rien** et renvoie à la décision humaine, ce que
+      la consigne du modèle imposait déjà de son côté.
+
+### CE QUI COMPTE N'EST PAS CE QU'UNE FICHE TROUVE, MAIS CE QU'ELLE VOLE
+
+- [x] **La première version de la fiche de contact a fait tomber le banc témoin de 14/15 à
+      13/15.** Elle répétait « réponse » **quatre fois** dans son corps et le portait en
+      mot-clé ; comme le score compte les occurrences du corps, elle raflait
+      « la personne ne peut pas me répondre » à la fiche `messagerie`.
+- [x] **ATTRIBUTION ÉTABLIE PAR SOUSTRACTION** : les deux fiches retirées, le témoin
+      remontait à **14/15** — l'unique manque restant *(« comment réserver une séance à mes
+      abonnés payants »)* **préexistait**. Ma fiche en coûtait donc exactement un, et un
+      seul.
+
+  > **LA LEÇON : une fiche nouvelle ne s'évalue pas à ce qu'elle trouve, mais à ce qu'elle
+  > RETIRE aux autres.** *Un ajout qui sert sa propre question et dégrade quinze autres est
+  > une régression, pas un enrichissement.*
+
+- [x] **Resserrée**, et sur un argument de fond : « réponse » décrit le *mécanisme*, pas
+      l'*intention* de qui cherche à joindre le support. Témoin revenu à **14/15**, sa
+      mesure de référence exacte.
+- [x] **Les sept nouvelles questions entrent dans le banc de RÉGLAGE, jamais dans le
+      témoin** — et `« je veux être remboursé »` attend désormais la fiche dédiée.
+      **34/34, dont 32 en tête.**
+
+  > *Le témoin n'est plus aveugle pour ces deux fiches : il a servi à détecter la
+  > collision. C'est consigné pour que personne ne lui prête plus d'autorité qu'il n'en a.*
+
+### LE BROUILLON ÉTAIT COUPÉ PAR SON BUDGET DE JETONS, PAS PAR UNE LIMITE DE CARACTÈRES
+
+- [x] **LA DEMANDE PORTAIT SUR LES CARACTÈRES ; LA MESURE DIT AUTRE CHOSE.** Sur les
+      **36 brouillons réellement produits** : **médiane 1 632**, **maximum 2 873**
+      caractères. **Aucun n'atteint 4 000.** Les 51 réponses envoyées plafonnent à 1 544.
+      **La borne de caractères n'a jamais été touchée.**
+- [x] **Le vrai plafond était `max_tokens`**, et pour une raison qui ne se devine pas : la
+      **réflexion du modèle est décomptée du même budget** — `agent-support.json` le notait
+      déjà dans ses propres commentaires. Un plafond serré laisse donc une réponse visible
+      tronquée au milieu d'une phrase, puis `stop_reason: 'max_tokens'` déclenche le refus
+      « La réponse dépasse la longueur prévue pour un courriel ».
+- [x] **Relevé, et aligné sur le flux du widget qui fonctionnait déjà à 4 000** :
+
+      | flux / nœud | avant | après |
+      |---|---|---|
+      | `agent-telegram` / Préparer le courriel | 1 500 | **3 000** |
+      | `agent-telegram` / Préparer la rédaction | 1 200 | **2 000** |
+      | `agent-courriel` / Préparer la rédaction | 1 500 | **3 000** |
+
+  > **LA LEÇON : quand un symptôme ressemble à une limite de longueur, il faut mesurer
+  > laquelle des bornes de la chaîne est réellement atteinte.** *Relever la mauvaise aurait
+  > laissé le défaut en place et ouvert un risque ailleurs.*
+
+### J'AI D'ABORD MODIFIÉ L'ARTEFACT, PAS LA SOURCE
+
+- [x] **Les `.json` des flux sont GÉNÉRÉS.** La source de vérité est
+      `construire-agent-*.mjs`, qui exporte les fonctions des nœuds *(c'est ainsi que la
+      suite les exécute)* **et** écrit le JSON. Mes premières corrections, portées sur le
+      JSON, ont été **invisibles pour les tests** — qui importaient le générateur et
+      voyaient donc l'ancien code.
+
+  > **LA LEÇON : un fichier qu'un script écrit n'est pas une source, même versionné.**
+  > *Le symptôme était limpide et je ne l'ai pas lu : la suite affirmait l'ancien
+  > comportement alors que le fichier modifié contenait le nouveau.*
+
+- [x] Repris à la racine, puis JSON régénérés : **diff de 5 lignes sur les deux `.json`**,
+      ce qui confirme que le générateur reproduit l'octet près tout ce qu'on ne touche pas.
+- [x] **Les 16 nœuds Code des deux flux sont du JS valide**, contrôlés un par un.
+
+### UN DÉFAUT LATENT TROUVÉ EN CHEMIN : LE CADRE TELEGRAM
+
+- [x] **`Annoncer le brouillon` colle le brouillon ENTIER dans le message**, encadré
+      d'environ deux cents caractères — et `Répondre sur Telegram` l'envoie **sans aucune
+      borne**. Un brouillon à 4 000 caractères *(que l'API accepte)* dépassait donc les
+      **4 096** de Telegram : le brouillon était **enregistré**, et l'exploitant n'en voyait
+      **rien**.
+- [x] **Jamais survenu** — le plus long brouillon réel fait 2 873 signes. **Mais relever le
+      budget de jetons rapprochait l'échéance**, ce qui a transformé un défaut théorique en
+      défaut probable.
+- [x] **ET LE REMÈDE N'EST PAS LA TRONCATURE.** Un brouillon coupé à l'affichage serait
+      validé par « ENVOYER » **sans que sa fin ait été relue**, et cette fin partirait chez
+      un utilisateur.
+
+  > **LA LEÇON : tronquer ce qu'un humain doit approuver change un garde-fou en piège.**
+  > *Mieux vaut annoncer le dossier et renvoyer au back-office que montrer 90 % d'un texte
+  > qu'on fait signer.*
+
+- [x] **Posé** : au-delà de la limite, le message annonce la longueur réelle, **garde la
+      référence** *(le fil du dossier continue de fonctionner)*, renvoie à la Modération, et
+      **ne propose plus « ENVOYER »**.
+- [x] **MESURÉ, PAS DEVINÉ** : la bascule tombe à **3 921 caractères** de brouillon, et
+      juste en dessous le message total fait **exactement 4 096**. *Le cadre est compté au
+      caractère.*
+- [x] **Et les deux refus de longueur se distinguent enfin** : `< 10` demande d'**étoffer**,
+      `> 4000` demande de **resserrer** *et annonce la longueur mesurée*. Ils partageaient
+      « courriel non exploitable », qui ne disait pas lequel des deux gestes opposés
+      appliquer.
+
+### UNE ASSERTION QUI ÉPINGLAIT UN NOMBRE AU NOM D'UNE PROPRIÉTÉ QU'ELLE NE MESURAIT PAS
+
+- [x] `test:canaux` exigeait **`max_tokens <= 1200`** au nom de la limite de Telegram. Or
+      **1200 jetons valent déjà plus de 4 096 caractères en français** : ce plafond ne
+      garantissait rien. Ce qui garantit l'envoi est la borne **dure** de `lireRedaction`
+      — 5 000 signes en entrée, 4 000 au plus en sortie — **déjà testée ailleurs**.
+- [x] Réécrite sur ce qu'elle veut dire : **le budget laisse place à la réflexion**.
+
+  > **LA LEÇON : une assertion qui épingle un nombre au nom d'une propriété qu'elle ne
+  > mesure pas interdit de corriger ce nombre, sans rien protéger.**
+
+- [x] **Et mon propre test a emporté la suite au lieu d'échouer** : la boucle qui cherche la
+      bascule laissait `bascule = null`, et `repeat(bascule - 1)` recevait **-1** →
+      `INTERROMPU : Invalid count value: -1`. *Une panne d'outil là où il fallait un échec
+      lisible.* Garde-fou posé.
+
+### DÉPLOIEMENT DES FLUX, ET LES DEUX PIÈGES CONSIGNÉS SE SONT PRÉSENTÉS
+
+- [x] **`import:workflow` a bien remis les deux flux à `active = 0`**, exactement comme le
+      journal l'annonçait au 15.28. Réactivés par `update:workflow --active=true`, **puis
+      conteneur redémarré** — sans quoi l'activation ne prend pas.
+- [x] **Redémarrage, pas recréation** : les montages et le certificat survivent.
+      Vérifié après coup — `NODE_EXTRA_CA_CERTS` en place, **1 526 octets**, et **sortie TLS
+      à 400**, la réponse attendue.
+- [x] **6/6 flux actifs**, et les nouveaux budgets **relus dans la base de n8n** :
+      `ccAgentCourri01` à 3000, `ccAgentTelegr01` à 3000 et 2000.
+
+### CONTRÔLE D'EXPOSITION AVANT COMMIT, DEMANDÉ PAR LE PORTEUR DU PROJET
+
+- [x] **Secrets : rien.** 3 114 lignes de contenu commitable passées à douze motifs
+      *(Stripe live et test, `whsec_`, jeton Telegram, `GOCSPX-`, jeton OAuth Google,
+      `sk-ant-`, `AKIA`, clé privée PEM, mot de passe en dur, URI Mongo avec identifiants,
+      URI Cloudinary)* — **aucune correspondance**.
+- [x] **Second angle, par entropie** : les neuf chaînes longues retenues sont **toutes** des
+      en-têtes de diff (`a/docker/n8n/...`) et un chemin de rappel OAuth.
+- [x] **Une seule adresse de courriel**, celle du support du projet, **déjà présente en six
+      endroits du dépôt**. Aucune exposition nouvelle.
+- [x] **Les trois vrais `.env` sont ignorés** ; seuls les `.env.example` sont suivis, ce qui
+      est voulu.
+
+### L'EXPOSITION RÉSEAU A CHANGÉ DE RÉPONSE, PARCE QUE LE RÉSEAU A CHANGÉ
+
+- [x] **Le poste est sur `PEDA`, catégorie `Public`** — il était sur `SFR_5A78_5GHZ /
+      Private`. Adresse `10.172.10.18/24` : jusqu'à 254 voisins sur le même segment.
+- [x] **Écoute réelle, loopback distingué** : `5000` sur `::` *(toutes les interfaces)*,
+      `5678` sur `::` *(publication Docker)*, mais **`5173` et `27017` sur la boucle locale
+      seulement**.
+
+  > *Ma première lecture classait `::1` dans « toutes les interfaces » : le motif `::`
+  > correspondait aussi à `::1`. Corrigé — deux ports sur quatre n'étaient pas où je les
+  > avais mis.*
+
+- [x] **ET UNE SECONDE FAUSSE ALERTE DE PARE-FEU, ÉVITÉE DE JUSTESSE.** Une règle
+      `Allow / profils Any` couvrant le **port 5000** m'a d'abord alarmé — elle est liée au
+      programme `…\Zoom\bin\airhost.exe`. Une règle n'ouvre un port que si le **programme**
+      correspond aussi.
+
+  > **LA LEÇON, DEUX FOIS PAYÉE : une règle de pare-feu se lit à son PROGRAMME, pas à son
+  > nom ni à ses ports.**
+
+- [x] **Verdict mesuré : rien n'est joignable depuis `PEDA`.** Les règles qui visent
+      `C:\Program Files\nodejs\node.exe` sont sur **`Private` seulement**, et les **trois
+      profils ont `DefaultInboundAction = Block`**, pare-feu actif partout. La règle de
+      blocage du projet reste **absente** — elle ajouterait la ceinture aux bretelles,
+      y compris à la maison.
+
+### LE DISQUE EXTERNE : WINDOWS RÉPOND LUI-MÊME, ET IL EST FORMEL
+
+- [ ] **`WD Elements 2620 USB Device` apparaît désormais dans l'inventaire** — Windows
+      connaît donc ce disque, numéro de série compris. **Mais son statut est `Unknown` et
+      `Present: False`.**
+- [x] **Le diagnostic est écrit noir sur blanc par Windows** :
+      **`CM_PROB_PHANTOM` — code 45**, *« Currently, this hardware device is not connected
+      to the computer. To fix this problem, reconnect this hardware device. »*
+- [x] **Trois mesures concordantes** : **un seul disque** vu par `Get-Disk`, **aucun**
+      périphérique de stockage de masse dans `-PresentOnly`, et les trois volumes sans
+      lettre *(Image 14,6 Go, DELLSUPPORT 1,4 Go, 1,1 Go)* **appartiennent au NVMe interne**
+      — leur somme avec `C:` fait bien 238 Go.
+
+  > **L'entrée du WD est le SOUVENIR d'un branchement passé, pas un branchement actuel.**
+  > *Un périphérique listé n'est pas un périphérique présent — et c'est exactement la même
+  > confusion que « une règle de pare-feu se lit à son nom ».*
+
+- Le `WD Elements 2620` est un disque 2,5" **alimenté par le bus** : un câble de charge
+  sans paires de données, ou un port qui ne fournit pas assez de courant, suffit à produire
+  ce code 45.
+
+### LA CAMPAGNE, ET UNE SUITE ROUGE QUI N'ACCUSAIT QUE MOI
+
+- [x] **Premier lancement : 38 suites sur 39 au vert, 2183/2196.** Les **13 manques sont
+      TOUS** dans `Navigateur — paiement réel`, qui s'est en outre interrompue en cascade
+      *(`Cannot read properties of undefined (reading '_id')`)*.
+- [x] **ET LES DEUX SUITES NAVIGATEUR QUI CHRONOMÉTRAIENT LA MACHINE SONT PASSÉES** —
+      `back-office du support` **140/140** et `rattachement Telegram` **19/19**, dans le
+      lancement complet, à **0,92 Go** de mémoire libre. Ce qui tombait la veille à 0,51 Go
+      tient à 0,92.
+- [x] **LA CAUSE DU ROUGE ÉTAIT MON PROPRE RELAIS STRIPE, ET RIEN D'AUTRE.** Je l'avais
+      lancé vers `/api/webhooks` **que j'ai inventé**. Mesuré dans son journal : **404 sur
+      chaque événement**, une vingtaine d'affilée, et le même 404 dans le journal du
+      back-end. Aucun abonnement n'était donc créé — d'où les treize échecs en chaîne.
+- [x] **La vraie route est `/api/webhooks/stripe`**, montée dans `app.js` derrière
+      `express.raw`, et **le journal de ce projet l'écrit QUATRE fois**.
+
+  > **LA LEÇON : j'ai deviné un chemin que le projet documentait déjà.** *Le premier échec
+  > annonçait « abonnement créé en base par le webhook » — il désignait le transport, pas la
+  > logique métier, et c'est le journal du relais qu'il fallait ouvrir d'abord, pas le code
+  > des paiements.*
+
+- [x] **Relais redirigé, secret revalidé — inchangé, donc rien écrit dans le `.env`** *(la
+      validation avant écriture a conclu « rien à faire », ce qui est exactement son
+      office)*. **`test:paiement` : 47/47.**
+
+  > *Et au passage, une affirmation que j'avais faite deux fois tombe : j'annonçais le
+  > secret de signature « périmé ». Il ne l'était pas. **C'était une supposition, pas une
+  > mesure** — `stripe listen` réutilise le même secret d'une session à l'autre pour un
+  > même compte.*
+
+- [x] **Le script de relais, proposé et toujours pas écrit, vient de justifier son
+      existence** : il aurait porté la bonne adresse une fois pour toutes.
+
+### LE RÉSEAU DU POSTE, CORROBORÉ PAR UNE VOIE TOTALEMENT INDÉPENDANTE
+
+- [x] **Les exécutions n8n en erreur portent `ENOTFOUND`, `EAI_AGAIN` et `getaddrinfo`** —
+      des échecs de **résolution de noms**, groupés entre **11:20 et 12:00**. Depuis
+      14:00:38, les vingt dernières exécutions sont propres.
+
+  > **C'est la même cause que les 349 « fetch failed » du scrutage Telegram, vue par un
+  > sous-système qui n'a rien à voir** : n8n, dans un conteneur, résolvant d'autres noms
+  > d'hôte. *Deux instruments séparés qui accusent le réseau du poste valent plus que deux
+  > relectures du même journal.*
+
+- [x] **Et ce sont DEUX épisodes distincts, pas un seul** : les échecs DNS de n8n
+      *(11:20–12:00)* ne coïncident avec **aucune** déconnexion du journal WLAN. Les
+      coupures de lien, elles, sont à 13:05, 13:33 et 13:36 — et correspondent à la fenêtre
+      du scrutage Telegram *(≈ 13:04 → 13:34:50)*. **Le lien restait donc associé pendant
+      que la résolution de noms échouait.**
+
+### MON PROPRE CONTRÔLE IMPROVISÉ A PRODUIT UN FAUX VERT, ET L'INSTRUMENT DU PROJET AVAIT RAISON
+
+- [x] Le prérequis de la campagne annonçait **8 refus d'authentification** sur
+      `ccMessagerieCor1` et `ccMessagerieTri1`, *« RÉSOLU, dernier le 2026-11-05 23:41 »*.
+      **Ma requête improvisée, elle, répondait ZÉRO** — et j'ai failli le rapporter comme
+      rassurant.
+- [x] **LA CAUSE EST UN FORMAT DE DATE, ET ELLE EST SILENCIEUSE.** La colonne `startedAt`
+      s'écrit `2026-11-05 23:41:07` *(espace)*. Ma borne était un `toISOString()` brut,
+      `2026-11-05T14:21:15Z` *(un `T`)*. SQLite compare ces valeurs **comme des chaînes** :
+      l'espace vaut 32, le `T` vaut 84, donc **toute ligne de la veille est inférieure à la
+      borne, quelle que soit son heure** — et disparaît du résultat.
+- [x] **La campagne, elle, fait juste** : `.toISOString().slice(0,19).replace("T"," ")`.
+- [x] **MESURÉ : ma requête cachait 177 exécutions sur 634, soit 28 % des données.**
+      Le vrai tableau : `ccAgentCourri01` 52 exécutions, **18 erreurs**, **13 refus
+      d'authentification** jusqu'au **2026-11-05 22:40** ; les deux flux de messagerie
+      **8 refus** chacun jusqu'au 23:41. **Tous antérieurs à la reconnexion Gmail, et plus
+      aucun depuis.**
+
+  > **LA LEÇON, ET C'EST LA TROISIÈME FOIS QUE CE PROJET LA PAIE : une requête qui ne
+  > ramène rien ne prouve rien.** *Un filtre de date mal formé, une page vide, un `0/0` dans
+  > un total — trois visages du même faux vert. Ici, c'est le contrôle du projet qui a
+  > corrigé mon improvisation, et non l'inverse : il faut comparer deux instruments avant de
+  > croire celui qu'on vient d'écrire.*
+
+### LE VERDICT DU SECOND LANCEMENT : 2211/2212, ET LE DERNIER ROUGE ÉTAIT PRÉVU PAR ÉCRIT
+
+- [x] **`test:paiement` est passée DANS la campagne : 47/47**, relais correctement dirigé.
+      Les treize échecs du premier lancement sont donc **intégralement** imputés à mon
+      adresse inventée, et à rien du code.
+- [x] **Total : 2211/2212.** Une seule assertion manquante, dans
+      `Navigateur — recherche` : *« l'onglet Événements ne montre que des événements »*.
+- [x] **CE N'ÉTAIT PAS UN DÉLAI DÉPASSÉ, MAIS UNE ASSERTION DE CONTENU** — donc pas le
+      symptôme habituel de la mémoire, et je ne pouvais pas l'écarter d'un revers de main.
+- [x] **ET LE TEST LUI-MÊME DOCUMENTAIT LE CAS, À QUATORZE LIGNES DE L'ASSERTION** :
+      *« le 2 octobre, au vingt-septième rang d'une campagne de 34 suites, la vérification
+      a échoué — puis est passée en 36/36 la suite tournant seule. »*
+- [x] **Le mécanisme est écrit dans le test et il est exact** : l'attente de **disparition**
+      est volontairement tolérante — `waitForFunction(...).catch(() => {})`. Sur machine
+      lente, elle **abandonne en silence** au bout de 20 s, et l'assertion lit alors un
+      contenu encore périmé.
+- [x] **PROUVÉ, PAS SUPPOSÉ : deux lancements seuls consécutifs, 36/36 et 36/36**, à
+      1,04 Go de mémoire libre. Et la suite était déjà à **36/36 dans le premier
+      lancement complet**, qui portait pourtant déjà toutes les modifications du jour.
+
+  > *Entre les deux campagnes, une seule chose a changé : l'adresse du relais Stripe. Un
+  > échec qui apparaît sans qu'aucun code n'ait bougé désigne l'environnement — mais c'est
+  > la relance seule qui l'établit, pas le raisonnement.*
+
+- [x] **Les deux campagnes réunies disent donc : les 39 suites passent.** 38/39 au premier
+      lancement *(2183/2196, les 13 manques tous dans `paiement`)*, **38/39 au second**
+      *(2211/2212, le seul manque dans `recherche`)*, **et chacune des deux suites
+      concernées au vert dans l'autre lancement et seule.**
+
+  > **CE QU'IL FAUT ÉCRIRE ET NE PAS EMBELLIR : aucun lancement unique n'a mis les 39
+  > suites au vert en même temps.** *Annoncer « 2258/2258 d'un seul tenant » serait le
+  > mensonge exact que le bloc (g) a été écrit pour empêcher. Le poste ne tient pas la
+  > campagne entière sous 2 Go de mémoire libre — il en avait 1,19 à la fin.*
