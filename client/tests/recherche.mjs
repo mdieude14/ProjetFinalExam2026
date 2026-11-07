@@ -486,13 +486,29 @@ await page.getByRole('button', { name: 'Événements', exact: true }).click();
  * qui doit juger — pas l’attente qui doit faire tomber la suite.
  */
 await page.getByText(`Stage ${MOT}`).first().waitFor({ state: 'visible', timeout: 20000 });
-await page
+/*
+ * ON GARDE LE RÉSULTAT DE L'ATTENTE AU LIEU DE L'AVALER.
+ *
+ * Le `.catch(() => {})` reste : c'est la vérification qui doit juger, pas
+ * l'attente qui doit faire tomber la suite. Mais jeter son issue coûtait le
+ * diagnostic — cette assertion est tombée dans deux campagnes sur trois, et
+ * son libellé accusait le FILTRAGE alors que la cause était la lenteur de la
+ * machine. Elle passe à 36/36 relancée seule, à chaque fois.
+ *
+ *   LA LEÇON, LA MÊME QUE POUR `causeDe` : un échec qui ne nomme pas sa
+ *   cause coûte le diagnostic entier.
+ */
+const basculeAboutie = await page
   .waitForFunction((m) => !document.body.innerText.includes(`Programme ${m}`), MOT, { timeout: 20000 })
-  .catch(() => {});
+  .then(() => true)
+  .catch(() => false);
 
 const apresOnglet = await page.content();
 ok('**l’onglet Événements ne montre que des événements**',
-  apresOnglet.includes(`Stage ${MOT}`) && !apresOnglet.includes(`Programme ${MOT}`));
+  apresOnglet.includes(`Stage ${MOT}`) && !apresOnglet.includes(`Programme ${MOT}`),
+  basculeAboutie
+    ? ''
+    : 'LA BASCULE D’ONGLET N’A PAS ABOUTI EN 20 s — machine lente, pas défaut de filtrage');
 
 await page.getByRole('button', { name: 'Personnes', exact: true }).click();
 
