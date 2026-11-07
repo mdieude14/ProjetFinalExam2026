@@ -35,6 +35,17 @@ import Spinner from '@/components/ui/Spinner';
  * compte désactivé) : on ne propose personne à qui l'envoi serait ensuite
  * refusé.
  */
+
+/*
+ * HAUTEUR STABLE POUR LA ZONE DE RÉSULTATS, ET CE N'EST PAS DÉCORATIF.
+ *
+ * Sans elle, la fenêtre change de taille à chaque frappe : dix résultats, puis
+ * deux, puis un message d'absence. Elle grandit, rétrécit, et les boutons se
+ * déplacent sous le curseur — on clique sur ce qui vient de bouger. Une
+ * hauteur fixe fait défiler la liste À L'INTÉRIEUR d'un cadre immobile.
+ */
+const HAUTEUR_RESULTATS = 'h-64';
+
 export default function NouvelleConversation({ ouvert, onFermer, surCreation }) {
   const [saisie, setSaisie] = useState('');
   const [personnes, setPersonnes] = useState([]);
@@ -95,6 +106,8 @@ export default function NouvelleConversation({ ouvert, onFermer, surCreation }) 
     setErreur(null);
   };
 
+  const nomDe = (p) => (p?.prenom ? `${p.prenom} ${p.nom}` : p?.pseudo);
+
   /* --------------------------- L'envoi --------------------------- */
 
   const envoyer = async () => {
@@ -124,7 +137,7 @@ export default function NouvelleConversation({ ouvert, onFermer, surCreation }) 
        * elle a pu bloquer ou désactiver son compte entre la recherche et
        * l'envoi. On le dit sans trahir lequel des deux, comme le serveur.
        */
-      setErreur(e.message || 'Le message n’a pas pu être envoyé.');
+      setErreur(e?.response?.data?.message || 'Le message n’a pas pu être envoyé.');
     } finally {
       setEnvoi(false);
     }
@@ -134,75 +147,156 @@ export default function NouvelleConversation({ ouvert, onFermer, surCreation }) 
 
   return (
     <Modal ouvert={ouvert} onFermer={onFermer} titre="Nouveau message" taille="md">
-      <div className="space-y-4" data-test="nouvelle-conversation">
+      <div className="space-y-4 p-5" data-test="nouvelle-conversation">
         {erreur && <Alert variante="erreur">{erreur}</Alert>}
 
         {!choisie ? (
           <>
             <Input
               libelle="À qui voulez-vous écrire ?"
-              placeholder="Rechercher parmi vos abonnés et abonnements…"
-              aide="Vous pouvez écrire aux personnes qui vous suivent et à celles que vous suivez."
+              placeholder="Un pseudo, un prénom…"
               value={saisie}
               onChange={(e) => setSaisie(e.target.value)}
               data-test="recherche-destinataire"
               autoFocus
+              /*
+               * ENTRÉE CHOISIT LE PREMIER RÉSULTAT. C'est le réflexe de
+               * n'importe quel champ de recherche ; sans lui, il faut lâcher
+               * le clavier pour la souris alors qu'on vient de taper un nom.
+               */
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && personnes.length > 0) {
+                  e.preventDefault();
+                  choisir(personnes[0]);
+                }
+              }}
             />
 
-            {recherche && <Spinner className="mx-auto my-4" />}
+            {/*
+              UN CADRE DE HAUTEUR FIXE, ET LA LISTE DÉFILE DEDANS.
+              Le compte des résultats est annoncé au-dessus : il dit pourquoi
+              la liste est courte, ce qu'une liste nue laisse devenir.
+            */}
+            <div>
+              <div className="mb-1.5 flex items-baseline justify-between px-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-ardoise-400">
+                  {saisie.trim().length >= 2 ? 'Résultats' : 'Vos relations'}
+                </span>
+                {personnes.length > 0 && (
+                  <span className="text-xs tabular-nums text-ardoise-400">
+                    {personnes.length}
+                  </span>
+                )}
+              </div>
 
-            {!recherche && personnes.length === 0 && (
-              /*
-               * DEUX RAISONS DE NE RIEN AVOIR, ET ELLES N'APPELLENT PAS LA
-               * MÊME PHRASE : une recherche sans correspondance, ou aucune
-               * relation du tout. Un message unique laisserait croire à un
-               * compte vide à qui a simplement mal orthographié un pseudo.
-               */
-              <p className="py-6 text-center text-sm text-ardoise-500" data-test="aucun-destinataire">
-                {saisie.trim().length >= 2
-                  ? `Personne ne correspond à « ${saisie.trim()} » parmi vos abonnés et vos abonnements.`
-                  : saisie.trim().length === 1
-                    ? 'Encore une lettre, au moins.'
-                    : 'Vous n’avez encore ni abonné ni abonnement : suivez quelqu’un pour pouvoir lui écrire.'}
-              </p>
-            )}
+              <div
+                className={`${HAUTEUR_RESULTATS} overflow-y-auto rounded-carte border border-ardoise-200 bg-white p-1.5`}
+              >
+                {recherche && (
+                  <div className="flex h-full items-center justify-center">
+                    <Spinner />
+                  </div>
+                )}
 
-            {!recherche && personnes.length > 0 && (
-              <ul className="max-h-72 divide-y divide-ardoise-100 overflow-y-auto" data-test="liste-destinataires">
-                {personnes.map((personne) => (
-                  <li key={personne._id}>
-                    <button
-                      type="button"
-                      onClick={() => choisir(personne)}
-                      data-test="destinataire"
-                      data-pseudo={personne.pseudo}
-                      className="flex w-full items-center gap-3 px-1 py-2.5 text-left transition hover:bg-ardoise-50"
-                    >
-                      <Avatar utilisateur={personne} taille="sm" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-ardoise-900">
-                          {personne.prenom ? `${personne.prenom} ${personne.nom}` : personne.pseudo}
-                        </span>
-                        <span className="block truncate text-xs text-ardoise-500">
-                          @{personne.pseudo}
-                          {personne.type === 'coach' && ' · coach'}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                {!recherche && personnes.length === 0 && (
+                  /*
+                   * TROIS RAISONS DE NE RIEN AVOIR, ET ELLES N'APPELLENT PAS
+                   * LA MÊME PHRASE : une recherche sans correspondance, une
+                   * saisie trop courte, ou aucune relation du tout. Un
+                   * message unique laisserait croire à un compte vide à qui a
+                   * simplement mal orthographié un pseudo.
+                   */
+                  <div
+                    className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"
+                    data-test="aucun-destinataire"
+                  >
+                    <span className="text-2xl" aria-hidden="true">
+                      {saisie.trim().length >= 2 ? '🔍' : '👋'}
+                    </span>
+                    <p className="text-sm font-medium text-ardoise-700">
+                      {saisie.trim().length >= 2
+                        ? 'Personne ne correspond'
+                        : saisie.trim().length === 1
+                          ? 'Encore une lettre, au moins'
+                          : 'Aucune relation pour l’instant'}
+                    </p>
+                    <p className="text-xs leading-relaxed text-ardoise-500">
+                      {saisie.trim().length >= 2
+                        ? `Aucun de vos abonnés ni de vos abonnements ne correspond à « ${saisie.trim()} ».`
+                        : saisie.trim().length === 1
+                          ? 'La recherche commence à deux caractères.'
+                          : 'Suivez quelqu’un, ou laissez-vous suivre, pour pouvoir lui écrire.'}
+                    </p>
+                  </div>
+                )}
+
+                {!recherche && personnes.length > 0 && (
+                  <ul className="space-y-0.5" data-test="liste-destinataires">
+                    {personnes.map((personne) => (
+                      <li key={personne._id}>
+                        <button
+                          type="button"
+                          onClick={() => choisir(personne)}
+                          data-test="destinataire"
+                          data-pseudo={personne.pseudo}
+                          /*
+                           * `cursor-pointer` EST EXPLICITE : depuis Tailwind 4,
+                           * le preflight pose `cursor: default` sur les
+                           * boutons, et une ligne cliquable ne se signalerait
+                           * plus au survol.
+                           */
+                          className="group flex w-full cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-marque-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-marque-500"
+                        >
+                          <Avatar utilisateur={personne} taille="sm" className="shrink-0" />
+
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-medium text-ardoise-900">
+                                {nomDe(personne)}
+                              </span>
+                              {personne.type === 'coach' && (
+                                <span className="shrink-0 rounded-full bg-marque-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-marque-700">
+                                  coach
+                                </span>
+                              )}
+                            </span>
+                            <span className="block truncate text-xs text-ardoise-500">
+                              @{personne.pseudo}
+                              {personne.ville ? ` · ${personne.ville}` : ''}
+                            </span>
+                          </span>
+
+                          {/*
+                            UNE FLÈCHE QUI N'APPARAÎT QU'AU SURVOL.
+                            Visible en permanence sur dix lignes, elle ferait
+                            du bruit ; absente, rien ne dit que la ligne mène
+                            quelque part. `aria-hidden` : l'information est
+                            déjà portée par le bouton lui-même.
+                          */}
+                          <span
+                            aria-hidden="true"
+                            className="shrink-0 text-ardoise-300 opacity-0 transition-opacity group-hover:opacity-100"
+                          >
+                            →
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
           </>
         ) : (
           <>
-            <div className="flex items-center gap-3 rounded-carte bg-ardoise-50 px-3 py-2">
-              <Avatar utilisateur={choisie} taille="sm" />
+            {/* La personne choisie, en évidence et toujours réversible. */}
+            <div className="flex items-center gap-3 rounded-carte border border-marque-200 bg-marque-50 px-3 py-2.5">
+              <Avatar utilisateur={choisie} taille="sm" className="shrink-0" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-ardoise-900">
-                  {choisie.prenom ? `${choisie.prenom} ${choisie.nom}` : choisie.pseudo}
+                <span className="block truncate text-sm font-semibold text-ardoise-900">
+                  {nomDe(choisie)}
                 </span>
-                <span className="block truncate text-xs text-ardoise-500">@{choisie.pseudo}</span>
+                <span className="block truncate text-xs text-ardoise-600">@{choisie.pseudo}</span>
               </span>
               <Button
                 variante="fantome"
@@ -217,21 +311,26 @@ export default function NouvelleConversation({ ouvert, onFermer, surCreation }) 
             <Textarea
               libelle="Votre message"
               placeholder="Écrivez votre message…"
-              rows={4}
+              rows={5}
               maxLength={2000}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               data-test="message-nouvelle-conversation"
               /*
-               * `autoFocus` ET NON UNE `ref` : `Textarea` n est pas un
-               * `forwardRef`, une ref y serait ignoree en silence. Le champ
-               * est monte au moment ou la personne est choisie, donc
-               * `autoFocus` se declenche exactement au bon instant.
+               * `autoFocus` ET NON UNE `ref` : `Textarea` n'est pas un
+               * `forwardRef`, une ref y serait ignorée en silence. Le champ
+               * est monté au moment où la personne est choisie, donc
+               * `autoFocus` se déclenche exactement au bon instant.
                */
               autoFocus
             />
 
-            <div className="flex justify-end gap-2">
+            {/*
+              LE PIED EST SÉPARÉ PAR UN FILET, et les boutons sont à droite.
+              Sans séparation, « Envoyer » flotte contre le champ de saisie et
+              l'on ne voit plus où finit le formulaire.
+            */}
+            <div className="flex items-center justify-end gap-2 border-t border-ardoise-100 pt-3">
               <Button variante="secondaire" onClick={onFermer} disabled={envoi}>
                 Annuler
               </Button>
