@@ -16227,3 +16227,79 @@ persistant, n8n sur un VPS Hostinger, base sur Atlas.** Restait à vérifier l'a
 
   > *La règle du projet est de valider avant d'avancer. Elle vaut aussi, et surtout, quand
   > c'est moi qui trouve la modification élégante.*
+
+### DÉNOUEMENT : LE DISQUE S'EST LIBÉRÉ SEUL, ET LA CAMPAGNE EST COMPLÈTE
+
+- [x] **`C:` est passé de `0,16` à `21,83 Go` sans intervention.** Windows a déclenché son
+      nettoyage automatique sous la contrainte. *Je l'ai mesuré avant d'en tirer parti, et je
+      ne me l'attribue pas.*
+- [x] **Docker relancé, et le certificat vérifié AVANT tout diagnostic** — la règle du
+      projet : `healthz 200` après 4 tentatives, **sortie TLS à 401**, certificat
+      `/opt/certificats/avast-root.crt`. Par `recreer-n8n.mjs`, jamais par
+      `docker compose -f` à la main.
+- [x] **Les cinq suites interrompues, rejouées SEULES : toutes complètes, zéro
+      interruption.**
+
+  | Suite | Pendant la campagne | Seule |
+  |---|---|---|
+  | `ui` | 9/9 puis interrompue | **45/45** |
+  | `premium` | aucun total | **18/18** |
+  | `evenements` | 28/28 puis interrompue | **39/39** |
+  | `messagerie` | 31/31 puis interrompue | **68/68** |
+  | `support` | 11/11 puis interrompue | **140/140** |
+
+  > **LA CAUSE ÉTAIT LA CHUTE DES SERVICES EN COURS DE CAMPAGNE, elle-même causée par le
+  > disque saturé.** Pas la mémoire, pas le code. *Cinq suites arrêtées en route avaient
+  > l'allure de cinq défauts ; c'était une seule panne, en amont de toutes.*
+
+- [x] **Campagne navigateur rejouée d'un seul tenant : 16 suites sur 17, `620/620`.**
+- [x] **La dix-septième a refusé de tourner, et c'est une réussite** : `test:paiement` rend
+      `0/0` et s'arrête en disant *« le relais stripe listen ne tourne pas »*, puis explique
+      que treize vérifications échoueraient sans nommer leur cause.
+
+  > **`0/0` EST LE QUATRIÈME VISAGE DU FAUX VERT RECENSÉ ICI** — et cette fois il est
+  > honnête, parce que la suite refuse de conclure au lieu de compter zéro succès sur zéro
+  > essai.
+
+- [x] **`npm run relais:stripe` éprouvé pour de vrai** : clé de test confirmée (107 signes),
+      adresse correcte, secret **inchangé** donc rien écrit, et son propre affichage masque
+      le jeton. **`test:paiement` : 47/47.**
+- [x] **ET L'EXÉCUTION RÉELLE A RÉVÉLÉ UN DÉFAUT DANS MON SCRIPT** : `DEP0190`. Combiner
+      `shell: true` et un tableau d'arguments fait concaténer les arguments **sans les
+      échapper**. Aucun ne vient de l'extérieur ici — `CIBLE` est figée exprès — mais la
+      commande est désormais passée en une seule chaîne, comme le shell l'attend.
+      **Avertissement : 0 occurrence après correction**, relais identique.
+
+  > *Un script livré mais jamais exécuté n'est pas un script livré.*
+
+### LE TOTAL, ET CE QU'IL COUVRE
+
+| Périmètre | Suites | Vérifications |
+|---|---|---|
+| Serveur | 21 / 21 | **1 623 / 1 623** |
+| Navigateur | 17 / 17 | **667 / 667** |
+| **Ensemble** | **38 / 38** | **2 290 / 2 290** |
+
+- [x] **Zéro échec, zéro interruption, zéro compte de test résiduel** *(24 comptes en base,
+      tous légitimes)*.
+- [x] **Les trois suites qui interrogent n8n rejouées après la recréation du conteneur** :
+      `canaux 308/308`, `scrutage 58/58`, `controles 82/82`. Six flux présents.
+
+> **CE QUE CE TOTAL NE COUVRE PAS, et il faut le dire** : la chaîne Telegram de bout en bout
+> *(elle demande un envoi réel depuis le téléphone du porteur du projet)*, l'envoi de
+> courriels réels, et le déploiement lui-même, qui n'existe pas encore.
+
+### UNE CONFIGURATION QUI NE REPOSE SUR AUCUN ORDRE IMPLICITE
+
+- [x] **`client/vercel.json` durci après vérification.** J'avais écrit que les réécritures de
+      Vercel ne s'appliquent qu'après le système de fichiers. **La recherche corrobore mais
+      n'atteint pas la documentation officielle**, et un cas de réécriture ignorée à la
+      racine est rapporté.
+- [x] **Plutôt que d'en dépendre**, deux réécritures de `assets/*` et `favicon.svg` **vers
+      elles-mêmes** sont déclarées AVANT la fourre-tout : des règles sans effet, dont le seul
+      rôle est d'intercepter le chemin. Ce sont les deux seuls objets statiques à la racine du
+      build — vérifié dans `client/dist`.
+
+  > **LA LEÇON : quand une garantie ne se trouve pas écrite, on cesse d'en dépendre au lieu
+  > de parier dessus.** *C'est moins élégant qu'une seule règle, et cela ne cassera pas le
+  > jour où la précédence change.*
