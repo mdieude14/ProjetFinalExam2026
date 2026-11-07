@@ -63,7 +63,16 @@ function Bulle({ message, deMoi, surLike, surDemanderModification, surDemanderSu
         <MenuOptions
           libelle="Actions sur ce message"
           alignement="gauche"
-          className="shrink-0 self-end"
+          /*
+           * `self-center` ET NON `self-end`.
+           *
+           * Le coeur, lui, est cale en bas : il accompagne l horodatage, qui
+           * se trouve au pied de la bulle. Le menu n accompagne RIEN — il
+           * agit sur la bulle entiere. Aligne en bas, il paraissait decroche
+           * sur un message de plusieurs lignes, ou la bulle est haute et le
+           * bouton tombait tout en bas, loin du texte qu il concerne.
+           */
+          className="shrink-0 self-center"
           entrees={[
             {
               cle: 'modifier',
