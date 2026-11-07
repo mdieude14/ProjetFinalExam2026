@@ -9,7 +9,9 @@ import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
 import Spinner from '@/components/ui/Spinner';
 import Modal from '@/components/ui/Modal';
+import Textarea from '@/components/ui/Textarea';
 import CapturePhoto from '@/components/story/CapturePhoto';
+import MenuOptions from '@/components/ui/MenuOptions';
 import MenuModeration from '@/components/moderation/MenuModeration';
 import ChatRequestBanner from './ChatRequestBanner';
 import { formaterDateHeure } from '@/utils/dates';
@@ -37,16 +39,58 @@ const TYPES_ACCEPTES =
  * spectaculaire et facile à commettre.
  */
 
-/** Une bulle. */
-function Bulle({ message, deMoi, surLike }) {
+/**
+ * Une bulle.
+ *
+ * LES ACTIONS NE SONT PROPOSÉES QUE SUR MES PROPRES MESSAGES, ET SEULEMENT
+ * TANT QU'ILS EXISTENT. Le serveur refuserait de toute façon (403 sur le
+ * message d'un autre, 409 sur un message supprimé), mais afficher une entrée
+ * qui mène à une erreur est une impasse offerte : l'utilisateur essaie, et
+ * c'est le message d'erreur qui lui apprend la règle.
+ */
+function Bulle({ message, deMoi, surLike, surDemanderModification, surDemanderSuppression }) {
+  const modifiable = deMoi && !message.supprime;
+
   return (
-    <li className={`flex ${deMoi ? 'justify-end' : 'justify-start'}`}>
+    <li className={`flex items-end ${deMoi ? 'justify-end' : 'justify-start'}`}>
+      {/*
+        LE MENU EST À GAUCHE DE MA BULLE, ET À DROITE DE CELLE DE L'AUTRE.
+        Mes bulles sont alignées à droite : poser le menu après elles le
+        collerait au bord de l'écran. Le placer du côté intérieur le garde
+        atteignable sans déplacer la bulle.
+      */}
+      {modifiable && (
+        <MenuOptions
+          libelle="Actions sur ce message"
+          alignement="gauche"
+          className="shrink-0 self-end"
+          entrees={[
+            {
+              cle: 'modifier',
+              libelle: 'Modifier',
+              description: 'La mention « modifié » restera visible',
+              icone: '✏️',
+              action: () => surDemanderModification?.(message),
+            },
+            {
+              cle: 'supprimer',
+              libelle: 'Supprimer',
+              description: 'La bulle restera, vidée de son contenu',
+              icone: '🗑️',
+              danger: true,
+              action: () => surDemanderSuppression?.(message),
+            },
+          ]}
+        />
+      )}
+
       <div
         className={`max-w-[75%] rounded-2xl px-3.5 py-2 ${
           deMoi
             ? 'rounded-br-sm bg-marque-500 text-white'
             : 'rounded-bl-sm bg-ardoise-100 text-ardoise-900'
         }`}
+        data-test="bulle-message"
       >
         {message.supprime ? (
           <p className={`text-sm italic ${deMoi ? 'text-white/70' : 'text-ardoise-400'}`}>
@@ -96,6 +140,20 @@ function Bulle({ message, deMoi, surLike }) {
           }`}
         >
           {formaterDateHeure(message.createdAt)}
+          {/*
+            « MODIFIÉ » EST AFFICHÉ AUX DEUX PARTICIPANTS, PAS SEULEMENT À
+            L'AUTEUR. C'est toute la raison d'être de la date : une retouche
+            que le destinataire ne verrait pas ferait de la messagerie un
+            compte rendu non fiable de ce qui a été dit.
+
+            Un message supprimé ne la porte pas : « Message supprimé, modifié »
+            n'apprendrait rien et ferait douter de ce qui a disparu.
+          */}
+          {!message.supprime && message.modifieLe && (
+            <span data-test="marque-modifie" title={`Modifié le ${formaterDateHeure(message.modifieLe)}`}>
+              {' · modifié'}
+            </span>
+          )}
           {/* La double coche ne concerne que MES messages : savoir que j'ai
               lu les miens n'apprendrait rien à personne. */}
           {deMoi && (message.lu ? ' ✓✓' : ' ✓')}
@@ -134,6 +192,7 @@ function Bulle({ message, deMoi, surLike }) {
   );
 }
 
+
 export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
   const { ecouter, emettre, connecte } = useSocket();
 
@@ -157,6 +216,108 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
   /* ------------------ Etat de moderation de l'interlocuteur ------------------ */
 
   const [moderation, setModeration] = useState(null);
+
+  /* ------------------ Modifier / supprimer un message ------------------ */
+
+  /*
+   * TROIS ÉTATS, ET AUCUN N'EST DE TROP.
+   * `enEdition` porte le message en cours de réécriture — un seul à la fois,
+   * sans quoi deux brouillons coexisteraient et le second écraserait le
+   * premier sans rien dire. `aSupprimer` ouvre la confirmation. `actionEnCours`
+   * désarme les boutons pendant l'appel : un double clic sur « Supprimer »
+   * enverrait deux requêtes, dont la seconde recevrait un 404 affiché comme
+   * une panne.
+   */
+  const [enEdition, setEnEdition] = useState(null);
+  const [texteEdition, setTexteEdition] = useState('');
+  const [aSupprimer, setASupprimer] = useState(null);
+  const [suppressionConv, setSuppressionConv] = useState(false);
+  const [actionEnCours, setActionEnCours] = useState(false);
+
+  const demanderModification = (message) => {
+    setEnEdition(message);
+    setTexteEdition(message.contenu || '');
+    setErreur(null);
+  };
+
+  const enregistrerModification = async () => {
+    const texte = texteEdition.trim();
+    if (!enEdition || !texte || actionEnCours) return;
+
+    setActionEnCours(true);
+    setErreur(null);
+    try {
+      const reponse = await messageApi.modifier(enEdition._id, texte);
+      const aJour = reponse.data.donnees;
+
+      /*
+       * ON MET À JOUR LOCALEMENT SANS ATTENDRE LE SOCKET.
+       * La diffusion arrive aussi, et remplacera ce message par le même
+       * contenu : l'opération est idempotente. Ne compter que sur le socket
+       * laisserait la bulle inchangée pendant un aller-retour, et inchangée
+       * POUR TOUJOURS si la diffusion se perdait.
+       */
+      setMessages((precedents) => precedents.map((m) => (m._id === aJour._id ? aJour : m)));
+      setEnEdition(null);
+      setTexteEdition('');
+      surMaj?.();
+    } catch (e) {
+      setErreur(e?.response?.data?.message || 'Le message n’a pas pu être modifié.');
+    } finally {
+      setActionEnCours(false);
+    }
+  };
+
+  const confirmerSuppressionMessage = async () => {
+    if (!aSupprimer || actionEnCours) return;
+
+    setActionEnCours(true);
+    setErreur(null);
+    try {
+      await messageApi.supprimer(aSupprimer._id);
+      /*
+       * LA BULLE RESTE, VIDÉE. C'est le comportement du serveur — suppression
+       * douce — et le reproduire ici évite que la bulle disparaisse une
+       * seconde puis réapparaisse vide quand le socket arrive.
+       */
+      setMessages((precedents) =>
+        precedents.map((m) =>
+          m._id === aSupprimer._id
+            ? { ...m, supprime: true, contenu: null, media: null, likesCount: 0, aLike: false }
+            : m
+        )
+      );
+      setASupprimer(null);
+      surMaj?.();
+    } catch (e) {
+      setErreur(e?.response?.data?.message || 'Le message n’a pas pu être supprimé.');
+    } finally {
+      setActionEnCours(false);
+    }
+  };
+
+  const confirmerSuppressionConversation = async () => {
+    if (actionEnCours || !idConversation) return;
+
+    setActionEnCours(true);
+    setErreur(null);
+    try {
+      await messageApi.supprimerConversation(idConversation);
+      setSuppressionConv(false);
+      /*
+       * ON REMONTE AU PARENT PLUTÔT QUE DE SE FERMER SOI-MÊME.
+       * Le fil n'est qu'une colonne de la page : c'est elle qui tient la
+       * liste et l'URL. Se contenter de vider l'affichage laisserait `?c=`
+       * pointer vers une conversation absente de la liste, et un
+       * rafraîchissement rouvrirait un fil supprimé.
+       */
+      surMaj?.();
+      surRetour?.();
+    } catch (e) {
+      setErreur(e?.response?.data?.message || 'La conversation n’a pas pu être supprimée.');
+      setActionEnCours(false);
+    }
+  };
   const idInterlocuteur = conversation?.interlocuteur?._id;
 
   /**
@@ -284,6 +445,19 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
           precedents.map((m) =>
             String(m.expediteur?._id) === String(moi) ? { ...m, lu: true } : m
           )
+        );
+      }),
+
+      /*
+       * LE MESSAGE MODIFIE ARRIVE PAR LA MEME VOIE QUE LE SUPPRIME.
+       * On remplace la bulle entiere par la version du serveur : elle porte
+       * `modifieLe`, et c est elle qui fait apparaitre « modifie » chez
+       * l interlocuteur sans qu il recharge.
+       */
+      ecouter('message:modifie', ({ conversation: idRecu, message }) => {
+        if (String(idRecu) !== String(idConversation)) return;
+        setMessages((precedents) =>
+          precedents.map((m) => (m._id === message._id ? { ...m, ...message } : m))
         );
       }),
 
@@ -572,6 +746,22 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
         <MenuModeration
           utilisateur={autre}
           etat={moderation}
+          /*
+           * « Supprimer la conversation » N EST AJOUTE QUE D ICI.
+           * Le meme menu sert sur la page de profil, ou il n y a pas
+           * forcement de fil : l entree y serait sans objet, et au mieux
+           * sans effet.
+           */
+          entreesSupplementaires={[
+            {
+              cle: 'supprimer-conversation',
+              libelle: 'Supprimer la conversation',
+              description: 'De votre liste seulement, pas de la sienne',
+              icone: '🗑️',
+              danger: true,
+              action: () => setSuppressionConv(true),
+            },
+          ]}
           surChangement={async () => {
             await chargerModeration();
             /*
@@ -621,6 +811,8 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
               message={message}
               deMoi={String(message.expediteur?._id) === String(moi)}
               surLike={basculerLike}
+              surDemanderModification={demanderModification}
+              surDemanderSuppression={setASupprimer}
             />
           ))}
         </ul>
@@ -802,6 +994,132 @@ export default function ChatWindow({ conversation, moi, surMaj, surRetour }) {
         savoir de la caméra, et les correctifs faits d'un côté profitent à
         l'autre — arrêt du flux, bornage à 1920 px, causes d'échec distinguées.
       */}
+      {/* --------------------- Modifier un message --------------------- */}
+
+      <Modal
+        ouvert={Boolean(enEdition)}
+        onFermer={() => setEnEdition(null)}
+        titre="Modifier le message"
+        taille="md"
+      >
+        <div className="space-y-4 p-5" data-test="modifier-message">
+          <Textarea
+            libelle="Votre message"
+            rows={4}
+            maxLength={2000}
+            value={texteEdition}
+            onChange={(e) => setTexteEdition(e.target.value)}
+            data-test="champ-modification"
+            autoFocus
+          />
+
+          {/*
+            ON ANNONCE LA CONSÉQUENCE AVANT LE CLIC, PAS APRÈS.
+            La mention « modifié » est visible par l'autre personne : le
+            découvrir après coup donnerait l'impression d'une retouche
+            discrète qui ne l'est pas.
+          */}
+          <p className="text-xs text-ardoise-500">
+            La mention « modifié » restera visible par votre interlocuteur.
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <Button variante="secondaire" onClick={() => setEnEdition(null)} disabled={actionEnCours}>
+              Annuler
+            </Button>
+            <Button
+              onClick={enregistrerModification}
+              chargement={actionEnCours}
+              disabled={
+                actionEnCours ||
+                !texteEdition.trim() ||
+                texteEdition.trim() === (enEdition?.contenu || '')
+              }
+              data-test="valider-modification"
+            >
+              Enregistrer
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ------------------ Supprimer un message ------------------ */}
+
+      <Modal
+        ouvert={Boolean(aSupprimer)}
+        onFermer={() => setASupprimer(null)}
+        titre="Supprimer ce message ?"
+        taille="sm"
+      >
+        <div className="space-y-4 p-5" data-test="confirmer-suppression-message">
+          <p className="text-sm text-ardoise-700">
+            La bulle restera dans le fil, vidée de son contenu, et portera la mention
+            «&nbsp;Message supprimé&nbsp;». Une pièce jointe est, elle, réellement effacée.
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <Button variante="secondaire" onClick={() => setASupprimer(null)} disabled={actionEnCours}>
+              Annuler
+            </Button>
+            <Button
+              variante="danger"
+              onClick={confirmerSuppressionMessage}
+              chargement={actionEnCours}
+              disabled={actionEnCours}
+              data-test="valider-suppression-message"
+            >
+              Supprimer
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* --------------- Supprimer la conversation --------------- */}
+
+      <Modal
+        ouvert={suppressionConv}
+        onFermer={() => setSuppressionConv(false)}
+        titre="Supprimer cette conversation ?"
+        taille="sm"
+      >
+        <div className="space-y-4 p-5" data-test="confirmer-suppression-conversation">
+          {/*
+            CE QUE LA SUPPRESSION FAIT, ET CE QU'ELLE NE FAIT PAS.
+            Les deux comptent : croire qu'on efface le fil chez l'autre est
+            une erreur grave dans un sens, et croire qu'on ne peut rien
+            ranger chez soi l'est dans l'autre.
+          */}
+          <p className="text-sm text-ardoise-700">
+            Elle disparaîtra de <strong>votre</strong> liste. {' '}
+            {autre?.pseudo ? `@${autre.pseudo}` : 'Votre interlocuteur'} gardera la sienne, avec
+            tout l’historique.
+          </p>
+          <p className="text-sm text-ardoise-700">
+            Si un nouveau message arrive, la conversation <strong>reviendra</strong> dans votre
+            liste : sans quoi ce message serait perdu.
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variante="secondaire"
+              onClick={() => setSuppressionConv(false)}
+              disabled={actionEnCours}
+            >
+              Annuler
+            </Button>
+            <Button
+              variante="danger"
+              onClick={confirmerSuppressionConversation}
+              chargement={actionEnCours}
+              disabled={actionEnCours}
+              data-test="valider-suppression-conversation"
+            >
+              Supprimer
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <CapturePhoto
         ouvert={cameraOuverte}
         onFermer={() => setCameraOuverte(false)}

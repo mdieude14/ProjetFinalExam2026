@@ -75,7 +75,17 @@ export const messageApi = {
   /** Total pour la pastille de la navigation. */
   nonLus: () => api.get('/messages/non-lus'),
 
+  /** Reecrit le texte d un de MES messages. Le serveur pose la date de modification. */
+  modifier: (idMessage, contenu) => api.patch(`/messages/${idMessage}`, { contenu }),
+
   supprimer: (idMessage) => api.delete(`/messages/${idMessage}`),
+
+  /*
+   * Retire la conversation de MA liste, et d elle seule : l autre
+   * participant garde son fil. Un nouveau message la fait revenir.
+   */
+  supprimerConversation: (idConversation) =>
+    api.delete(`/messages/conversations/${idConversation}`),
 
   /** Aime un message, ou retire son like. Le serveur decide du sens. */
   basculerLike: (idMessage) => api.post(`/messages/${idMessage}/like`),

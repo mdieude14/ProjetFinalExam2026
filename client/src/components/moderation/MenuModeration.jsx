@@ -27,7 +27,24 @@ import Alert from '@/components/ui/Alert';
  * Le drapeau `estBloque` du profil, lui, vaut vrai dans les deux sens et
  * commande l'écran, pas ce menu.
  */
-export default function MenuModeration({ utilisateur, etat, surChangement, className = '' }) {
+/*
+ * `entreesSupplementaires` N EST PASSE QUE PAR LA CONVERSATION.
+ *
+ * « Supprimer la conversation » n a aucun sens sur une page de profil, ou
+ * il n y a pas forcement de fil. L ajouter directement a la liste ci-dessous
+ * le ferait apparaitre aux DEUX endroits — et sur le profil, il echouerait
+ * ou, pire, supprimerait une conversation que l utilisateur ne regardait pas.
+ *
+ * Les entrees recues suivent la meme forme que les autres :
+ * { cle, libelle, description, icone, danger, desactive, action }.
+ */
+export default function MenuModeration({
+  utilisateur,
+  etat,
+  surChangement,
+  entreesSupplementaires = [],
+  className = '',
+}) {
   const [confirmation, setConfirmation] = useState(null); // 'bloquer' | 'restreindre'
   const [signalementOuvert, setSignalementOuvert] = useState(false);
 
@@ -134,6 +151,14 @@ export default function MenuModeration({ utilisateur, etat, surChangement, class
         setSignalementOuvert(true);
       },
     },
+
+    /*
+     * EN DERNIER, ET DERRIERE UN SEPARATEUR. Les entrees supplementaires
+     * portent sur la CONVERSATION, pas sur la personne : les melanger aux
+     * actions de moderation laisserait croire que supprimer un fil agit sur
+     * le compte. Le separateur dit que ce sont deux familles differentes.
+     */
+    ...(entreesSupplementaires.length ? [{ separateur: true }, ...entreesSupplementaires] : []),
   ];
 
   /* ------------------------------------------------------------------ *

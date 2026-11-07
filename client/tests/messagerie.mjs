@@ -719,6 +719,187 @@ if (bobVisible) {
     repriseLivree ? `${convsBob} conversation(s) Alice–Bob` : 'NON CONCLUANT : rien n’a été livré');
 }
 
+/* ================================================================== *
+ *  MODIFIER, SUPPRIMER UN MESSAGE — ET SUPPRIMER LA CONVERSATION
+ * ================================================================== */
+
+section('Actions sur un message et sur la conversation');
+
+/*
+ * CE QUE CETTE SECTION DÉFEND, ET QUE LA SUITE SERVEUR NE DIT PAS.
+ * La suite serveur prouve que les règles tiennent. Elle ne dit rien de ce
+ * qu'un utilisateur VOIT : que le menu n'apparaît que sur ses propres
+ * bulles, que « modifié » s'affiche, que la bulle supprimée reste en place
+ * vidée, et que la confirmation annonce la conséquence AVANT le clic.
+ */
+
+/*
+ * UN COUPLE NEUF, ET C'EST NÉCESSAIRE. Alice et Bob traînent déjà un fil
+ * chargé par les sections précédentes : « un seul menu dans le fil » y serait
+ * faux, et `.first()` désignerait le plus ancien message plutôt que le mien.
+ * Une section qui dépend de l'état laissé par les précédentes ne teste plus
+ * ce qu'elle croit — elle teste l'ordre d'exécution.
+ */
+const gina = await inscrire('frontgina', 'Gina');
+const hugo = await inscrire('fronthugo', 'Hugo');
+await appel(`/follows/${gina.id}`, { methode: 'POST', token: hugo.token });
+
+const ctxGina = await navigateur.newContext({
+  viewport: { width: 1280, height: 950 },
+  locale: 'fr-FR',
+});
+const pageGina = await ctxGina.newPage();
+pageGina.on('pageerror', (e) => erreursJs.push(e.message));
+await seConnecter(pageGina, gina.pseudo);
+
+const convActions = await appel('/messages/conversations', {
+  methode: 'POST', token: gina.token, corps: { destinataire: hugo.id },
+});
+const idConvActions = convActions.json?.conversation?._id;
+await appel(`/messages/conversations/${idConvActions}/messages`, {
+  methode: 'POST', token: gina.token, corps: { contenu: 'Texte a corriger ici.' },
+});
+await appel(`/messages/conversations/${idConvActions}/messages`, {
+  methode: 'POST', token: hugo.token, corps: { contenu: 'Message de Hugo, intouchable.' },
+});
+
+await pageGina.goto(BASE + `/messages?c=${idConvActions}`, { waitUntil: 'domcontentloaded' });
+ok('le fil est ouvert', await rendu(pageGina.getByText('Texte a corriger ici.')));
+
+const menusBulles = pageGina.locator('[data-testid="fil-messages"] [data-test="menu-options"]');
+const menuPresent = await rendu(menusBulles);
+ok('**un menu « ⋯ » est proposé sur ma bulle**', menuPresent);
+
+/*
+ * L'ANCRE AVANT L'ABSENCE : s'il n'y avait aucun menu, « un seul menu »
+ * passerait pour la mauvaise raison. On exige d'abord qu'il y en ait un.
+ */
+const nbMenus = await menusBulles.count();
+ok('**et sur la MIENNE seulement** — pas sur le message de Hugo',
+  menuPresent && nbMenus === 1, `${nbMenus} menu(s) dans le fil`);
+
+/* ------------------------------ Modifier ------------------------------ */
+
+await menusBulles.first().click();
+ok('« Modifier » est proposé', await rendu(pageGina.getByRole('menuitem', { name: /Modifier/ })));
+await pageGina.getByRole('menuitem', { name: /Modifier/ }).click();
+
+ok('la fenêtre de modification s’ouvre',
+  await rendu(pageGina.locator('[data-test="modifier-message"]')));
+
+const champModif = pageGina.locator('[data-test="champ-modification"]');
+ok('**le champ est prérempli** — on corrige, on ne réécrit pas de zéro',
+  (await champModif.inputValue()) === 'Texte a corriger ici.', await champModif.inputValue());
+
+ok('la conséquence est annoncée AVANT le clic',
+  (await pageGina.locator('[data-test="modifier-message"]').innerText()).includes('modifié'));
+
+await champModif.fill('Texte corrige depuis l’interface.');
+await pageGina.locator('[data-test="valider-modification"]').click();
+
+ok('**le nouveau texte apparaît dans le fil**',
+  await rendu(pageGina.locator('[data-testid="fil-messages"]').getByText('Texte corrige depuis l’interface.'), 20000));
+ok('**la mention « modifié » est affichée**',
+  await rendu(pageGina.locator('[data-test="marque-modifie"]')));
+ok('la fenêtre s’est refermée d’elle-même',
+  (await pageGina.locator('[data-test="modifier-message"]').count()) === 0);
+
+const relecture = await appel(`/messages/conversations/${idConvActions}/messages`, { token: hugo.token });
+const vuDeBob = (relecture.json?.messages ?? []).find((m) => m.contenu === 'Texte corrige depuis l’interface.');
+ok('**et Bob voit le texte corrigé ET la mention** — une retouche invisible serait un mensonge',
+  Boolean(vuDeBob?.modifieLe), String(vuDeBob?.modifieLe));
+
+/* ------------------------------ Supprimer ------------------------------ */
+
+await menusBulles.first().click();
+/*
+ * PAS D ANCRAGE STRICT SUR LE NOM. `MenuOptions` compose le nom accessible
+ * du libelle ET de sa description : /^Supprimer$/ ne correspond donc a rien.
+ * Dans le menu d une bulle, « Supprimer » est sans ambiguite.
+ */
+await pageGina.getByRole('menuitem', { name: /Supprimer/ }).click();
+ok('la confirmation de suppression s’ouvre',
+  await rendu(pageGina.locator('[data-test="confirmer-suppression-message"]')));
+ok('elle dit ce qui restera dans le fil',
+  (await pageGina.locator('[data-test="confirmer-suppression-message"]').innerText()).includes('vidée'));
+
+await pageGina.locator('[data-test="valider-suppression-message"]').click();
+ok('**la bulle reste, vidée de son contenu**',
+  await rendu(pageGina.locator('[data-testid="fil-messages"]').getByText('Message supprimé'), 20000));
+ok('**et son menu disparaît** — on ne modifie pas ce qui n’existe plus',
+  (await menusBulles.count()) === 0, `${await menusBulles.count()} menu(s)`);
+
+/* ---------------------- Supprimer la conversation ---------------------- */
+
+const menuEntete = pageGina.locator('[data-test="menu-options"]').last();
+await menuEntete.click();
+const entreeSuppr = pageGina.getByRole('menuitem', { name: /Supprimer la conversation/ });
+ok('**« Supprimer la conversation » est dans le menu « ⋯ »**, avec les actions de modération',
+  await rendu(entreeSuppr));
+
+await entreeSuppr.click();
+const dialogue = pageGina.locator('[data-test="confirmer-suppression-conversation"]');
+ok('la confirmation s’ouvre', await rendu(dialogue));
+
+const texteDialogue = await dialogue.innerText();
+ok('**elle dit que l’autre garde la sienne** — croire qu’on efface chez lui serait grave',
+  /gardera la sienne/i.test(texteDialogue));
+ok('et qu’un nouveau message la fera revenir', /reviendra/i.test(texteDialogue));
+
+await pageGina.locator('[data-test="valider-suppression-conversation"]').click();
+await pageGina.waitForTimeout(2000);
+
+const listeAlice = await appel('/messages/conversations', { token: gina.token });
+ok('**elle a disparu de la liste de Gina**',
+  !(listeAlice.json?.elements ?? []).some((c) => c._id === idConvActions));
+
+const listeBob = await appel('/messages/conversations', { token: hugo.token });
+ok('**et Hugo la garde, avec son historique**',
+  (listeBob.json?.elements ?? []).some((c) => c._id === idConvActions));
+
+ok('l’URL ne pointe plus sur un fil absent de la liste',
+  !pageGina.url().includes(idConvActions), pageGina.url().replace(BASE, ''));
+
+/* ------------- Le style de la fenêtre de nouveau message ------------- */
+
+/*
+ * LA HAUTEUR DE LA FENÊTRE NE DOIT PAS CHANGER ENTRE LES ÉTATS.
+ * Sans cadre de hauteur fixe, elle grandit et rétrécit à chaque frappe, et
+ * les boutons se déplacent sous le curseur — on clique sur ce qui vient de
+ * bouger. C'est une assertion de MISE EN PAGE, et elle se mesure.
+ */
+await pageGina.goto(BASE + '/messages', { waitUntil: 'domcontentloaded' });
+await rendu(pageGina.locator('[data-test="ouvrir-nouvelle-conversation"]'));
+await pageGina.locator('[data-test="ouvrir-nouvelle-conversation"]').click();
+await rendu(pageGina.locator('[data-test="nouvelle-conversation"]'));
+
+const hauteurFenetre = async () => {
+  const boite = await pageGina.locator('[data-test="nouvelle-conversation"]').boundingBox();
+  return boite ? Math.round(boite.height) : 0;
+};
+
+const hDepart = await hauteurFenetre();
+await pageGina.locator('[data-test="recherche-destinataire"]').fill('fronthugo');
+await rendu(pageGina.locator('[data-test="destinataire"]'));
+const hResultat = await hauteurFenetre();
+await pageGina.locator('[data-test="recherche-destinataire"]').fill('zzzintrouvable');
+await rendu(pageGina.locator('[data-test="aucun-destinataire"]'));
+const hVide = await hauteurFenetre();
+
+ok('**la fenêtre garde la même hauteur entre ses trois états**',
+  hDepart > 0 && Math.abs(hDepart - hResultat) <= 2 && Math.abs(hResultat - hVide) <= 2,
+  `${hDepart} / ${hResultat} / ${hVide} px`);
+
+await pageGina.locator('[data-test="recherche-destinataire"]').fill('fronthugo');
+await rendu(pageGina.locator('[data-test="destinataire"]'));
+await pageGina.locator('[data-test="recherche-destinataire"]').press('Enter');
+ok('**Entrée choisit le premier résultat** — on ne lâche pas le clavier pour la souris',
+  await rendu(pageGina.locator('[data-test="message-nouvelle-conversation"]')));
+
+await pageGina.screenshot({ path: DOSSIER_CAPTURES + '/messagerie-nouvelle-conversation.png' });
+await pageGina.keyboard.press('Escape');
+
+
 section('Responsive et console');
 
 for (const largeur of [375, 768]) {

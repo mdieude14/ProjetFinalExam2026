@@ -101,7 +101,21 @@ export default function Messages() {
       });
     });
 
-    return arret;
+    /*
+     * UNE CONVERSATION SUPPRIMEE QUITTE LA LISTE DANS TOUS MES ONGLETS.
+     * Le serveur ne diffuse cet evenement qu A MOI — l autre participant
+     * n a pas a apprendre que j ai efface le fil. Mais mes propres
+     * sessions doivent suivre : sans cela, un second onglet garderait une
+     * conversation absente de la liste au prochain rechargement.
+     */
+    const arretSuppression = ecouter('conversation:supprimee', ({ conversation }) => {
+      setConversations((precedentes) => precedentes.filter((c) => c._id !== conversation));
+    });
+
+    return () => {
+      arret?.();
+      arretSuppression?.();
+    };
   }, [ecouter]);
 
   const ouverte = conversations.find((c) => c._id === idOuvert) || null;
