@@ -1,0 +1,68 @@
+# ===========================================================================
+#  Caddy — le seul service exposé, et il ne laisse passer que les webhooks
+# ===========================================================================
+#
+# CE FICHIER EST LA MESURE DE SÉCURITÉ DU DÉPLOIEMENT.
+#
+# n8n publié tel quel sur Internet offre son ÉDITEUR au monde entier. Or
+# l'image est épinglée en 1.121.3, une version choisie pour un poste LOCAL :
+# le plus petit pas qui sortait de deux CVE exploitables par un compte
+# authentifié. Ce raisonnement tenait derrière un pare-feu domestique ; il ne
+# tient plus face à Internet.
+#
+#   D'OÙ LA RÈGLE ICI : on ouvre les chemins dont un service EXTERNE a besoin,
+#   et rien d'autre. Tout le reste demande un mot de passe.
+#
+# ---------------------------------------------------------------------------
+
+{
+	# Adresse pour les avis d'expiration de Let's Encrypt. Sans elle, Caddy
+	# obtient quand même le certificat, mais personne n'est averti si le
+	# renouvellement échoue — et il échoue toujours un dimanche.
+	email {$ADMIN_COURRIEL}
+}
+
+{$N8N_DOMAINE} {
+	encode zstd gzip
+
+	# -----------------------------------------------------------------------
+	#  CE QUI EST PUBLIC, ET UNIQUEMENT CELA
+	# -----------------------------------------------------------------------
+	#
+	#   /webhook/*        les flux appelés par Telegram, le widget, l'API
+	#   /webhook-test/*   le même, en mode « écouter une fois » dans l'éditeur
+	#   /healthz          la sonde de disponibilité
+	#   /rest/oauth2-credential/callback
+	#                     le rappel de Google. C'est le NAVIGATEUR de
+	#                     l'exploitant qui l'appelle, mais Google l'y renvoie
+	#                     par une redirection : derrière un mot de passe, la
+	#                     fenêtre d'autorisation se refermerait sur une
+	#                     demande d'identifiants au plus mauvais moment.
+	@public path /webhook/* /webhook-test/* /healthz /rest/oauth2-credential/callback
+	handle @public {
+		reverse_proxy n8n:5678
+	}
+
+	# -----------------------------------------------------------------------
+	#  TOUT LE RESTE : l'éditeur, l'API REST, les réglages
+	# -----------------------------------------------------------------------
+	#
+	# `basic_auth` attend une empreinte bcrypt, jamais un mot de passe en
+	# clair — la générer ainsi, sur le VPS :
+	#
+	#   docker run --rm caddy:2.11.9-alpine caddy hash-password --plaintext 'le-mot-de-passe'
+	#
+	# L'empreinte obtenue va dans EDITEUR_EMPREINTE du fichier .env.
+	#
+	#   ATTENTION AU `$` : dans un `.env` lu par docker compose, une empreinte
+	#   bcrypt commence par `$2a$...` et chaque `$` doit être DOUBLÉ (`$$`),
+	#   sinon compose tente de l'interpréter comme une variable et transmet
+	#   une empreinte tronquée. Le symptôme est un mot de passe correct qui
+	#   est refusé, sans rien dans le journal.
+	handle {
+		basic_auth {
+			{$EDITEUR_UTILISATEUR} {$EDITEUR_EMPREINTE}
+		}
+		reverse_proxy n8n:5678
+	}
+}

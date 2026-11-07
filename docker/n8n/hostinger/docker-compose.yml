@@ -1,0 +1,161 @@
+# ===========================================================================
+#  n8n sur un VPS Hostinger — composition de PRODUCTION
+# ===========================================================================
+#
+# CE FICHIER N'EST PAS CELUI DE DÉVELOPPEMENT, ET LES DIFFÉRENCES COMPTENT.
+# `docker/n8n/docker-compose.yml` tourne sur un poste Windows derrière un
+# antivirus qui intercepte le HTTPS ; celui-ci tourne sur un Linux public.
+#
+#   ⚠️ NE PAS COPIER `docker-compose.override.yml` SUR LE VPS.
+#   Il monte le certificat d'Avast et pose `NODE_EXTRA_CA_CERTS`. Sur un
+#   Linux sans antivirus, ce fichier désigne un certificat INEXISTANT : n8n
+#   démarre, répond `healthz 200`, et tous ses appels sortants échouent.
+#   C'est exactement la panne de développement, à l'envers.
+#
+#   Démarrage :   docker compose up -d
+#   Journal   :   docker compose logs -f n8n
+#
+# ---------------------------------------------------------------------------
+#  CE QUE LA MIGRATION NE TRANSPORTE PAS
+# ---------------------------------------------------------------------------
+#
+# `n8n export:workflow` N'EXPORTE PAS LES IDENTIFIANTS. Les workflows arrivent
+# avec des RÉFÉRENCES (`ccAnthropicApi01`, `ccTelegramBot001`, …) mais sans
+# leurs secrets. Il faut donc les recréer dans l'éditeur du VPS, avec les mêmes
+# identifiants internes, sinon les nœuds pointent dans le vide :
+#
+#   ccAnthropicApi01   clé API Anthropic
+#   ccTelegramBot001   jeton du bot Telegram
+#   ccCleServiceSup1   clé de service de l'API CoachConnect
+#   ccCleAgentSupp01   clé d'agent de l'API CoachConnect
+#   (Gmail)            OAuth — à réautoriser, voir N8N_EDITOR_BASE_URL
+#
+# NE PAS RECOPIER `N8N_ENCRYPTION_KEY` DU POSTE LOCAL pour « récupérer » les
+# identifiants : ils vivent dans le volume, pas dans l'export. Copier la clé
+# transporterait un secret de développement en production sans rien gagner.
+# On en génère une NEUVE :  openssl rand -hex 32
+#
+# ===========================================================================
+
+services:
+  # -------------------------------------------------------------------------
+  #  CADDY — le seul service exposé sur Internet
+  # -------------------------------------------------------------------------
+  #
+  # POURQUOI UN RELAIS DEVANT n8n, ET NON LE PORT 5678 OUVERT.
+  #
+  # Trois raisons, dans l'ordre d'importance :
+  #
+  #   1. TELEGRAM ET GOOGLE EXIGENT HTTPS. Un webhook en clair est refusé.
+  #      Caddy obtient et renouvelle le certificat Let's Encrypt tout seul,
+  #      sans une ligne de configuration — c'est pourquoi il est préféré ici
+  #      à Traefik, qui demande une dizaine d'étiquettes.
+  #
+  #   2. L'ÉDITEUR n8n NE DOIT PAS ÊTRE PUBLIC. Voir le Caddyfile : les
+  #      chemins de webhook sont ouverts, tout le reste est derrière un mot
+  #      de passe. L'image est épinglée en 1.121.3, un choix fait pour un
+  #      poste LOCAL (le plus petit pas hors de deux CVE exploitables par un
+  #      compte authentifié). Exposer cette version à Internet changerait ce
+  #      raisonnement : le relais remet la surface publique à ce qu'elle doit
+  #      être, c'est-à-dire les seuls webhooks.
+  #
+  #   3. n8n n'écoute plus que sur le réseau interne de Docker : aucun port
+  #      n'est publié pour lui, donc rien à bloquer au pare-feu.
+  caddy:
+    # Version exacte, jamais une étiquette mouvante : un VPS recréé six mois
+    # plus tard doit revenir identique. 2.11.9 est la ligne courante, vérifiée
+    # sur le registre et non supposée.
+    image: caddy:2.11.9-alpine
+    container_name: coachconnect-caddy
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      - N8N_DOMAINE=${N8N_DOMAINE:?definir N8N_DOMAINE dans .env}
+      - ADMIN_COURRIEL=${ADMIN_COURRIEL:?definir ADMIN_COURRIEL dans .env}
+      - EDITEUR_UTILISATEUR=${EDITEUR_UTILISATEUR:?definir EDITEUR_UTILISATEUR dans .env}
+      - EDITEUR_EMPREINTE=${EDITEUR_EMPREINTE:?definir EDITEUR_EMPREINTE dans .env}
+    depends_on:
+      - n8n
+
+  # -------------------------------------------------------------------------
+  #  n8n — jamais exposé directement
+  # -------------------------------------------------------------------------
+  n8n:
+    # Même version qu'en développement, et délibérément.
+    #
+    # Un conteneur de production qui ne tourne pas la même version que celui
+    # sur lequel les flux ont été éprouvés, c'est une variable de plus le jour
+    # où quelque chose casse. La surface publique est réduite par Caddy, pas
+    # par un saut de version majeure à quelques jours d'une soutenance.
+    image: n8nio/n8n:1.121.3
+    container_name: coachconnect-n8n
+    restart: unless-stopped
+
+    # AUCUN `ports:`. n8n n'est joignable que par Caddy, sur le réseau interne.
+
+    environment:
+      # Clé de chiffrement des identifiants au repos. NEUVE sur ce VPS.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?definir N8N_ENCRYPTION_KEY dans .env}
+
+      # Un nœud Code ne lit pas l'environnement : il y lirait la clé
+      # ci-dessus. C'est aussi pourquoi les adresses publiques sont injectées
+      # À LA GÉNÉRATION des flux (COACHCONNECT_API / COACHCONNECT_APPLI) et
+      # non par une variable d'environnement.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=true
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+
+      - GENERIC_TIMEZONE=Europe/Paris
+      - TZ=Europe/Paris
+
+      # ------------------------------------------------------------------
+      #  LES TROIS ADRESSES, ET POURQUOI ELLES CONVERGENT ICI
+      # ------------------------------------------------------------------
+      #
+      # En développement, `WEBHOOK_URL` suivait un tunnel changeant tandis que
+      # `N8N_EDITOR_BASE_URL` restait sur `localhost` — parce que le rappel
+      # OAuth de Google doit être ENREGISTRÉ à l'avance et qu'une adresse de
+      # tunnel ne peut pas l'être.
+      #
+      # Sur un VPS, le domaine est STABLE : les deux pointent donc au même
+      # endroit, et la danse hebdomadaire de réautorisation disparaît.
+      #
+      #   ⚠️ À FAIRE DANS LA CONSOLE GOOGLE, sans quoi Gmail ne s'autorise
+      #   plus : ajouter https://${N8N_DOMAINE}/rest/oauth2-credential/callback
+      #   aux URI de redirection du client OAuth.
+      - N8N_HOST=${N8N_DOMAINE}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${N8N_DOMAINE}/
+      - N8N_EDITOR_BASE_URL=https://${N8N_DOMAINE}/
+
+      # n8n est derrière un relais : sans cela il se croit en HTTP et refuse
+      # de poser son cookie de session en `secure`.
+      - N8N_PROXY_HOPS=1
+      - N8N_SECURE_COOKIE=true
+
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_RUNNERS_ENABLED=true
+
+      # Au-delà de quelques semaines, l'historique d'exécutions fait enfler la
+      # base SQLite sans que personne ne le remarque — jusqu'au disque plein.
+      # Leçon payée deux fois sur le poste de développement.
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336
+
+    volumes:
+      - n8n-data:/home/node/.n8n
+
+volumes:
+  n8n-data:
+    name: coachconnect-n8n-data
+  caddy-data:
+    name: coachconnect-caddy-data
+  caddy-config:
+    name: coachconnect-caddy-config
