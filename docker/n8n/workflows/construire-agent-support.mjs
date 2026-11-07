@@ -189,7 +189,20 @@ function preparerClassement() {
   const MOTIFS = ['remboursement', 'litige_diplome', 'contestation_moderation', 'signalement_grave'];
 
   // Un chevron dans la question ne doit pas pouvoir fermer la balise qui l'encadre.
-  const neutraliser = (texte) => String(texte).replace(/</g, '‹').replace(/>/g, '›');
+  /*
+   * ON REMPLACE LE RARE PAR LE COMMUN, ET NON L’INVERSE.
+   *
+   * Le balisage de ce prompt utilise ‹ et ›. La version précédente
+   * remplaçait < par ‹ : un utilisateur tapant « </demande> » obtenait donc
+   * exactement « ‹/demande› », le VRAI délimiteur de fermeture. La défense
+   * fabriquait l’injection qu’elle prétendait empêcher, et son test ne le
+   * voyait pas — il cherchait la forme ASCII, qui avait bien disparu.
+   *
+   * Désormais le texte de l’utilisateur ne peut plus CONTENIR ‹ ni › : il
+   * n’y a donc plus de délimiteur à forger. Et rien n’est supprimé —
+   * « si x ‹ 5 » devient « si x < 5 », toujours lisible.
+   */
+  const neutraliser = (texte) => String(texte ?? '').replace(/‹/g, '<').replace(/›/g, '>');
   const attribut = (texte) => neutraliser(texte).replace(/"/g, '');
 
   const systeme = [
@@ -364,7 +377,20 @@ function preparerRedaction() {
   const demande = $('Préparer la demande').first().json;
   const { estCoach } = $('Préparer le classement').first().json;
 
-  const neutraliser = (texte) => String(texte).replace(/</g, '‹').replace(/>/g, '›');
+  /*
+   * ON REMPLACE LE RARE PAR LE COMMUN, ET NON L’INVERSE.
+   *
+   * Le balisage de ce prompt utilise ‹ et ›. La version précédente
+   * remplaçait < par ‹ : un utilisateur tapant « </demande> » obtenait donc
+   * exactement « ‹/demande› », le VRAI délimiteur de fermeture. La défense
+   * fabriquait l’injection qu’elle prétendait empêcher, et son test ne le
+   * voyait pas — il cherchait la forme ASCII, qui avait bien disparu.
+   *
+   * Désormais le texte de l’utilisateur ne peut plus CONTENIR ‹ ni › : il
+   * n’y a donc plus de délimiteur à forger. Et rien n’est supprimé —
+   * « si x ‹ 5 » devient « si x < 5 », toujours lisible.
+   */
+  const neutraliser = (texte) => String(texte ?? '').replace(/‹/g, '<').replace(/›/g, '>');
   const attribut = (texte) => neutraliser(texte).replace(/"/g, '');
 
   const systeme = [
@@ -676,7 +702,20 @@ function preparerBrouillon() {
   const contexte = $('Assembler le contexte').first().json;
   const { estCoach } = $('Préparer le classement').first().json;
 
-  const neutraliser = (texte) => String(texte).replace(/</g, '‹').replace(/>/g, '›');
+  /*
+   * ON REMPLACE LE RARE PAR LE COMMUN, ET NON L’INVERSE.
+   *
+   * Le balisage de ce prompt utilise ‹ et ›. La version précédente
+   * remplaçait < par ‹ : un utilisateur tapant « </demande> » obtenait donc
+   * exactement « ‹/demande› », le VRAI délimiteur de fermeture. La défense
+   * fabriquait l’injection qu’elle prétendait empêcher, et son test ne le
+   * voyait pas — il cherchait la forme ASCII, qui avait bien disparu.
+   *
+   * Désormais le texte de l’utilisateur ne peut plus CONTENIR ‹ ni › : il
+   * n’y a donc plus de délimiteur à forger. Et rien n’est supprimé —
+   * « si x ‹ 5 » devient « si x < 5 », toujours lisible.
+   */
+  const neutraliser = (texte) => String(texte ?? '').replace(/‹/g, '<').replace(/›/g, '>');
   const attribut = (texte) => neutraliser(texte).replace(/"/g, '');
 
   const systeme = [
