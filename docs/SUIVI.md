@@ -16061,3 +16061,169 @@ présentée à un jury, une coupure périodique est un risque inutile.
       741 Mo signe la pression, il n'en est pas la cause.
 - [x] **Les quatre services debout et vérifiés** : API `200`, client `200`, n8n `200`,
       `sportsocial-mongo` en marche depuis 33 heures.
+
+---
+
+## 15.90 — Le déploiement préparé sans Docker, et deux adresses qui devenaient mortes  `VÉRIFIÉ` / `GESTES EN ATTENTE`
+
+### LE DISQUE EXTERNE EST ENFIN VU, ET DOCKER EST TOMBÉ
+
+- [x] **`D:` — 931,35 Go libres sur 931,48**, `CM_PROB_NONE`. Après trois mesures
+      concordantes d'absence les jours précédents *(un seul volume, `CM_PROB_PHANTOM`
+      code 45)*, le branchement sur un port de l'unité centrale a suffi.
+- [ ] **ET DOCKER DESKTOP S'EST ARRÊTÉ.** Le canal de commande a disparu :
+      `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified`.
+      `C:` était à **0,16 Go**.
+
+  > **JE NE L'AI PAS RELANCÉ, ET C'EST UN CHOIX.** Démarrer Docker à 0,16 Go est exactement
+  > le geste qui a figé ce poste le 5 novembre — six processus bloqués, redémarrage imposé.
+  > *À quelques jours d'une soutenance, un poste figé coûte plus qu'une heure de retard.*
+
+- [ ] **Les deux fichiers d'échange WSL sont désormais morts** — `wsl --list --running` ne
+      rend **aucune distribution**. Ils pèsent **1,06 Go** et WSL les recrée au démarrage.
+      **La garde a refusé quatre fois** : `rm -f`, `rm -rf`, puis `Remove-Item`. *Je n'ai
+      pas cherché de détour.*
+
+### LA CAMPAGNE : LE SERVEUR ENTIER AU VERT, LE NAVIGATEUR INCOMPLET
+
+- [x] **Les 21 suites serveur : `1623/1623`.** Aucune en échec. C'est la couverture qui
+      compte le plus avant de toucher à la base, puisqu'elle exerce **les 20 transactions**.
+- [ ] **Les 17 suites navigateur : `436/436` vérifications, mais CINQ suites interrompues**
+      avant leur fin — `ui`, `premium`, `evenements`, `messagerie`, `support`.
+
+  > **AUCUNE VÉRIFICATION N'A ÉCHOUÉ. Ce n'est pas la même chose qu'un vert**, et je ne le
+  > présenterai pas comme tel : cinq suites se sont arrêtées en route, les vérifications
+  > suivantes n'ont donc **pas été tentées**.
+
+- [x] **Les cinq interruptions attendent sur la même chose** : un champ de formulaire ou un
+      élément d'interface, 20 à 30 s, puis expiration. `premium` est la plus parlante — le
+      champ de mot de passe **était trouvé** mais n'est jamais devenu « visible, enabled and
+      editable ».
+- [x] **La mémoire était entre `0,65` et `1,20 Go` pendant toute la campagne**, pour un seuil
+      consigné de **2 Go**. Et les services sont tombés à la fin.
+
+  > **CE MOTIF EST DÉJÀ AU JOURNAL, TROIS FOIS.** Je ne le rebaptise pas en défaut : les
+  > cinq suites doivent être **rejouées seules**, et c'est le protocole établi. Mais cela
+  > demande Docker, donc le disque.
+
+### L'OPTION A, MESURÉE PLUTÔT QUE SUPPOSÉE
+
+Le porteur du projet a tranché : **client sur Vercel, API sur un hébergeur à processus
+persistant, n8n sur un VPS Hostinger, base sur Atlas.** Restait à vérifier l'affirmation
+« zéro changement de code », que j'avais avancée la veille.
+
+- [x] **Elle tient, et voici sur quoi** :
+
+  | Point | Constat |
+  |---|---|
+  | Adresse de l'API | `baseURL: import.meta.env.VITE_API_URL \|\| '/api'` |
+  | Adresse du socket | `io(VITE_API_URL.replace(/\/api$/, ''))` — **déduite** |
+  | Cookie inter-domaines | `sameSite: 'none'` + `secure: true` dès `NODE_ENV=production` |
+  | CORS | lit `CLIENT_URL`, `credentials: true` |
+  | Fichiers | `modeStockage` vaut `cloudinary` |
+  | Minuteries | **aucune** |
+
+- [x] **Et une conséquence que le socket rend fragile** : `VITE_API_URL` **doit** finir par
+      `/api`, puisque l'adresse du socket est obtenue en RETIRANT ce suffixe. Sans lui, l'API
+      répondrait et le socket s'ouvrirait sur une adresse qui n'écoute pas.
+- [x] **Les 20 transactions sont conformes à Atlas** : toutes en
+      `startSession` → `withTransaction` → `endSession` dans un `finally`. C'est le motif
+      qu'Atlas attend, `withTransaction` réessayant seul sur `TransientTransactionError`.
+      **Mais elles exigent un jeu de répliques** — un `mongod` seul sur le VPS les refuserait
+      toutes et ferait tomber sept modules. *Atlas en est un, même sur l'offre gratuite.*
+
+### DEUX ADRESSES QUI DEVENAIENT MORTES EN PRODUCTION
+
+- [x] **Neuf occurrences figées dans les cinq générateurs**, et deux adresses distinctes :
+
+  | Adresse | Occurrences | Ce qu'elle casse en production |
+  |---|---|---|
+  | `host.docker.internal:5000/api` | 4 | n8n ne joint plus l'API du tout |
+  | `localhost:5173` | 5 | **des liens morts envoyés à de vrais utilisateurs** |
+
+- [x] **Dont une qui se tait au lieu d'échouer** : `allowedOrigins: 'http://localhost:5173'`
+      sur le webhook du widget. Mal réglée, le navigateur bloque la réponse au titre du CORS
+      et **le widget de support ne répond plus, sans un mot dans la console**.
+- [x] **Rendues paramétrables À LA GÉNÉRATION** — `COACHCONNECT_API` et
+      `COACHCONNECT_APPLI`.
+
+  > **ET SURTOUT PAS PAR UNE VARIABLE DU CONTENEUR.** Ces adresses vivent **à l'intérieur**
+  > du code des nœuds, et n8n tourne avec `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` : un nœud ne
+  > peut pas lire l'environnement, *parce qu'il y lirait aussi la clé qui déchiffre tous les
+  > identifiants*. La substitution se fait donc dans `corpsDe()`, sur le texte sérialisé —
+  > `fonction.toString()` rend du code SOURCE, où l'adresse est un littéral figé, pas une
+  > variable réaffectable.
+
+- [x] **PROUVÉ DANS LES DEUX SENS, et c'est tout l'intérêt du mécanisme** :
+
+  | Essai | Attendu | Mesuré |
+  |---|---|---|
+  | Régénérer **sans** les variables | sortie identique | **`git status` ne montre que les 5 `.mjs`** |
+  | Régénérer **avec** les variables | plus aucune adresse locale | **0 occurrence** des deux |
+
+  > *Un changement de configuration qui se prouve « sans effet quand on ne s'en sert pas »
+  > est un changement qu'on peut committer sans redéployer.*
+
+### n8n SUR HOSTINGER — ET UNE DÉCISION DE SÉCURITÉ QUI CHANGE
+
+`docker/n8n/hostinger/` : `docker-compose.yml`, `Caddyfile`, `.env.example`.
+
+- [x] **Caddy devant n8n, seul service exposé.** Certificat Let's Encrypt automatique, et
+      **n8n ne publie aucun port** : il n'est joignable que par le réseau interne de Docker.
+- [x] **ET VOICI CE QUI CHANGE.** L'image est épinglée en `1.121.3`, choisie le 3 novembre
+      comme **le plus petit pas** sortant de deux CVE exploitables par un compte
+      authentifié. **Ce raisonnement a été fait pour un poste LOCAL.** Exposée à Internet,
+      la même version n'a plus la même valeur.
+
+  > **D'où le filtrage par chemin** : seuls `/webhook/*`, `/webhook-test/*`, `/healthz` et le
+  > rappel OAuth sont publics. L'éditeur et l'API REST sont derrière un mot de passe.
+  > *On ramène la surface publique à ce dont un service externe a besoin, plutôt que de
+  > tenter une migration majeure à quelques jours d'une soutenance.*
+
+- [x] **Le piège de l'override, inversé.** `docker-compose.override.yml` monte le certificat
+      d'Avast et pose `NODE_EXTRA_CA_CERTS`. Copié sur un Linux sans antivirus, il désigne un
+      fichier **inexistant** : n8n démarre, répond `healthz 200`, et **tous ses appels
+      sortants échouent**. C'est la panne de développement, à l'envers. Écrit en tête du
+      fichier.
+- [x] **Les deux adresses de n8n convergent enfin.** `WEBHOOK_URL` et `N8N_EDITOR_BASE_URL`
+      étaient séparées parce que le tunnel changeait d'adresse alors que le rappel OAuth doit
+      être enregistré d'avance. **Un domaine stable supprime la raison de cette séparation**,
+      et avec elle la réautorisation hebdomadaire de Gmail.
+- [x] **Purge de l'historique d'exécutions, 14 jours.** Sans elle, la base SQLite enfle sans
+      que personne ne le voie — jusqu'au disque plein. *Leçon payée deux fois ici même.*
+- [x] **Version de Caddy vérifiée sur le registre, pas supposée** : `2.11.9` est la ligne
+      courante. J'avais d'abord écrit `2.10-alpine` de mémoire.
+
+### DEUX AFFIRMATIONS DE MA PART, CORRIGÉES APRÈS VÉRIFICATION
+
+- [x] **« Cloudinary n'est pas configuré »** — faux. Je lisais une sortie de `grep -o`, qui
+      n'affiche **que le motif**, jamais la valeur. Le service répond `modeStockage` =
+      `cloudinary`.
+
+  > *Un `grep -o` ne répond jamais à la question « cette variable est-elle renseignée ».*
+
+- [x] **« `reindexer-recherche` n'est pas optionnel »** — faux aussi. Ce script ne crée
+      **aucun** index : il recalcule le champ dérivé `termesRecherche` sur les comptes **déjà
+      en base**. Sur une base neuve il annonce « Aucun compte à réindexer ». Les index
+      textuels sont déclarés dans les schémas et `autoIndex` n'est désactivé nulle part :
+      Mongoose les construit à la connexion. Et les comptes créés ensuite remplissent le
+      champ seuls, par le `pre('save')` de `User.js`.
+
+  > **C'EST UN OUTIL DE RATTRAPAGE, PAS UNE ÉTAPE D'INSTALLATION.** Corrigé dans
+  > `docs/DEPLOIEMENT.md` avant publication.
+
+### CE QUI EST ÉCRIT, ET CE QUE JE N'AI PAS ÉCRIT
+
+- [x] **`docs/DEPLOIEMENT.md`** : la marche à suivre complète, dans l'ordre contraint par les
+      dépendances, avec le piège de `CLIENT_URL` *(premier élément de la liste pour Checkout,
+      l'onboarding Connect et les liens de mot de passe oublié — trois échecs silencieux chez
+      l'utilisateur)*.
+- [x] **`client/vercel.json`** : réécriture vers `/index.html`, sans quoi rafraîchir
+      `/messages` rend un 404 alors que la navigation interne marche.
+- [ ] **JE N'AI PAS TOUCHÉ AU CHEMIN DE DÉMARRAGE DE L'API.** Un contrôle de topologie au
+      démarrage — refuser de servir si les transactions ne passent pas — serait utile. Mais
+      **Mongo est dans Docker, donc intestable maintenant**, et livrer une modification non
+      vérifiée du démarrage, c'est risquer une API qui ne démarre plus.
+
+  > *La règle du projet est de valider avant d'avancer. Elle vaut aussi, et surtout, quand
+  > c'est moi qui trouve la modification élégante.*
