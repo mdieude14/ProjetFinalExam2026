@@ -15643,3 +15643,164 @@ Le bilan de campagne imprime désormais, **juste sous le total**, un bloc
   > 5 novembre**, six processus `wsl` figés et un redémarrage pour en sortir. *À faire
   > posément, pas au milieu d'une session de travail.* Annoncer « 1,8 Go récupérés sur C: »
   > aurait été faux : la mesure dit 7,6 Go libres avant **et** après.
+
+---
+
+## 15.87 — Modifier, supprimer, et une suppression qui ne détruit pas les données de l'autre  `VÉRIFIÉ`
+
+### CE QUI EXISTAIT DÉJÀ, ET CE QUI MANQUAIT VRAIMENT
+
+- [x] **Mesuré avant d'écrire une ligne** : `DELETE /messages/:id` **existait** et était bien
+      fait *(suppression douce, média retiré du stockage, extrait rafraîchi, diffusion
+      socket)* — **mais aucune interface ne l'appelait.** `messageApi.supprimer` était là,
+      sans un seul appelant.
+- [x] **Modifier un message** n'existait nulle part. **Supprimer une conversation** non plus.
+
+  > *Le travail utile n'était donc pas « trois fonctions » mais : brancher une API orpheline,
+  > en écrire une seconde, et en concevoir une troisième.*
+
+### MODIFIER : UNE DATE, PAS UN BOOLÉEN
+
+- [x] **`PATCH /messages/:id`**, et le modèle gagne **`modifieLe: Date`** — pas un drapeau.
+      Un booléen dirait qu'il y a eu retouche sans jamais permettre de la situer.
+- [x] **AUCUN DÉLAI AU-DELÀ DUQUEL LA MODIFICATION EST REFUSÉE**, et c'est délibéré.
+
+  > **Une limite de temps protège moins bien que la visibilité.** *Un message réécrit une
+  > minute après sa lecture trompe autant qu'une heure après ; ce qui protège, c'est que la
+  > retouche SE VOIE — des deux côtés.* La mention « modifié » est donc affichée à
+  > l'interlocuteur, pas seulement à l'auteur.
+
+- [x] **Trois refus, et chacun protège autre chose** : `403` si je ne suis pas l'expéditeur
+      *(réécrire les mots d'un autre serait pire qu'une suppression, parce qu'une suppression
+      se voit)* ; `409` sur un message déjà supprimé *(sinon la suppression se contournerait
+      par une modification)* ; `400` sur un texte vide *(« modifier pour effacer » doit passer
+      par la suppression, qui marque la bulle au lieu de la laisser muette)*.
+- [x] **Un blocage survenu depuis l'envoi ferme aussi la modification** — `404`, comme
+      partout. Laisser modifier notifierait l'autre d'une activité qu'il a cessé d'accepter.
+- [x] **L'extrait de la liste suit**, parce qu'il porte une **copie** du texte. C'est le
+      défaut que la suppression avait déjà rencontré, pour la même raison.
+
+### SUPPRIMER UNE CONVERSATION : POUR SOI, ET SEULEMENT POUR SOI
+
+- [x] **Une conversation appartient à DEUX personnes.** L'effacer pour les deux détruirait
+      les données de quelqu'un qui n'a rien demandé — et rien, du côté de celui qui supprime,
+      ne justifie ce pouvoir sur l'autre. Le modèle gagne donc **`supprimeePar: [ObjectId]`**,
+      et la liste filtre sur **moi seul**.
+- [x] **ET UN NOUVEAU MESSAGE LA FAIT REVENIR, POUR LES DEUX PARTICIPANTS.**
+
+  > **Sans ce retour, supprimer vaudrait blocage silencieux** : le message suivant de l'autre
+  > serait invisible, et des messages seraient perdus sans que personne ne le sache. *Pour
+  > l'expéditeur aussi — écrire après avoir effacé le fil doit le rouvrir, sans quoi il
+  > enverrait dans le vide un message qu'il ne verrait nulle part.*
+
+- [x] **Le compteur de non-lus est remis à zéro en même temps.** Le laisser garnirait la
+      pastille globale pour un fil que l'utilisateur ne voit plus — un compteur qu'il ne
+      pourrait **pas** faire retomber, la conversation ayant disparu de sa liste.
+- [x] **`404` et non `403` pour un non-participant** : un 403 confirmerait que cette
+      conversation existe, et entre qui. Même règle qu'à l'ouverture.
+- [x] **Idempotent par construction** *(`$addToSet`)* : deux clics ne produisent pas deux
+      états.
+- [x] **On ne diffuse qu'à MOI.** Prévenir l'autre lui apprendrait que j'ai effacé le fil —
+      une information qu'il n'a pas à recevoir, et qui ferait d'un geste de rangement un
+      message implicite. *Mes propres onglets, eux, doivent suivre.*
+
+### L'INTERFACE : UN MENU PARTAGÉ QU'IL NE FALLAIT PAS ÉLARGIR N'IMPORTE OÙ
+
+- [x] **`MenuModeration` sert à DEUX endroits** — l'en-tête du fil **et** la page de profil.
+      Y ajouter « Supprimer la conversation » directement l'aurait fait apparaître sur un
+      profil, où il n'y a pas forcément de fil : sans objet au mieux, agissant sur une
+      conversation qu'on ne regarde pas au pire.
+- [x] **Résolu par `entreesSupplementaires`**, que seule la conversation passe, ajoutées
+      **derrière un séparateur** : elles portent sur le FIL, pas sur la personne, et les
+      mélanger aux actions de modération laisserait croire que supprimer un fil agit sur le
+      compte.
+- [x] **Sur la bulle**, le menu n'apparaît que sur **mes** messages et **tant qu'ils
+      existent**. Le serveur refuserait de toute façon — mais afficher une entrée qui mène à
+      une erreur est une impasse offerte.
+- [x] **Les trois modales annoncent la conséquence AVANT le clic** : la mention « modifié »
+      restera visible ; la bulle restera vidée ; l'autre gardera sa liste et un nouveau
+      message fera revenir le fil.
+
+### LE STYLE DE LA FENÊTRE « NOUVEAU MESSAGE », ET UN VRAI DÉFAUT CORRIGÉ
+
+- [x] **LA FENÊTRE SAUTAIT DE HAUTEUR À CHAQUE FRAPPE** : dix résultats, puis deux, puis un
+      message d'absence — elle grandissait, rétrécissait, **et les boutons se déplaçaient
+      sous le curseur**. Une zone de résultats à hauteur fixe fait désormais défiler la liste
+      **à l'intérieur d'un cadre immobile**. *Mesuré : 402 / 402 / 402 px entre les trois
+      états.*
+- [x] **Deux corrections faites en REGARDANT les captures, pas en lisant le code** : le cadre
+      était `bg-ardoise-50` et formait un **bloc gris** au milieu d'une fenêtre blanche ; et
+      le survol des lignes était `hover:bg-white` — **blanc sur blanc, donc invisible**.
+      Passés en fond blanc et survol teinté de marque.
+
+  > **LA LEÇON : un défaut de style ne se voit pas dans le code.** *« hover:bg-white » se lit
+  > très bien et ne signale rien ; c'est la capture qui montre qu'il ne se passe rien au
+  > survol.*
+
+- [x] Et le reste : compteur de résultats, badge « coach », ville, flèche au survol, états
+      vides distingués *(pas de correspondance / saisie trop courte / aucune relation)*, pied
+      séparé par un filet, **et Entrée qui choisit le premier résultat**.
+- [x] **Le rembourrage des modales aligné sur la convention de la maison** *(`space-y-4 p-5`)*
+      — `Modal` ne pose aucun rembourrage autour de ses enfants, et mes trois nouvelles
+      fenêtres étaient collées aux bords.
+
+### J'AI FAIT CE QUE CE JOURNAL INTERDIT : MODIFIÉ LE SERVEUR PENDANT UNE CAMPAGNE
+
+- [x] **Campagne lancée, puis treize redémarrages de nodemon sous elle.** Les suites **21 et
+      22** sont tombées dans cette fenêtre. **Je l'ai arrêtée plutôt que de la laisser rendre
+      un verdict contaminé.**
+
+  > **C'est exactement le piège consigné au 15.74** — « on ne modifie pas le serveur pendant
+  > qu'une campagne l'interroge » — et je l'ai relu après coup, pas avant. *Le bon ordre est :
+  > tout le code d'abord, la campagne en dernier geste.*
+
+### QUATRE DÉFAUTS DE MES PROPRES TESTS, ENCORE
+
+- [x] **J'ai réutilisé Alice et Bob**, qui traînent un fil chargé par les sections
+      précédentes : « un seul menu dans le fil » y était faux *(quatre)*, et `.first()`
+      désignait le plus ancien message, pas le mien. **Un couple neuf pour cette section.**
+
+  > *Une section qui dépend de l'état laissé par les précédentes ne teste plus ce qu'elle
+  > croit — elle teste l'ordre d'exécution.*
+
+- [x] **`/^Supprimer$/` ne correspondait à rien** : `MenuOptions` compose le nom accessible du
+      libellé **et** de sa description.
+- [x] **Un contrôle de collision de noms que j'ai laissé passer** : il a bien signalé
+      `enBase`, mais mon enchaînement de commandes a inséré quand même. Repris avec un
+      vrai garde-fou — insertion **conditionnée** au contrôle.
+- [x] **Et un `git checkout` a restauré le fichier en CRLF**, cassant une ancre à `\n` ;
+      une seconde commande a alors basculé 39 lignes vers un `pageGina` inexistant. Repris
+      d'un seul tenant, avec détection des fins de ligne.
+
+### MESURES
+
+- [x] **`server/tests/messagerie.mjs` : 83 → 109.**
+- [x] **`client/tests/messagerie.mjs` : 44 → 68.**
+- [x] Sonde d'API dédiée avant toute interface : **31/31**. Sonde de navigateur : **21/21**.
+
+### ET LA CAMPAGNE PASSE D'UN SEUL TENANT, POUR LA PREMIÈRE FOIS
+
+- [x] **2301/2301, les 39 suites au vert dans un LANCEMENT UNIQUE.** Jusqu'ici, le journal
+      devait toujours écrire la même réserve : « les 39 suites passent, mais aucun lancement
+      unique ne les a toutes au vert en même temps ». **Cette réserve tombe aujourd'hui.**
+- [x] **Les deux suites qui avaient échoué au lancement précédent étaient mes régressions**,
+      et toutes deux venaient de la même cause : j'avais ajouté un menu par bulle.
+
+  > **`data-test="menu-options"` est posé par la PRIMITIVE `MenuOptions`** : tout menu de
+  > l'application le porte. Les suites visaient « le » menu quand il n'y en avait qu'un ;
+  > mon ajout a rendu ces sélecteurs ambigus, et Playwright refuse net en mode strict.
+  >
+  > *Je n'ai pas relâché les sélecteurs — je leur ai donné une PORTÉE. Sur un profil, la
+  > page entière suffit ; dans une conversation, on nomme l'en-tête. L'assertion garde
+  > toute sa force, et elle dit maintenant lequel des menus elle teste.*
+
+- [x] **Et deux de mes chaînes portaient un tiret cadratin**, contre la règle de la maison.
+      Le scanner lit le **paquet de production**, pas les sources : mes commentaires ne
+      comptent pas, mais `De votre liste seulement — l'autre garde la sienne` partait bien
+      chez l'utilisateur. Réécrites : **0 faute sur 11 tirets analysés**.
+
+  > *Un contrôle qui lit l'artefact plutôt que la source avait été conçu pour éviter 939
+  > faux positifs. Il vient de trouver deux vraies fautes que je n'aurais pas vues.*
+
+- [x] **Mémoire libre en fin de campagne : 1,12 Go** — toujours sous le seuil de 2 Go, donc
+      le bloc (g) maintient sa réserve sur les assertions de durée. *Le total, lui, tient.*
