@@ -256,6 +256,17 @@ const texteBrouillon = (champ) =>
     .isLength({ min: 10, max: 4000 })
     .withMessage('Le brouillon doit contenir entre 10 et 4000 caractères');
 
+/*
+ * LA CONSIGNE EST FACULTATIVE, et doit le rester : un premier brouillon
+ * n’en a pas, et l’exiger casserait le chemin nominal. Elle ne sert qu’à
+ * l’historique des corrections, jamais au texte produit.
+ */
+export const reglesConsigneBrouillon = body('consigne')
+  .optional()
+  .isString()
+  .trim()
+  .isLength({ max: 2000 });
+
 export const reglesDossierService = [referenceDossier, conversationPrivee(query('conversation'))];
 
 export const reglesBrouillonService = [

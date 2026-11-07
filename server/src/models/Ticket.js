@@ -279,6 +279,38 @@ const ticketSchema = new Schema(
      * écrit qu'une fois, au moment de l'envoi, et ne change plus.
      */
     brouillonReponse: { type: String, trim: true, maxlength: 4000 },
+
+    /*
+     * CE QUE L’EXPLOITANT A FAIT CORRIGER, ET CE QUE ÇA A DONNÉ.
+     *
+     * Jusqu’ici, dicter « raccourcis et enlève la formule de politesse »
+     * produisait un nouveau brouillon qui ÉCRASAIT le précédent. La
+     * consigne, elle, n’était stockée nulle part : elle servait une fois,
+     * puis disparaissait. L’agent recommençait donc la même maladresse au
+     * dossier suivant, indéfiniment.
+     *
+     * ON NE GARDE QUE LES CORRECTIONS, PAS LES PREMIERS JETS. Un premier
+     * brouillon n’apprend rien : c’est l’ÉCART entre « avant » et « après »,
+     * sous une consigne donnée, qui dit ce que l’équipe change
+     * systématiquement.
+     *
+     * BORNÉ À DIX. Un dossier qui tourne en rond ne doit pas faire enfler
+     * indéfiniment son document, et les dix dernières corrections suffisent
+     * largement à voir une habitude. `$slice: -10` s’en charge à l’écriture.
+     */
+    historiqueBrouillons: {
+      type: [
+        {
+          _id: false,
+          consigne: { type: String, trim: true, maxlength: 2000 },
+          avant: { type: String, trim: true, maxlength: 4000 },
+          apres: { type: String, trim: true, maxlength: 4000 },
+          le: { type: Date, default: Date.now },
+        },
+      ],
+      default: undefined,
+      select: false,
+    },
     brouillonLe: { type: Date },
 
     /**

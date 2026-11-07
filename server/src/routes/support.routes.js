@@ -37,6 +37,7 @@ import {
   reglesCourrielService,
   reglesDossierService,
   reglesBrouillonService,
+  reglesConsigneBrouillon,
   reglesEnvoiService,
 } from '../validators/support.validator.js';
 
@@ -230,6 +231,7 @@ router.post(
   '/service/tickets/:reference/brouillon',
   serviceAutorise,
   reglesBrouillonService,
+    reglesConsigneBrouillon,
   validate,
   brouillonService
 );

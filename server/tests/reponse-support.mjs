@@ -364,6 +364,113 @@ await appel(`/support/tickets/${parClavier._id}/vu`, { methode: 'POST', token: a
 ok('**un tiers ne peut pas marquer le dossier d’un autre**',
   !(await lireDossier(parClavier.reference))?.vueParAuteurLe);
 
+
+/* ================================================================== *
+ *  AXE 5 — GARDER LA TRACE DES CORRECTIONS
+ * ================================================================== */
+
+section('L’historique des corrections');
+
+/*
+ * POURQUOI CETTE COLLECTE EXISTE, ET CE QU'ELLE NE FAIT PAS ENCORE.
+ *
+ * Dicter « raccourcis et enlève la formule de politesse » produisait un
+ * nouveau brouillon qui ÉCRASAIT le précédent, et la consigne n'était stockée
+ * nulle part : elle servait une fois, puis disparaissait. L'agent
+ * recommençait donc la même maladresse au dossier suivant, indéfiniment.
+ *
+ * Cette section ne vérifie PAS que l'agent apprend — il n'apprend pas encore.
+ * Elle vérifie que la MATIÈRE est conservée, et correctement : sans corpus,
+ * l'étape suivante serait impossible.
+ */
+
+const corriger = (reference, texte, instruction) =>
+  appel(`/support/service/tickets/${reference}/brouillon`, {
+    methode: 'POST',
+    cleService: CLE_SERVICE,
+    corps: { conversation: CONV_ADMIN, texte, consigne: instruction },
+  });
+
+/*
+ * ON INTERROGE PAR _id, ET NON PAR « reference ».
+ * La référence est DÉRIVÉE — les huit derniers signes de l'identifiant — et
+ * n'existe dans aucun document. Chercher dessus rendrait toujours `null`, et
+ * chaque assertion d'absence passerait alors pour la mauvaise raison.
+ */
+const lireHistorique = async (id) => {
+  const doc = await bdd
+    .collection('tickets')
+    .findOne({ _id: new ObjectId(String(id)) }, { projection: { historiqueBrouillons: 1 } });
+  return doc?.historiqueBrouillons ?? [];
+};
+
+const dossierHist = await creerDemande('Mon abonnement a été prélevé deux fois.');
+const refHist = dossierHist.reference;
+const idHist = dossierHist._id;
+ok('dossier d’essai créé', Boolean(refHist && idHist), String(refHist));
+
+/* --- Un PREMIER brouillon n'est pas une correction --- */
+
+await corriger(refHist, 'Bonjour, nous examinons votre demande de remboursement.', 'réponds-lui');
+const histVide = await lireHistorique(idHist);
+ok('**un premier brouillon ne laisse AUCUNE trace** — il n’y a pas d’« avant » à comparer',
+  histVide.length === 0, `${histVide.length} entrée(s)`);
+
+/* --- Une correction, elle, est conservée --- */
+
+await corriger(
+  refHist,
+  'Bonjour, votre remboursement est en cours de traitement.',
+  'raccourcis et enlève la formule de politesse'
+);
+const hist1 = await lireHistorique(idHist);
+ok('**une correction est conservée**', hist1.length === 1, `${hist1.length} entrée(s)`);
+ok('avec la consigne qui l’a provoquée',
+  hist1[0]?.consigne === 'raccourcis et enlève la formule de politesse', hist1[0]?.consigne);
+ok('**et les deux textes, avant et après** — c’est l’écart qui enseigne',
+  Boolean(hist1[0]?.avant?.includes('nous examinons')) &&
+    Boolean(hist1[0]?.apres?.includes('en cours de traitement')));
+ok('horodatée', hist1[0]?.le instanceof Date);
+
+/* --- Sans consigne, rien à apprendre --- */
+
+await corriger(refHist, 'Bonjour, votre remboursement sera traité sous peu.', '   ');
+const histSansConsigne = await lireHistorique(idHist);
+ok('**une reprise SANS consigne n’est pas conservée** — elle n’enseigne rien',
+  histSansConsigne.length === 1, `${histSansConsigne.length} entrée(s)`);
+
+/* --- Un texte identique n'est pas une correction --- */
+
+await corriger(refHist, 'Bonjour, votre remboursement sera traité sous peu.', 'change tout');
+const histIdentique = await lireHistorique(idHist);
+ok('**réécrire le MÊME texte n’est pas une correction**',
+  histIdentique.length === 1, `${histIdentique.length} entrée(s)`);
+
+/* --- La borne à dix --- */
+
+for (let i = 0; i < 12; i += 1) {
+  await corriger(refHist, `Bonjour, voici la version numéro ${i} de notre réponse.`, `essai ${i}`);
+}
+const histPleine = await lireHistorique(idHist);
+ok('**l’historique est borné à dix** — un dossier qui tourne en rond ne fait pas enfler son document',
+  histPleine.length === 10, `${histPleine.length} entrée(s)`);
+ok('et ce sont les DIX DERNIÈRES qui restent',
+  histPleine[histPleine.length - 1]?.consigne === 'essai 11',
+  histPleine[histPleine.length - 1]?.consigne);
+
+/* --- Il ne sort pas par l'API --- */
+
+const vuParLExploitant = await dossier(refHist);
+ok('**l’historique ne sort PAS dans la vue du dossier** — il sert au réglage, pas à l’affichage',
+  vuParLExploitant.statut === 200 && !/historiqueBrouillons/.test(vuParLExploitant.texte ?? ''),
+  `statut ${vuParLExploitant.statut}`);
+
+/* --- Le validateur borne la consigne --- */
+
+ok('une consigne au-delà de 2000 signes : 400',
+  (await corriger(refHist, 'Bonjour, un texte de remplacement parfaitement valable.', 'a'.repeat(2001)))
+    .statut === 400);
+
 await appel(`/support/tickets/${parClavier._id}/vu`, { methode: 'POST', token: utilisateur.token });
 ok('son propriétaire, lui, le peut',
   Boolean((await lireDossier(parClavier.reference))?.vueParAuteurLe));

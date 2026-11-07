@@ -396,11 +396,17 @@ export const brouillonService = asyncHandler(async (req, res) => {
    * permettrait de faire passer un brouillon tapé au clavier pour une dictée
    * Telegram, et l'écran de modération le répéterait sans pouvoir le vérifier.
    */
+  /*
+   * LA CONSIGNE EST TRANSMISE, et c’est tout l’intérêt : sans elle, on
+   * saurait QUE le texte a changé, jamais POURQUOI. C’est l’instruction
+   * dictée par l’exploitant qui porte l’enseignement.
+   */
   const dossier = await support.enregistrerBrouillon(
     ticket,
     administrateur,
     req.body.texte,
-    'telegram'
+    'telegram',
+    req.body.consigne
   );
 
   return res.json({ succes: true, dossier });

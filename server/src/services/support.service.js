@@ -706,7 +706,13 @@ export async function parIdentifiant(idTicket) {
  * réécrire ne changerait rien pour la personne, et laisserait croire le
  * contraire.
  */
-export async function enregistrerBrouillon(ticket, administrateur, texte, origine = 'back-office') {
+export async function enregistrerBrouillon(
+  ticket,
+  administrateur,
+  texte,
+  origine = 'back-office',
+  consigne = null
+) {
   const propre = String(texte ?? '').trim();
   if (propre.length < 10) throw ApiError.badRequest('Le brouillon est trop court');
   if (ticket.reponseEnvoyeeLe) throw ApiError.conflict('Une réponse a déjà été envoyée pour ce dossier');
@@ -719,6 +725,21 @@ export async function enregistrerBrouillon(ticket, administrateur, texte, origin
    * clavier — celle où l'exploitant regarde le dossier en écrivant.
    */
   const voie = ['agent', 'telegram', 'back-office'].includes(origine) ? origine : 'back-office';
+
+  /*
+   * ON N’ENREGISTRE QUE LES CORRECTIONS, ET SEULEMENT CELLES-LÀ.
+   *
+   * Un premier brouillon n’apprend rien : il n’y a pas d’« avant ». C’est
+   * l’écart entre le texte précédent et le nouveau, sous une consigne
+   * donnée, qui dit ce que l’équipe change systématiquement — et c’est la
+   * seule matière dont un futur réglage de l’agent pourra se servir.
+   *
+   * Et on exige une consigne NON VIDE : une reprise sans instruction
+   * n’enseigne rien, elle ajouterait du bruit au corpus.
+   */
+  const avant = String(ticket.brouillonReponse ?? '').trim();
+  const instruction = String(consigne ?? '').trim();
+  const estUneCorrection = Boolean(avant) && Boolean(instruction) && avant !== propre;
 
   const maj = await Ticket.findOneAndUpdate(
     { _id: ticket._id, reponseEnvoyeeLe: null },
@@ -736,6 +757,28 @@ export async function enregistrerBrouillon(ticket, administrateur, texte, origin
         brouillonParAgent: false,
         brouillonOrigine: voie,
       },
+      /*
+       * `$slice: -10` BORNE À L’ÉCRITURE, pas à la lecture. Trier après coup
+       * laisserait le tableau enfler en base ; MongoDB tronque ici, à chaque
+       * poussée, et le document garde une taille connue.
+       */
+      ...(estUneCorrection
+        ? {
+            $push: {
+              historiqueBrouillons: {
+                $each: [
+                  {
+                    consigne: instruction.slice(0, 2000),
+                    avant: avant.slice(0, 4000),
+                    apres: propre.slice(0, 4000),
+                    le: new Date(),
+                  },
+                ],
+                $slice: -10,
+              },
+            },
+          }
+        : {}),
     },
     { new: true, runValidators: true }
   ).populate('auteur', 'pseudo nom prenom type email');
