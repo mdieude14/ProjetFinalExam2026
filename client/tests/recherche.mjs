@@ -471,44 +471,70 @@ for (const onglet of ['Personnes', 'Publications', 'Événements']) {
     (await page.getByRole('button', { name: onglet, exact: true }).count()) === 1);
 }
 
+/*
+ * L'ATTENTE DE LA RÉPONSE S'ENREGISTRE AVANT LE CLIC, JAMAIS APRÈS.
+ *
+ * Après le clic, la réponse peut être déjà arrivée : on attendrait alors la
+ * SUIVANTE, qui ne vient jamais, et l'attente expirerait sur un écran correct.
+ */
+const reponseOnglet = page
+  .waitForResponse((r) => /\/search\/evenements/.test(r.url()) && r.status() === 200, {
+    timeout: 20000,
+  })
+  .then(() => true)
+  .catch(() => false);
+
 await page.getByRole('button', { name: 'Événements', exact: true }).click();
 
 /*
- * ON ATTEND LA BASCULE D'ONGLET, PAS UNE DURÉE.
+ * TROIS RENDUS SE SUIVENT, ET LA CAPTURE TOMBAIT AU MILIEU.
  *
- * Le filtrage par famille se fait au retour d’une requête. Compter après un
- * délai fixe transforme une machine chargée en échec de test : le 2 octobre,
- * au vingt-septième rang d’une campagne de 34 suites, la vérification du
- * message vide a échoué — puis est passée en 36/36 la suite tournant seule.
+ * Le clic démonte la section « Publications » IMMÉDIATEMENT : c'est du rendu
+ * local — `Search.jsx` ne la monte que si `onglet` vaut `tout` ou
+ * `publications` — et aucune requête n'y est pour rien. Mais le clic lance
+ * AUSSI une requête, et pendant celle-ci `Search.jsx:212` masque TOUT le bloc
+ * de résultats derrière un `Spinner`. D'où trois états successifs :
  *
- * On attend donc deux états : ce qui doit apparaître, et ce qui doit
- * disparaître. La seconde attente est tolérante, car c’est la vérification
- * qui doit juger — pas l’attente qui doit faire tomber la suite.
+ *   A  résultats précédents, section « Publications » déjà démontée
+ *   B  spinner : « Stage » DISPARAÎT à son tour
+ *   C  résultats de l'onglet, état définitif
+ *
+ * Les deux attentes précédentes étaient satisfaites dès A. Sur une machine au
+ * repos, B dure quelques millisecondes et la capture tombait en A ou en C :
+ * vert. Sous la charge d'une campagne, B s'élargit, la capture tombait en B —
+ * et l'assertion échouait sur « Stage ABSENT », pas sur « Programme présent ».
+ *
+ *   LE LIBELLÉ ACCUSAIT LE FILTRAGE ; MON PREMIER CORRECTIF ACCUSAIT LA
+ *   BASCULE D'ONGLET. LES DEUX AVAIENT ABOUTI. C'ÉTAIT LA CAPTURE QUI ÉTAIT
+ *   PRISE EN PLEIN CHARGEMENT.
+ *
+ * On attend donc la réponse, PUIS l'état stable. Les deux attentes restent
+ * tolérantes — c'est la vérification qui juge — mais chacune nomme sa cause.
  */
-await page.getByText(`Stage ${MOT}`).first().waitFor({ state: 'visible', timeout: 20000 });
-/*
- * ON GARDE LE RÉSULTAT DE L'ATTENTE AU LIEU DE L'AVALER.
- *
- * Le `.catch(() => {})` reste : c'est la vérification qui doit juger, pas
- * l'attente qui doit faire tomber la suite. Mais jeter son issue coûtait le
- * diagnostic — cette assertion est tombée dans deux campagnes sur trois, et
- * son libellé accusait le FILTRAGE alors que la cause était la lenteur de la
- * machine. Elle passe à 36/36 relancée seule, à chaque fois.
- *
- *   LA LEÇON, LA MÊME QUE POUR `causeDe` : un échec qui ne nomme pas sa
- *   cause coûte le diagnostic entier.
- */
-const basculeAboutie = await page
-  .waitForFunction((m) => !document.body.innerText.includes(`Programme ${m}`), MOT, { timeout: 20000 })
+const requeteAboutie = await reponseOnglet;
+
+const etatStable = await page
+  .waitForFunction(
+    (m) => {
+      const vu = document.body.innerText;
+      return vu.includes(`Stage ${m}`) && !vu.includes(`Programme ${m}`);
+    },
+    MOT,
+    { timeout: 20000 }
+  )
   .then(() => true)
   .catch(() => false);
+
+const causeOnglet = !requeteAboutie
+  ? 'LA REQUÊTE /search/evenements N’A PAS RÉPONDU EN 20 s — serveur ou machine, pas défaut de filtrage'
+  : !etatStable
+    ? 'L’ONGLET N’A PAS ATTEINT SON ÉTAT STABLE EN 20 s — capture prise pendant le chargement'
+    : '';
 
 const apresOnglet = await page.content();
 ok('**l’onglet Événements ne montre que des événements**',
   apresOnglet.includes(`Stage ${MOT}`) && !apresOnglet.includes(`Programme ${MOT}`),
-  basculeAboutie
-    ? ''
-    : 'LA BASCULE D’ONGLET N’A PAS ABOUTI EN 20 s — machine lente, pas défaut de filtrage');
+  causeOnglet);
 
 await page.getByRole('button', { name: 'Personnes', exact: true }).click();
 
@@ -546,11 +572,31 @@ ok('un terme d’une lettre n’envoie rien au serveur et invite à préciser',
  * au terme abandonné écraserait celle du terme courant.
  */
 await page.goto(BASE + '/recherche', { waitUntil: 'domcontentloaded' });
-await champ.waitFor({ state: 'visible', timeout: 15000 });
-await champ.click();
-await champ.pressSequentially('mart', { delay: 30 });
-await champ.fill('');
-await champ.pressSequentially('elo', { delay: 30 });
+
+/*
+ * CETTE ATTENTE FAISAIT TOMBER LA SUITE, ET SANS NOMMER SA CAUSE.
+ *
+ * `domcontentloaded` ne dit rien du rendu, et un rechargement DUR relance
+ * toute l'application : bundle, vérification de session, puis seulement le
+ * champ. Le 7 novembre elle a expiré à un passage sur deux — pendant qu'un
+ * balayage récursif du disque tournait en fond, mesuré. Comme elle levait,
+ * les QUATRE vérifications suivantes n'étaient même pas tentées : la suite
+ * affichait « 32/32 réussies » puis « INTERROMPU », sans dire sur quoi.
+ *
+ *   ON LA REND TOLÉRANTE ET ON LA NOMME. Un banc d'essai qui s'arrête en
+ *   silence coûte plus cher qu'une vérification rouge qui s'explique.
+ */
+const champRevenu = await champ
+  .waitFor({ state: 'visible', timeout: 20000 })
+  .then(() => true)
+  .catch(() => false);
+
+if (champRevenu) {
+  await champ.click();
+  await champ.pressSequentially('mart', { delay: 30 });
+  await champ.fill('');
+  await champ.pressSequentially('elo', { delay: 30 });
+}
 
 /*
  * ON ATTEND QUE LA LISTE VIENNE, au lieu de parier sur 1,2 s. La réponse au
@@ -558,12 +604,15 @@ await champ.pressSequentially('elo', { delay: 30 });
  * sous charge, le pari se perdait et l'échec accusait l'annulation de requête
  * alors qu'elle fonctionnait.
  */
-const suggestionsVenues = await rendu(listeSuggestions.getByRole('option'), 10000);
-const terme = await champ.inputValue();
+const suggestionsVenues =
+  champRevenu && (await rendu(listeSuggestions.getByRole('option'), 10000));
+const terme = champRevenu ? await champ.inputValue() : '';
 
 ok('**la liste correspond au dernier terme saisi, pas à un terme abandonné**',
   terme === 'elo' && suggestionsVenues,
-  `champ « ${terme} », ${await listeSuggestions.getByRole('option').count()} suggestion(s)`);
+  champRevenu
+    ? `champ « ${terme} », ${await listeSuggestions.getByRole('option').count()} suggestion(s)`
+    : 'LE CHAMP N’EST PAS REVENU EN 20 s APRÈS RECHARGEMENT DUR — machine, pas annulation de requête');
 
 /* --------------------------- Responsive --------------------------- */
 
