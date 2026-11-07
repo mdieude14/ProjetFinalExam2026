@@ -15804,3 +15804,118 @@ Le bilan de campagne imprime désormais, **juste sous le total**, un bloc
 
 - [x] **Mémoire libre en fin de campagne : 1,12 Go** — toujours sous le seuil de 2 Go, donc
       le bloc (g) maintient sa réserve sur les assertions de durée. *Le total, lui, tient.*
+
+---
+
+## 15.88 — Les deux axes posés, et une « neutralisation » qui fabriquait l'injection  `VÉRIFIÉ`
+
+### LE BOUTON D'ACTIONS, CENTRÉ
+
+- [x] `self-end` → **`self-center`**. Le cœur, lui, reste calé en bas : il accompagne
+      l'horodatage, qui est au pied de la bulle. **Le menu n'accompagne rien** — il agit sur
+      la bulle entière, et sur un message de plusieurs lignes il tombait tout en bas, loin
+      du texte qu'il concerne.
+- [x] **Mesuré : écart des centres de 0 px**, sur une bulle de 53 px comme sur une de 113.
+
+### AXE 2 — LES CHAMPS DÉJÀ STOCKÉS, ENFIN TRANSMIS
+
+- [x] **Aucun appel d'API supplémentaire, aucune permission nouvelle.** `versionExploitant()`
+      renvoyait déjà `objet`, `reponse`, `parcours`, `intention`, `origine`, `outils` et
+      `escaladeForcee` — dans la réponse HTTP que le nœud recevait. **Il n'en lisait aucun.**
+- [x] **Deux changent la réponse, les autres sont du contexte** :
+      **`objet`** *(« prélèvement en double », tapé par la personne — jamais vu du
+      rédacteur)* et **`reponse`** *(ce que l'assistant lui a DÉJÀ répondu avant
+      d'escalader)*.
+- [x] **`reponse` devient le bloc `‹deja_dit›`, et surtout PAS un `‹brouillon_precedent›`.**
+
+  > *Le brouillon précédent est un texte que l'exploitant fait corriger ; `deja_dit` est un
+  > texte DÉJÀ PARTI chez la personne. Le second ne se réécrit pas — il se prend en compte.*
+
+- [x] **Et la consigne système dit quoi en faire** : « Ne le répète pas, et surtout ne le
+      contredis pas ; si la consigne va dans un autre sens, assume le changement
+      explicitement. »
+
+  > **UN CONTEXTE DONT ON NE DIT PAS QUOI FAIRE N'EST PAS DU CONTEXTE, C'EST DU
+  > REMPLISSAGE** — et le modèle le recopiera.
+
+- [x] Les blocs absents ne laissent **aucun attribut vide** : un dossier sans objet ni
+      réponse préalable est le cas normal, et un `objet=""` ferait croire à une saisie vide.
+
+### ET MON ESSAI D'INJECTION A TROUVÉ UN DÉFAUT RÉEL, ANTÉRIEUR À MOI
+
+- [x] **LA « NEUTRALISATION » FABRIQUAIT LE DÉLIMITEUR.** Le balisage des prompts utilise
+      `‹` et `›`. `neutraliser` remplaçait `<` par `‹` et `>` par `›` — **donc un utilisateur
+      tapant `</demande>` obtenait exactement `‹/demande›`, le vrai délimiteur de
+      fermeture.**
+
+  > **La défense transformait une tentative inoffensive en injection fonctionnelle.**
+  > *Mesuré sans ambiguïté : `neutraliser("</demande>")` rend `"‹/demande›"`, caractère pour
+  > caractère le marqueur que le prompt emploie.*
+
+- [x] **ET LES CINQ ASSERTIONS QUI LA GARDAIENT NE VOYAIENT RIEN** : elles vérifiaient
+      l'absence de la forme **ASCII**, qui disparaissait bien — puisqu'elle était
+      *convertie*. Le test regardait précisément la seule forme qui ne posait pas problème.
+
+  > **LA LEÇON : une assertion d'absence doit porter sur la forme qui NUIT, pas sur celle
+  > qu'on a tapée.** *Quatrième visage du faux vert dans ce projet, après la page vide, le
+  > `0/0` et le filtre de date.*
+
+- [x] **CORRIGÉ À L'INVERSE EXACT, aux 8 occurrences des 4 générateurs** : on remplace le
+      **rare** par le **commun** — `‹`→`<`, `›`→`>`. Le texte de l'utilisateur ne peut alors
+      plus *contenir* de délimiteur, et rien n'est supprimé : « si x ‹ 5 » devient
+      « si x < 5 », toujours lisible.
+- [x] **Les assertions réécrites comptent le délimiteur RÉEL, et exigent « exactement un »**
+      — le prompt en porte un légitime par bloc ; ce qu'il ne doit jamais contenir, c'est un
+      second, venu de l'utilisateur.
+- [x] **Et mon premier compteur était trop strict** : il comptait aussi la forme ASCII,
+      c'est-à-dire **le résultat du remède**. *Traiter le remède comme la maladie.* Resserré
+      sur `‹/x›`.
+- [x] **Les entrées hostiles portent désormais LES DEUX formes.** Sans quoi le test
+      n'exerce qu'un seul chemin — et c'est en écrivant la forme rare que le défaut est
+      apparu.
+
+### AXE 5 — LA COLLECTE, PRÉALABLE DE TOUT APPRENTISSAGE
+
+- [x] **Le constat, mesuré** : dicter « raccourcis et enlève la formule de politesse »
+      produisait un brouillon qui **écrasait** le précédent, et la consigne n'était stockée
+      **nulle part**. Elle servait une fois, puis disparaissait — et l'agent recommençait la
+      même maladresse au dossier suivant.
+- [x] **`Ticket.historiqueBrouillons`** : `{ consigne, avant, apres, le }`, **borné à dix**
+      par `$slice: -10` **à l'écriture** *(trier après coup laisserait le document enfler)*,
+      et `select: false` — il sert au réglage de l'agent, pas à l'affichage.
+- [x] **ON NE GARDE QUE LES CORRECTIONS.** Un premier brouillon n'apprend rien : il n'y a
+      pas d'« avant ». C'est l'**écart** entre les deux textes, sous une consigne donnée, qui
+      dit ce que l'équipe change systématiquement.
+- [x] Et trois cas sont écartés explicitement : **pas de consigne** *(rien à apprendre)*,
+      **texte identique** *(pas une correction)*, **premier jet** *(pas d'« avant »)*.
+- [x] **Le flux transmet désormais la consigne** avec le texte — sans elle, l'API saurait
+      QUE le brouillon a changé, jamais POURQUOI.
+
+  > **Cette section ne prétend PAS que l'agent apprend : il n'apprend pas encore.** *Elle
+  > établit que la matière est conservée, et correctement. Sans corpus, l'étape suivante
+  > serait impossible — et un corpus ne se rattrape pas après coup.*
+
+### LE RELAIS STRIPE, ENFIN SCRIPTÉ
+
+- [x] **`npm run relais:stripe`**, et le script fige les deux pannes que le geste manuel a
+      produites en deux jours :
+      **le 5 novembre**, le secret lu sur la sortie standard alors qu'il s'écrit sur la
+      sortie d'**erreur** — motif vide, chaîne vide écrite, secret valable effacé ;
+      **le 6 novembre**, le relais lancé vers `/api/webhooks`, une adresse **inventée** —
+      404 sur chaque événement, treize assertions tombées.
+- [x] **L'adresse est écrite une fois pour toutes**, les **deux** sorties sont lues, et
+      **rien n'est écrit avant validation** : longueur contrôlée, substitution vérifiée,
+      relecture conforme, sauvegarde supprimée *(elle porte un secret)*.
+- [x] **Refus net si la clé n'est pas `sk_test`** — éprouvé : *« REFUS : la clé ne commence
+      pas par sk_test. Rien n'a été lancé. »*
+- [x] **Et un arrêt propre** : sans intercepter `SIGINT`, Ctrl+C tuerait le script en
+      laissant le relais vivant — un orphelin qui continue de transmettre.
+
+### DÉPLOIEMENT ET MESURES
+
+- [x] **Cinq flux réimportés, réactivés, conteneur redémarré. 6/6 actifs**, certificat en
+      place, sortie TLS à 401. **Vérifié dans la base de n8n** : la nouvelle neutralisation
+      est dans les quatre flux qui appellent un modèle, et `‹deja_dit›` dans
+      `ccAgentTelegr01`.
+- [x] **`test:canaux` 281 → 308** *(axe 2 et injections)*, **`test:reponse` 52 → 64**
+      *(axe 5)*, **`test:messagerie-agent` 104/104**.
