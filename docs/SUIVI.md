@@ -15919,3 +15919,145 @@ Le bilan de campagne imprime désormais, **juste sous le total**, un bloc
       `ccAgentTelegr01`.
 - [x] **`test:canaux` 281 → 308** *(axe 2 et injections)*, **`test:reponse` 52 → 64**
       *(axe 5)*, **`test:messagerie-agent` 104/104**.
+
+---
+
+## 15.89 — Le disque au bord, et l'échec de la campagne enfin expliqué  `VÉRIFIÉ` / `GESTES EN ATTENTE`
+
+### LE DISQUE : 0,01 GO LIBRE
+
+- [x] **Mesuré au pire : `0,01 Go libres sur 221`.** C'est au-dessous du point où Docker et
+      WSL se sont bloqués le 5 novembre. Le porteur du projet a autorisé la suppression des
+      vidages de plantage WSL, refusée la veille par la garde.
+- [x] **Les deux gestes autorisés, exécutés et mesurés** : deux vidages
+      `wsl-crash-*-weston-11.dmp` *(0,16 Go)* et le cache npm *(0,13 Go)*.
+      **`0,01` → `0,21 Go`.**
+
+#### Ce que j'ai refusé de forcer
+
+- [ ] **Un fichier d'échange WSL orphelin de 0,48 Go.** Deux `swap.vhdx` existent sous
+      `%TEMP%`, et **un seul est vivant** :
+
+  | Dossier | Taille | Dernière écriture | Verdict |
+  |---|---|---|---|
+  | `B08772C7-…` | 0,55 Go | **ce soir, 22:03** | **VIVANT — on n'y touche pas** |
+  | `C12CB0C8-…` | 0,48 Go | 5 novembre 21:17 | orphelin du blocage |
+
+  > La garde a refusé la suppression, et **je ne l'ai pas contournée**. Si j'avais inverti
+  > les deux lignes de ce tableau, j'aurais amputé le disque virtuel d'une machine en
+  > marche. *Un refus qui tombe sur un geste que je ne peux pas prouver à 100 % est un
+  > refus utile.*
+
+- [ ] **`docker_data.vhdx`, 12,37 Go, et il ne se libère pas par suppression.** Vider des
+      images rend de la place **à l'intérieur** du disque virtuel, jamais sur `C:` — mesuré
+      le 6 novembre : 1,54 Go rendus à Docker, **0 sur `C:`**. Seule la compaction les rend
+      à Windows, et elle exige `wsl --shutdown` : *l'opération même qui a figé ce poste.*
+- [ ] **L'installateur VSCode, 0,24 Go, et ce n'est PAS un résidu.** Vérifié au lieu d'être
+      supposé : installé **1.136.1** (`a44adf7f…`), installateur **1.145.2** (`c4453f8e…`).
+      C'est une mise à jour **en attente**. La supprimer est légitime, mais coûte un
+      nouveau téléchargement de 256 Mo — et la mise à jour ne peut de toute façon pas
+      s'appliquer avec 0,21 Go libres.
+
+### L'ÉCHEC DE LA CAMPAGNE : LA CAUSE ÉTAIT AILLEURS, ET MON CORRECTIF DU MATIN LA MANQUAIT
+
+L'unique rouge des 2 325 vérifications était
+`**l'onglet Événements ne montre que des événements**`. Le matin, j'avais conclu « machine
+lente » et fait dire cela à l'assertion. **C'était faux, et la lecture du composant le
+montre sans ambiguïté.**
+
+- [x] **Le clic ne déclenche AUCUNE attente pour la disparition.** `Search.jsx` ne monte la
+      section « Publications » que si `onglet` vaut `tout` ou `publications` : au changement
+      d'onglet, elle est démontée **par le rendu local, instantanément**. Aucune requête n'y
+      est pour rien.
+- [x] **Mais le clic lance aussi une requête, et `Search.jsx:212` masque TOUT le bloc de
+      résultats pendant ce temps** — `!chargement && resultats && total > 0`. D'où trois
+      états successifs :
+
+  | Rendu | `chargement` | `Stage MOT` | `Programme MOT` |
+  |---|---|---|---|
+  | **A** | `false` | **présent** | absent *(section démontée)* |
+  | **B** | `true` | **ABSENT** *(spinner)* | absent |
+  | **C** | `false` | présent | absent |
+
+- [x] **Les deux attentes étaient satisfaites dès A.** Sur une machine au repos, B dure
+      quelques millisecondes et la capture tombait en A ou en C : vert. Sous la charge d'une
+      campagne, B s'élargit, la capture tombait en B.
+
+  > **L'ASSERTION ÉCHOUAIT DONC SUR « Stage ABSENT », PAS SUR « Programme PRÉSENT ».**
+  > *Le libellé accusait le filtrage ; mon correctif du matin accusait la bascule d'onglet.
+  > Les deux avaient abouti. C'était la CAPTURE qui était prise en plein chargement.*
+
+- [x] **Corrigé pour de bon** : l'attente de la réponse `/search/evenements` est
+      **enregistrée avant le clic** *(après, la réponse déjà arrivée ferait attendre la
+      suivante, qui ne vient jamais)*, puis on attend l'état stable, puis on capture. Chacun
+      des trois échecs possibles nomme désormais sa propre cause.
+
+  > **LA LEÇON, ET C'EST LA TROISIÈME FOIS QU'ELLE SE PRÉSENTE** : *une attente qui se
+  > satisfait d'un rendu transitoire ne garantit rien.* Il ne suffit pas d'attendre ce
+  > qu'on veut voir : il faut attendre que **l'écran ait fini de bouger**.
+
+### UNE SECONDE INSTABILITÉ, DANS LA MÊME SUITE, ET QUI NE DISAIT RIEN
+
+- [x] **Trouvée en relançant** : `32/32 réussies` puis `INTERROMPU`, sur
+      `champ.waitFor` après un rechargement **dur** de `/recherche`. Comme l'attente
+      **levait**, les **quatre** vérifications suivantes n'étaient pas même tentées — et
+      l'interruption ne nommait pas sur quoi elle tombait.
+- [x] **La cause, mesurée et non supposée** : un balayage récursif de la corbeille que
+      j'avais lancé moi-même **tournait encore** pendant ce passage *(PowerShell démarré à
+      22:16, passage à 22:23)*. Arrêté, la suite repasse. **Mon propre outil de diagnostic
+      était la charge qui faisait tomber le test.**
+- [x] **Rendue tolérante et nommée.** Un banc d'essai qui s'arrête en silence coûte plus
+      cher qu'une vérification rouge qui s'explique.
+- [x] **`test:recherche` : 36/36, trois passages consécutifs, code de sortie 0.**
+
+### LES PRÉREQUIS VERCEL, MESURÉS
+
+Le journal ne documentait que **Stripe**. Le reste a été établi par mesure.
+
+| Point | État mesuré | Verdict |
+|---|---|---|
+| Fichiers téléchargés | `modeStockage` = **`cloudinary`** | **déjà externalisé** |
+| Minuteries (`setInterval`, cron) | **aucune** | rien à reloger |
+| Base de données | `localhost:27017` | **à reloger** *(Atlas)* |
+| Transactions Mongo | **20 usages** de `startSession` | **jeu de répliques obligatoire** |
+| Temps réel | `new Server(serveurHttp)`, **8 fichiers clients** | **le point de décision** |
+| n8n | conteneur Docker local | **à reloger** |
+| Configuration Vercel | **aucune** (`vercel.json` absent) | à écrire |
+| Variables vides | **une seule : `PUBLIC_URL`** | voulue vide, documentée |
+
+- [x] **Et une correction de ma part, en cours de route** : j'ai d'abord annoncé Cloudinary
+      « non configuré » en lisant une sortie de `grep -o`, qui n'affiche que **le motif**,
+      pas la valeur. Vérifié ensuite dans le service lui-même : `modeStockage` vaut
+      `cloudinary`. *Un `grep -o` ne répond jamais à la question « cette variable est-elle
+      renseignée ».*
+
+#### Le seul vrai arbitrage : où vit l'API
+
+> **Vercel sait faire du WebSocket depuis le 22 juin 2026**, en bêta publique, sur Fluid
+> Compute — **après ma date de connaissance**, donc vérifié en ligne plutôt qu'affirmé de
+> mémoire. Ce n'est plus l'impossibilité que je croyais.
+
+Mais la bêta impose trois choses : forcer le transport WebSocket côté client *(Socket.IO
+préfère le long-polling par défaut)*, un point d'entrée `api/`, et surtout **la connexion
+se ferme quand la fonction atteint sa durée maximale**. Pour une messagerie en direct
+présentée à un jury, une coupure périodique est un risque inutile.
+
+- [ ] **DÉCISION ATTENDUE.** Deux routes tenables :
+      **(A)** client sur Vercel, API sur un hébergeur à processus persistant — **aucun
+      changement de code**, les sockets marchent, n8n peut vivre à côté ;
+      **(B)** tout sur Vercel via la bêta WebSocket — un point d'entrée à écrire, le
+      transport à forcer, et la durée de fonction à vérifier.
+      *Recommandation : **(A)**, parce qu'une soutenance ne se joue pas sur une bêta.*
+
+### LA CAMPAGNE COMPLÈTE N'A PAS ÉTÉ LANCÉE, ET C'EST MESURÉ
+
+- [ ] **`0,77 Go de mémoire libre sur 7,74`.** Le seuil consigné pour une campagne d'un seul
+      tenant est de **2 Go**. Lancer les 39 suites à 0,77 Go ne produirait pas un verdict :
+      il produirait des rouges de machine, exactement ceux que cette section vient de
+      démêler.
+- [x] **Vérifié que la charge n'est pas de mon fait** : **zéro** processus Playwright
+      résiduel, alors que quatre passages ont tourné. Les postes dominants sont `chrome`
+      *(25 processus, 610 Mo)* et `Code` *(20 processus, 576 Mo)*. `Memory Compression` à
+      741 Mo signe la pression, il n'en est pas la cause.
+- [x] **Les quatre services debout et vérifiés** : API `200`, client `200`, n8n `200`,
+      `sportsocial-mongo` en marche depuis 33 heures.
