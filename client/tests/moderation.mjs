@@ -120,8 +120,13 @@ async function seConnecter(page, pseudo) {
  * finirait par diverger d'un appel à l'autre — et c'est justement la
  * séquence qu'on veut voir se comporter pareil partout.
  */
-async function viaMenu(page, libelleEntree) {
-  const bouton = page.getByTestId('menu-options');
+/*
+ * `racine` : meme raison que pour `libellesDuMenu`. Sur la page des messages,
+ * chaque bulle porte un menu, et un selecteur non borne y resout plusieurs
+ * elements. On nomme le menu vise au lieu de relacher le selecteur.
+ */
+async function viaMenu(page, libelleEntree, racine = null) {
+  const bouton = (racine ?? page).getByTestId('menu-options');
   await bouton.waitFor({ state: 'visible', timeout: 15000 });
   await bouton.click();
 
@@ -132,8 +137,20 @@ async function viaMenu(page, libelleEntree) {
 }
 
 /** Libellés actuellement proposés par le menu, menu refermé ensuite. */
-async function libellesDuMenu(page, attendu = null) {
-  const bouton = page.getByTestId('menu-options');
+/*
+ * `racine` BORNE LA RECHERCHE DU BOUTON, ET IL LE FAUT DEPUIS LE 7 NOVEMBRE.
+ *
+ * `data-test="menu-options"` est pose par la PRIMITIVE `MenuOptions` : tout
+ * menu de l application le porte. Sur la page des messages, chaque bulle a
+ * desormais le sien, et `page.getByTestId(...)` y resout plusieurs elements
+ * — Playwright refuse alors net, en mode strict.
+ *
+ * On ne relache pas le selecteur : on dit QUEL menu on vise. Sur un profil
+ * il n y en a qu un, donc la page entiere suffit ; dans une conversation, on
+ * passe l en-tete.
+ */
+async function libellesDuMenu(page, attendu = null, racine = null) {
+  const bouton = (racine ?? page).getByTestId('menu-options');
   await bouton.waitFor({ state: 'visible', timeout: 15000 });
   await bouton.click();
   await page.getByRole('menu').waitFor({ state: 'visible', timeout: 5000 });
@@ -580,7 +597,9 @@ try {
   });
   await page.waitForTimeout(2500);
 
-  const boutonChat = page.getByTestId('menu-options');
+  // L en-tete du fil, et non la page : les bulles portent le meme marqueur.
+  const enteteFil = page.locator('header').last();
+  const boutonChat = enteteFil.getByTestId('menu-options');
   await boutonChat.waitFor({ state: 'visible', timeout: 15000 });
   ok('le bouton « ⋯ » est présent dans l’en-tête de la conversation',
     await boutonChat.isVisible());
@@ -594,7 +613,7 @@ try {
     `${Math.round(ecartChat)} px du bord droit`
   );
 
-  const libellesChat = await libellesDuMenu(page, /Bloquer/);
+  const libellesChat = await libellesDuMenu(page, /Bloquer/, enteteFil);
   ok('il propose les mêmes actions que sur le profil',
     libellesChat.includes('Bloquer') && libellesChat.includes('Restreindre'),
     libellesChat.slice(0, 90));
@@ -606,7 +625,7 @@ try {
 
   section('Bloquer depuis la conversation');
 
-  await viaMenu(page, 'Bloquer');
+  await viaMenu(page, 'Bloquer', page.locator('header').last());
   await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 5000 });
   await page.getByRole('button', { name: /^Bloquer$/ }).click();
   await page.getByText('a été bloqué').waitFor({ state: 'visible', timeout: 15000 });
