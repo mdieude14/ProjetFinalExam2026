@@ -141,9 +141,18 @@ utilisateurs avec un lien mort**. Trois échecs silencieux, chez l'utilisateur.
 1. **Importer le dépôt**, et régler la **racine du projet sur `client`**.
 2. **`client/vercel.json` est déjà écrit** : `framework: vite`, sortie `dist`, et la
    **réécriture vers `/index.html`** — sans elle, ouvrir `/messages` directement ou
-   rafraîchir la page rend un 404, alors que la navigation interne fonctionne. Les règles de
-   réécriture de Vercel ne s'appliquent qu'après le système de fichiers : les fichiers de
-   `assets/` sont donc servis normalement, ils ne sont pas masqués par la règle fourre-tout.
+   rafraîchir la page rend un 404, alors que la navigation interne fonctionne.
+
+   > **ET LA RÈGLE FOURRE-TOUT NE MASQUE PAS LES FICHIERS STATIQUES, SANS RIEN SUPPOSER.**
+   > Vercel sert normalement un fichier qui existe avant d'appliquer une réécriture — mais
+   > cette précédence n'est pas écrite noir sur blanc dans la documentation, et un cas de
+   > réécriture ignorée à la racine a été rapporté. Plutôt que d'en dépendre, `vercel.json`
+   > déclare **avant** la fourre-tout deux réécritures de `assets/*` et `favicon.svg` **vers
+   > elles-mêmes** : des règles sans effet, dont le seul rôle est d'intercepter le chemin
+   > avant la fourre-tout. Ce sont les deux seuls objets statiques à la racine du build.
+   >
+   > *Une configuration qui ne repose sur aucun ordre implicite ne se casse pas le jour où
+   > cet ordre change.*
 3. **Les variables du client** (toutes publiques, lisibles par n'importe quel visiteur) :
 
    | Variable | Valeur |

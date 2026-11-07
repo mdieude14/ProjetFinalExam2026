@@ -5,6 +5,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/assets/:chemin*",
+      "destination": "/assets/:chemin*"
+    },
+    {
+      "source": "/favicon.svg",
+      "destination": "/favicon.svg"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
