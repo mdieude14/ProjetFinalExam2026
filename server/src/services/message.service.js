@@ -375,6 +375,20 @@ export async function envoyer(idConversation, expediteur, { contenu, media }) {
               : {}),
           },
           $inc: { [`nonLus.${String(destinataire)}`]: 1 },
+
+          /*
+           * UN NOUVEAU MESSAGE RESSORT LA CONVERSATION DE LA CORBEILLE,
+           * ET POUR LES DEUX PARTICIPANTS.
+           *
+           * Pour le DESTINATAIRE, c est une question de messages perdus : s il
+           * avait supprime le fil, le message suivant lui serait invisible, et
+           * supprimer vaudrait blocage silencieux.
+           *
+           * Pour l EXPEDITEUR aussi : ecrire a quelqu un apres avoir efface le
+           * fil doit le rouvrir, sans quoi il enverrait dans le vide un message
+           * qu il ne verrait nulle part.
+           */
+          $pull: { supprimeePar: { $in: [expediteur._id, destinataire] } },
         },
         { session }
       );
@@ -467,7 +481,15 @@ export async function marquerLu(idConversation, utilisateur) {
  * demande de chat ne la verrait jamais.
  */
 export async function listeConversations(utilisateur, { statut, page = 1, limite = 20 } = {}) {
-  const filtre = { participants: utilisateur._id };
+  /*
+   * UNE CONVERSATION QUE J AI SUPPRIMEE NE REVIENT PAS DANS MA LISTE.
+   * Le filtre porte sur MOI seul : l autre garde son fil intact, puisque
+   * supprimer une conversation ne la supprime que pour soi.
+   */
+  const filtre = {
+    participants: utilisateur._id,
+    supprimeePar: { $ne: utilisateur._id },
+  };
   if (statut) filtre.statut = statut;
 
   const saut = (page - 1) * limite;
@@ -612,3 +634,115 @@ export async function rafraichirExtrait(idConversation) {
 
   return extrait;
 }
+
+/* ================================================================== *
+ *  MODIFIER UN MESSAGE
+ * ================================================================== */
+
+/**
+ * Réécrit le texte d'un message que J'AI envoyé.
+ *
+ * TROIS REFUS, ET CHACUN PROTÈGE AUTRE CHOSE.
+ *
+ *   1. `403` si je ne suis pas l'expéditeur. Réécrire les mots de quelqu'un
+ *      d'autre serait la pire chose qu'une messagerie puisse permettre — pire
+ *      qu'une suppression, parce qu'une suppression se voit.
+ *   2. `409` sur un message déjà supprimé. Son contenu a été effacé, et le
+ *      ressusciter par une modification contournerait la suppression.
+ *   3. `400` sur un texte vide. « Modifier pour effacer » doit passer par la
+ *      suppression, qui marque le message comme tel au lieu de laisser une
+ *      bulle muette dans le fil.
+ *
+ * LA DATE EST POSÉE ICI, ET ELLE EST NON NÉGOCIABLE : c'est elle qui permet à
+ * l'interface d'afficher « modifié ». Sans elle, une retouche serait
+ * indétectable, et la messagerie cesserait d'être un compte rendu fiable de ce
+ * qui a été dit.
+ */
+export async function modifierMessage(idMessage, utilisateur, contenu) {
+  const message = await Message.findById(idMessage);
+  if (!message) throw ApiError.notFound('Message introuvable');
+
+  if (String(message.expediteur) !== String(utilisateur._id)) {
+    throw ApiError.forbidden('Vous ne pouvez modifier que vos propres messages');
+  }
+
+  if (message.supprime) {
+    throw ApiError.conflict('Ce message a été supprimé et ne peut plus être modifié');
+  }
+
+  const texte = String(contenu ?? '').trim();
+  if (!texte) {
+    throw ApiError.badRequest('Un message modifié ne peut pas être vide — supprimez-le plutôt');
+  }
+
+  /*
+   * LA CONVERSATION DOIT ENCORE ÊTRE OUVERTE. Un blocage survenu depuis
+   * l'envoi ferme la messagerie dans les deux sens : laisser modifier
+   * contournerait cette fermeture, et notifierait l'autre d'une activité
+   * qu'il a précisément cessé d'accepter.
+   */
+  const conversation = await Conversation.findById(message.conversation);
+  if (!conversation) throw ApiError.notFound('Conversation introuvable');
+
+  const autre = conversation.interlocuteurDe(utilisateur._id);
+  if (autre && (await Relation.blocageEntre(utilisateur._id, autre._id || autre))) {
+    throw ApiError.notFound('Conversation introuvable');
+  }
+
+  message.contenu = texte;
+  message.modifieLe = new Date();
+  await message.save();
+
+  /*
+   * L'EXTRAIT DE LA LISTE CONTIENT UNE COPIE DU TEXTE. Sans ce
+   * rafraîchissement, la liste des conversations continuerait d'afficher
+   * l'ancienne phrase — exactement le défaut que la suppression avait déjà
+   * rencontré, et pour la même raison.
+   */
+  await rafraichirExtrait(message.conversation);
+
+  return { message, conversation };
+}
+
+/* ================================================================== *
+ *  SUPPRIMER UNE CONVERSATION — POUR SOI
+ * ================================================================== */
+
+/**
+ * Retire la conversation de MA liste, et d'elle seule.
+ *
+ * POURQUOI CE N'EST PAS UNE SUPPRESSION TOUT COURT. Une conversation
+ * appartient à deux personnes. L'effacer pour les deux détruirait les données
+ * de quelqu'un qui n'a rien demandé — et rien, du côté de celui qui supprime,
+ * ne justifie ce pouvoir sur l'autre. Les messages restent donc en base, et
+ * l'autre garde son fil intact.
+ *
+ * `404` ET NON `403` SI JE N'EN FAIS PAS PARTIE : un 403 confirmerait que
+ * cette conversation existe, et entre qui. Même règle qu'à l'ouverture.
+ *
+ * IDEMPOTENT PAR CONSTRUCTION : `$addToSet` ne crée pas de doublon, donc
+ * deux clics sur « Supprimer » ne produisent pas deux états différents.
+ */
+export async function supprimerConversationPour(idConversation, utilisateur) {
+  const conversation = await Conversation.findById(idConversation);
+  if (!conversation || !conversation.contient(utilisateur._id)) {
+    throw ApiError.notFound('Conversation introuvable');
+  }
+
+  /*
+   * LE COMPTEUR DE NON-LUS EST REMIS À ZÉRO EN MÊME TEMPS.
+   * Le laisser garnirait la pastille globale de messages non lus pour un fil
+   * que l'utilisateur ne voit plus : un compteur qu'on ne peut pas faire
+   * retomber, puisque la conversation a disparu de sa liste.
+   */
+  await Conversation.updateOne(
+    { _id: conversation._id },
+    {
+      $addToSet: { supprimeePar: utilisateur._id },
+      $set: { [`nonLus.${String(utilisateur._id)}`]: 0 },
+    }
+  );
+
+  return conversation;
+}
+

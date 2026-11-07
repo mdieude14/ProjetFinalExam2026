@@ -85,6 +85,21 @@ const messageSchema = new Schema(
      * messageries, et pour cette raison.
      */
     supprime: { type: Boolean, default: false },
+
+    /*
+     * UNE DATE, PAS UN BOOLEEN — et ce choix est le coeur de la fonction.
+     *
+     * Modifier un message change le compte rendu de ce qui a ete dit, apres
+     * que l autre l a peut-etre deja lu. On ne peut donc pas le faire en
+     * silence : l interface affiche « modifie », et cette date dit QUAND.
+     * Un booleen l aurait dit sans jamais permettre de le situer.
+     *
+     * Et il n y a PAS de delai au-dela duquel la modification est refusee :
+     * une limite de temps protege moins bien que la visibilite. Un message
+     * reecrit une minute apres sa lecture trompe autant qu une heure apres ;
+     * ce qui protege, c est que la retouche se VOIE.
+     */
+    modifieLe: { type: Date },
   },
   { timestamps: true }
 );
@@ -166,6 +181,7 @@ messageSchema.methods.versionPublique = function (visiteur) {
       : this.expediteur,
     lu: this.lu,
     supprime: this.supprime,
+    modifieLe: this.modifieLe,
     createdAt: this.createdAt,
 
     /*

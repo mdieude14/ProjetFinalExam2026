@@ -358,6 +358,72 @@ export const nonLus = asyncHandler(async (req, res) => {
 });
 
 /* ================================================================== *
+ *  PATCH /api/messages/:id
+ * ================================================================== */
+
+/**
+ * Réécrit le texte d'un de mes messages.
+ *
+ * LA DIFFUSION VA AUX DEUX PARTICIPANTS, et il en faut deux sortes :
+ * `message:modifie` pour le fil ouvert, et `conversation:maj` pour la liste —
+ * dont l'extrait porte une COPIE du texte. Ne diffuser que la première
+ * laisserait l'ancienne phrase affichée dans la liste de l'autre jusqu'à son
+ * prochain rechargement.
+ */
+export const modifier = asyncHandler(async (req, res) => {
+  const { message, conversation } = await messageService.modifierMessage(
+    req.params.id,
+    req.user,
+    req.body.contenu
+  );
+
+  await message.populate('expediteur', 'pseudo nom prenom avatar');
+
+  const aJour = await Conversation.findById(conversation._id)
+    .populate('participants', 'pseudo nom prenom avatar type diplome isActive');
+
+  for (const id of idsDe(aJour)) {
+    diffuserA([id], 'conversation:maj', { conversation: aJour.versionPour(id) });
+  }
+
+  diffuserA(idsDe(aJour), 'message:modifie', {
+    conversation: String(conversation._id),
+    message: message.versionPublique(req.user),
+  });
+
+  return res.json({
+    succes: true,
+    message: 'Message modifié',
+    donnees: message.versionPublique(req.user),
+  });
+});
+
+/* ================================================================== *
+ *  DELETE /api/messages/conversations/:id
+ * ================================================================== */
+
+/**
+ * Retire la conversation de MA liste — et d'elle seule.
+ *
+ * ON NE DIFFUSE QU'À MOI, ET C'EST TOUT L'ENJEU. Prévenir l'autre participant
+ * d'une suppression qui ne le concerne pas lui apprendrait que j'ai effacé le
+ * fil : une information qu'il n'a pas à recevoir, et qui transformerait un
+ * geste de rangement en message implicite.
+ *
+ * La diffusion à mes propres sessions, en revanche, est nécessaire : deux
+ * onglets ouverts doivent voir le fil disparaître des deux côtés.
+ */
+export const supprimerConversation = asyncHandler(async (req, res) => {
+  await messageService.supprimerConversationPour(req.params.id, req.user);
+
+  diffuserA([String(req.user._id)], 'conversation:supprimee', {
+    conversation: String(req.params.id),
+  });
+
+  return res.json({ succes: true, message: 'Conversation supprimée' });
+});
+
+/* ================================================================== *
  *  DELETE /api/messages/:id
  * ================================================================== */
 

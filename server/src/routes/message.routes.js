@@ -10,6 +10,8 @@ import {
   nonLus,
   destinataires,
   supprimer,
+  modifier,
+  supprimerConversation,
   basculerLikeMessage,
 } from '../controllers/message.controller.js';
 
@@ -17,6 +19,7 @@ import {
   reglesOuverture,
   reglesIdConversation,
   reglesIdMessage,
+  reglesModification,
   reglesEnvoi,
   reglesReponseDemande,
   reglesListeMessages,
@@ -117,6 +120,20 @@ router.post(
  * respecte quand meme, par coherence avec les modules 6, 7, 9 et 10.
  */
 router.post('/:id/like', protect, reglesIdMessage, validate, basculerLikeMessage);
+
+/*
+ * ORDRE : `/conversations/:id` AVANT `/:id`, sinon « conversations » serait
+ * lu comme un identifiant de message. Meme piege que `/non-lus`.
+ */
+router.delete(
+  '/conversations/:id',
+  protect,
+  reglesIdConversation,
+  validate,
+  supprimerConversation
+);
+
+router.patch('/:id', protect, reglesModification, validate, modifier);
 
 router.delete('/:id', protect, reglesIdMessage, validate, supprimer);
 

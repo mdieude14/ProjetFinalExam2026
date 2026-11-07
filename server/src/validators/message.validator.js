@@ -27,6 +27,25 @@ export const reglesIdConversation = [idMongo('id')];
 export const reglesIdMessage = [idMongo('id')];
 
 /**
+ * Modification d un message.
+ *
+ * Le contenu est OBLIGATOIRE ici, contrairement a l envoi ou il est
+ * facultatif : a l envoi, un message peut n etre qu une image. Une
+ * modification, elle, porte sur le TEXTE — remplacer le media passe par un
+ * nouveau message, et vider le texte passe par la suppression.
+ */
+export const reglesModification = [
+  idMongo('id'),
+  body('contenu')
+    .isString()
+    .withMessage('Contenu invalide')
+    .bail()
+    .trim()
+    .isLength({ min: 1, max: 2000 })
+    .withMessage('Le message doit contenir entre 1 et 2000 caracteres'),
+];
+
+/**
  * Le contenu est FACULTATIF au niveau HTTP, alors qu'un message vide est
  * refusé.
  *

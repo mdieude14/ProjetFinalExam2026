@@ -733,6 +733,140 @@ ok('**`/destinataires` n’est pas lu comme un identifiant de conversation**',
 
 
 /* ================================================================== *
+ *  MODIFIER UN MESSAGE
+ * ================================================================== */
+
+section('Modifier un message');
+
+/*
+ * CE QUE CETTE SECTION DÉFEND. Réécrire un message change le compte rendu de
+ * ce qui a été dit, après que l'autre l'a peut-être déjà lu. Trois choses
+ * doivent donc tenir : seul l'auteur peut le faire, la retouche LAISSE UNE
+ * TRACE, et l'extrait de la liste — qui porte une copie du texte — suit.
+ */
+
+const convMod = await appel('/messages/conversations', {
+  methode: 'POST', token: alice.token, corps: { destinataire: bob.id },
+});
+const idConvMod = convMod.json?.conversation?._id;
+const envMod = await appel(`/messages/conversations/${idConvMod}/messages`, {
+  methode: 'POST', token: alice.token, corps: { contenu: 'Texte initial a corriger.' },
+});
+const idMsgMod = envMod.json?.donnees?._id;
+ok('message de départ créé', Boolean(idMsgMod));
+
+const modifie = await appel(`/messages/${idMsgMod}`, {
+  methode: 'PATCH', token: alice.token, corps: { contenu: 'Texte corrige.' },
+});
+ok('l’auteur peut modifier', modifie.statut === 200, `statut ${modifie.statut}`);
+ok('le nouveau texte est rendu', modifie.json?.donnees?.contenu === 'Texte corrige.');
+ok('**la date de modification est posée** — c’est elle qui rend la retouche visible',
+  Boolean(modifie.json?.donnees?.modifieLe), String(modifie.json?.donnees?.modifieLe));
+
+const relusMod = await appel(`/messages/conversations/${idConvMod}/messages`, { token: alice.token });
+const messageEnBase = (relusMod.json?.messages ?? []).find((m) => m._id === idMsgMod);
+ok('le texte modifié est bien en base', messageEnBase?.contenu === 'Texte corrige.', messageEnBase?.contenu);
+
+const listeMod = await appel('/messages/conversations', { token: alice.token });
+const extraitMod = (listeMod.json?.elements ?? []).find((c) => c._id === idConvMod)?.dernierMessage?.texte;
+ok('**l’extrait de la liste suit la modification** — il en porte une copie',
+  extraitMod === 'Texte corrige.', extraitMod);
+
+ok('**un tiers ne peut PAS réécrire mes mots : 403**',
+  (await appel(`/messages/${idMsgMod}`, { methode: 'PATCH', token: bob.token, corps: { contenu: 'Pirate.' } })).statut === 403);
+ok('un texte vide : 400 — « modifier pour effacer » passe par la suppression',
+  (await appel(`/messages/${idMsgMod}`, { methode: 'PATCH', token: alice.token, corps: { contenu: '   ' } })).statut === 400);
+ok('au-delà de 2000 signes : 400',
+  (await appel(`/messages/${idMsgMod}`, { methode: 'PATCH', token: alice.token, corps: { contenu: 'a'.repeat(2001) } })).statut === 400);
+ok('sans session : 401',
+  (await appel(`/messages/${idMsgMod}`, { methode: 'PATCH', corps: { contenu: 'x' } })).statut === 401);
+ok('identifiant invalide : 400',
+  (await appel('/messages/pasunid', { methode: 'PATCH', token: alice.token, corps: { contenu: 'x' } })).statut === 400);
+ok('message inexistant : 404',
+  (await appel('/messages/507f1f77bcf86cd799439011', { methode: 'PATCH', token: alice.token, corps: { contenu: 'x' } })).statut === 404);
+
+const envSuppr = await appel(`/messages/conversations/${idConvMod}/messages`, {
+  methode: 'POST', token: alice.token, corps: { contenu: 'Celui-ci partira.' },
+});
+await appel(`/messages/${envSuppr.json?.donnees?._id}`, { methode: 'DELETE', token: alice.token });
+ok('**un message supprimé ne se modifie plus : 409** — sinon la suppression se contournerait',
+  (await appel(`/messages/${envSuppr.json?.donnees?._id}`, {
+    methode: 'PATCH', token: alice.token, corps: { contenu: 'Revenu !' },
+  })).statut === 409);
+
+/* ================================================================== *
+ *  SUPPRIMER UNE CONVERSATION — POUR SOI
+ * ================================================================== */
+
+section('Supprimer une conversation');
+
+/*
+ * LE POINT CRITIQUE DE CETTE SECTION TIENT EN UNE LIGNE : la suppression ne
+ * doit jamais toucher aux données de l'autre participant. Tout le reste en
+ * découle — y compris le retour du fil au message suivant, sans lequel
+ * supprimer vaudrait blocage silencieux.
+ */
+
+const avantSuppr = await appel('/messages/conversations', { token: alice.token });
+ok('la conversation est dans ma liste avant',
+  (avantSuppr.json?.elements ?? []).some((c) => c._id === idConvMod));
+
+const supprConv = await appel(`/messages/conversations/${idConvMod}`, {
+  methode: 'DELETE', token: alice.token,
+});
+ok('la suppression répond 200', supprConv.statut === 200, `statut ${supprConv.statut}`);
+
+const apresSuppr = await appel('/messages/conversations', { token: alice.token });
+ok('**elle a disparu de MA liste**',
+  !(apresSuppr.json?.elements ?? []).some((c) => c._id === idConvMod));
+
+const vueDeBob = await appel('/messages/conversations', { token: bob.token });
+ok('**mais elle est INTACTE chez Bob** — on ne détruit pas les données de l’autre',
+  (vueDeBob.json?.elements ?? []).some((c) => c._id === idConvMod));
+
+const histoireBob = await appel(`/messages/conversations/${idConvMod}/messages`, { token: bob.token });
+ok('et Bob garde tout l’historique', (histoireBob.json?.messages ?? []).length >= 2,
+  `${(histoireBob.json?.messages ?? []).length} message(s)`);
+
+await appel(`/messages/conversations/${idConvMod}/messages`, {
+  methode: 'POST', token: bob.token, corps: { contenu: 'Tu es la ?' },
+});
+const revenue = await appel('/messages/conversations', { token: alice.token });
+ok('**un message de l’autre la fait REVENIR** — sinon ce message serait perdu',
+  (revenue.json?.elements ?? []).some((c) => c._id === idConvMod));
+
+await appel(`/messages/conversations/${idConvMod}`, { methode: 'DELETE', token: alice.token });
+await appel(`/messages/conversations/${idConvMod}/messages`, {
+  methode: 'POST', token: alice.token, corps: { contenu: 'Me revoila.' },
+});
+const revenuePourMoi = await appel('/messages/conversations', { token: alice.token });
+ok('**et écrire la rouvre pour moi aussi** — sinon j’enverrais dans le vide',
+  (revenuePourMoi.json?.elements ?? []).some((c) => c._id === idConvMod));
+
+await appel(`/messages/conversations/${idConvMod}`, { methode: 'DELETE', token: alice.token });
+ok('**supprimer deux fois ne casse rien** — `$addToSet` est idempotent',
+  (await appel(`/messages/conversations/${idConvMod}`, { methode: 'DELETE', token: alice.token })).statut === 200);
+
+ok('**un non-participant : 404 et non 403** — un 403 confirmerait que le fil existe',
+  (await appel(`/messages/conversations/${idConvMod}`, { methode: 'DELETE', token: carol.token })).statut === 404);
+ok('sans session : 401',
+  (await appel(`/messages/conversations/${idConvMod}`, { methode: 'DELETE' })).statut === 401);
+ok('identifiant invalide : 400',
+  (await appel('/messages/conversations/pasunid', { methode: 'DELETE', token: alice.token })).statut === 400);
+ok('conversation inexistante : 404',
+  (await appel('/messages/conversations/507f1f77bcf86cd799439011', { methode: 'DELETE', token: alice.token })).statut === 404);
+
+/*
+ * L'ORDRE DES ROUTES, VÉRIFIÉ ET NON SUPPOSÉ. `DELETE /conversations/:id`
+ * est déclaré avant `DELETE /:id` : sans cela, « conversations » serait lu
+ * comme un identifiant de message, et la suppression répondrait 404 sans
+ * qu'on comprenne pourquoi.
+ */
+ok('**`/conversations/:id` n’est pas lu comme un identifiant de message**',
+  supprConv.statut === 200 && !/Message introuvable/i.test(supprConv.texte));
+
+
+/* ================================================================== *
  *  NETTOYAGE
  * ================================================================== */
 

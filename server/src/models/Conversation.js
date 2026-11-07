@@ -140,6 +140,22 @@ const conversationSchema = new Schema(
       of: Number,
       default: () => new Map(),
     },
+
+    /*
+     * SUPPRIMER UNE CONVERSATION NE LA SUPPRIME QUE POUR SOI.
+     *
+     * Une conversation appartient a DEUX personnes. L effacer pour les deux
+     * detruirait les donnees de quelqu un qui n a rien demande — et rien, du
+     * cote de celui qui supprime, ne justifie ce pouvoir sur l autre.
+     * Chacun retire donc le fil de SA liste, et l autre garde le sien.
+     *
+     * ET UN NOUVEAU MESSAGE LE FAIT REVENIR, c est indispensable. Si la
+     * suppression masquait pour toujours, le message suivant de l autre
+     * personne serait invisible : supprimer vaudrait blocage silencieux, et
+     * des messages seraient perdus sans que personne ne le sache.
+     * `envoyer` retire donc les deux participants de cette liste.
+     */
+    supprimeePar: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   },
   { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
