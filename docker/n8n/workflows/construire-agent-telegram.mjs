@@ -1034,13 +1034,57 @@ export function lireRedaction() {
  * ================================================================== */
 
 /** Corps d'une fonction, désindenté. */
+/* ---------------------------------------------------------------- *
+ *  LES DEUX ADRESSES PUBLIQUES, PARAMÉTRABLES À LA GÉNÉRATION
+ * ---------------------------------------------------------------- *
+ *
+ * POURQUOI À LA GÉNÉRATION, ET SURTOUT PAS À L'EXÉCUTION.
+ *
+ * Ces adresses finissent À L'INTÉRIEUR du code des nœuds n8n, qui tourne
+ * avec `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` : un nœud ne peut pas lire
+ * l'environnement, et c'est voulu — il lirait aussi la clé qui déchiffre
+ * tous les identifiants. La substitution se fait donc ici, au moment où le
+ * JSON est écrit.
+ *
+ *   COACHCONNECT_API=https://api.exemple.fr/api \
+ *   COACHCONNECT_APPLI=https://exemple.vercel.app \
+ *     node docker/n8n/workflows/construire-agent-support.mjs
+ *
+ * Sans ces variables, la sortie est RIGOUREUSEMENT IDENTIQUE à l'ancienne :
+ * `API` vaut `API_DEV`, et `replaceAll` ne remplace rien. C'est ce qui rend
+ * le changement vérifiable — régénérer sans variable doit laisser `git diff`
+ * vide.
+ *
+ * LES DEUX SONT DISTINCTES, ET LES CONFONDRE COÛTE CHER :
+ *   API    ce que n8n appelle            → l'hébergeur à processus persistant
+ *   APPLI  ce qu'on écrit dans un LIEN   → le domaine Vercel
+ *
+ * `APPLI` sert aussi d'origine autorisée au webhook du widget. Mise à la
+ * mauvaise valeur, le navigateur bloque la réponse et le widget se tait
+ * SANS message d'erreur — même piège que `CLIENT_URL` au module 7.
+ */
+const API_DEV = 'http://host.docker.internal:5000/api';
+const APPLI_DEV = 'http://localhost:5173';
+const API = process.env.COACHCONNECT_API ?? API_DEV;
+const APPLI = process.env.COACHCONNECT_APPLI ?? APPLI_DEV;
+
 function corpsDe(fonction) {
   const source = fonction.toString();
   const lignes = source.slice(source.indexOf('{') + 1, source.lastIndexOf('}')).split('\n');
   while (lignes.length && !lignes[0].trim()) lignes.shift();
   while (lignes.length && !lignes[lignes.length - 1].trim()) lignes.pop();
   const retrait = Math.min(...lignes.filter((l) => l.trim()).map((l) => l.match(/^ */)[0].length));
-  return lignes.map((l) => l.slice(retrait)).join('\n');
+  /*
+   * LES DEUX ADRESSES SONT SUBSTITUÉES ICI, SUR LE TEXTE SÉRIALISÉ.
+   * `fonction.toString()` rend le code SOURCE : l'adresse y est un littéral
+   * figé, pas une variable qu'on pourrait réaffecter. On la remplace donc
+   * dans la chaîne, juste avant de l'écrire dans le nœud.
+   */
+  return lignes
+    .map((l) => l.slice(retrait))
+    .join('\n')
+    .replaceAll(API_DEV, API)
+    .replaceAll(APPLI_DEV, APPLI);
 }
 
 /** Identifiant stable dérivé du nom : réimporter ne duplique pas les nœuds. */
