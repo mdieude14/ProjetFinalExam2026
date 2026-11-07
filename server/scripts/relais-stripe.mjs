@@ -94,8 +94,21 @@ dire(`Cible : ${CIBLE}`);
  * LA CLÉ PASSE PAR L'ENVIRONNEMENT, JAMAIS EN ARGUMENT.
  * Un argument de commande est visible de toute la machine dans la liste des
  * processus — y compris d'un autre utilisateur.
+ *
+ * ET LA COMMANDE EST UNE SEULE CHAÎNE, PAS UN TABLEAU D'ARGUMENTS.
+ * `shell: true` est indispensable sous Windows, où `stripe` est un script de
+ * lancement et non un exécutable que Node sache démarrer seul. Mais le
+ * combiner avec un tableau d'arguments fait émettre à Node l'avertissement
+ * DEP0190 — constaté en exécutant ce script pour de bon le 8 novembre : le
+ * shell CONCATÈNE les arguments sans les échapper, ce qui serait une faille
+ * si l'un d'eux venait de l'extérieur.
+ *
+ *   ICI AUCUN NE VIENT DE L'EXTÉRIEUR. `CIBLE` est figée en haut de ce
+ *   fichier, précisément pour que l'adresse ne puisse pas être inventée —
+ *   c'est la panne du 6 novembre. On écrit donc la commande telle que le
+ *   shell l'attend : même comportement, sans l'avertissement.
  */
-const relais = spawn('stripe', ['listen', '--forward-to', CIBLE], {
+const relais = spawn(`stripe listen --forward-to ${CIBLE}`, {
   env: { ...process.env, STRIPE_API_KEY: cle },
   shell: true,
 });
