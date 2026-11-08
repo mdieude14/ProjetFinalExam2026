@@ -5,23 +5,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/socket.io/(.*)",
-      "destination": "/socket.io/$1"
-    },
-    {
-      "source": "/assets/(.*)",
-      "destination": "/assets/$1"
-    },
-    {
-      "source": "/favicon.svg",
-      "destination": "/favicon.svg"
-    },
-    {
-      "source": "/(.*)",
+      "source": "/((?!api/|socket.io/|assets/|favicon.svg).*)",
       "destination": "/index.html"
     }
   ],
@@ -52,7 +36,7 @@
         },
         {
           "key": "X-Coachconnect-Config",
-          "value": "r5-api-intercepte"
+          "value": "r6-lookahead"
         }
       ]
     }
