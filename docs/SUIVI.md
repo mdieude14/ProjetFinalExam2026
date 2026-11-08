@@ -16277,8 +16277,20 @@ persistant, n8n sur un VPS Hostinger, base sur Atlas.** Restait à vérifier l'a
 | Périmètre | Suites | Vérifications |
 |---|---|---|
 | Serveur | 21 / 21 | **1 623 / 1 623** |
-| Navigateur | 17 / 17 | **667 / 667** |
-| **Ensemble** | **38 / 38** | **2 290 / 2 290** |
+| Navigateur | ~~17 / 17~~ → **18 / 18** | ~~667~~ → **702 / 702** |
+| **Ensemble** | ~~38 / 38~~ → **39 / 39** | ~~2 290~~ → **2 325 / 2 325** |
+
+> ⚠️ **CES CHIFFRES ONT ÉTÉ CORRIGÉS LE 8 NOVEMBRE, ET L'ERREUR ÉTAIT LA MIENNE.**
+> Mon inventaire des suites employait le motif `"test:[a-z-]+"`, **qui exclut les chiffres** :
+> `test:parcours-10-11` n'a donc jamais été lancée, et je l'ai annoncée absente sans le
+> savoir. Rejouée : **35/35**, zéro interruption.
+>
+> **C'est la DEUXIÈME fois que ce motif me trompe** — la première sur `N8N_DOMAINE`, lu
+> comme `N`. *Une expression régulière qui oublie les chiffres ne se signale jamais : elle
+> rend un résultat plus court, et parfaitement crédible.*
+>
+> Et le total corrigé, **2 325**, correspond exactement aux campagnes antérieures du
+> journal — ce qui confirme que le compte est juste maintenant.
 
 - [x] **Zéro échec, zéro interruption, zéro compte de test résiduel** *(24 comptes en base,
       tous légitimes)*.
@@ -16442,3 +16454,142 @@ gagne)*.
       `controles 82/82`, `support 134/134`.
 - [x] **Le conteneur de sonde a été retiré** — il ne reste que `coachconnect-n8n` et
       `sportsocial-mongo`.
+
+---
+
+## 15.92 — Chercher les attentes aveugles, et un outil d'audit qui dénonçait du bon code  `VÉRIFIÉ`
+
+### UNE SUITE N'AVAIT JAMAIS TOURNÉ, ET L'ERREUR ÉTAIT LA MIENNE
+
+- [x] **`test:parcours-10-11` était absente de toutes mes campagnes.** Mon inventaire
+      employait `"test:[a-z-]+"`, **qui exclut les chiffres**. Rejouée : **35/35**, zéro
+      interruption.
+- [x] **Total corrigé : 39 suites, `2 325 / 2 325`** *(21 serveur + 18 navigateur)*. Et
+      **2 325 est exactement le chiffre des campagnes antérieures** du journal, ce qui
+      confirme le compte.
+
+  > **DEUXIÈME FOIS QUE CE MOTIF ME TROMPE**, après `N8N_DOMAINE` lu comme `N`. *Une
+  > expression régulière qui oublie les chiffres ne se signale jamais : elle rend un
+  > résultat plus court, et parfaitement crédible.*
+
+### L'AUDIT DEMANDÉ : CHERCHER LES ATTENTES ANCRÉES SUR RIEN
+
+Le porteur du projet a validé la recherche, dans les autres suites, du défaut qui avait
+produit le faux rouge de `recherche.mjs`.
+
+- [x] **D'abord, une mise au point honnête sur le périmètre** : les cinq interruptions de la
+      campagne **n'étaient pas** dues à des attentes fragiles — je l'avais prouvé, les cinq
+      repassent seules. Réécrire vingt-et-une attentes dans huit suites toutes au vert aurait
+      été du travail spéculatif, et risqué.
+
+  > *Un audit se mène sur une signature, pas sur un mot-clé.* `waitForTimeout` n'est pas un
+  > défaut : attendre une animation, un anti-rebond ou la stabilisation d'une mise en page est
+  > légitime, puisqu'aucun événement ne les annonce. **Le défaut est une attente à durée fixe
+  > qui se trouve être le SEUL repère entre une action et un verdict.**
+
+- [x] **`npm run auditer:attentes`** cherche cette signature : une attente fixe suivie, dans
+      les quatre lignes, d'un verdict qui consulte l'écran, **sans aucune ancre entre les
+      deux**.
+
+### ET MON OUTIL DÉNONÇAIT DU CODE EXEMPLAIRE — TROIS FOIS
+
+Premier jet : **71 occurrences**. Le chiffre était faux, et c'est en l'examinant cas par cas
+que les trois défauts de l'outil sont apparus.
+
+| Classe de faux positif | Révélée par | Correction |
+|---|---|---|
+| **Observer une durée** | `telegram.mjs`, deux attentes de **9 s** qui comptent les appels d'un sondage sur une fenêtre | écarter les verdicts qui comparent un **compteur** |
+| **L'ancre est DANS le verdict** | `relations.mjs`, `ok('… Voir plus …', (await rendu(voirPlus)) && …)` | lire **tout l'appel**, pas sa première ligne |
+| **Les helpers maison** | `parcours.mjs`, qui définit `visible(loc, t = 8000)` | ajouter `visible(` et `rendu(` aux ancres |
+
+- [x] **Le cas de `telegram.mjs` mérite d'être cité**, parce que c'est le contraire d'un
+      défaut : on ne peut pas ancrer sur un événement le fait qu'un sondage **continue** ou
+      **cesse** — il faut observer une durée. Et la seconde assertion y ancre son absence sur
+      une présence *(`appelsAvant >= 1` vérifié d'abord)*. **Le motif y est irréprochable.**
+
+  > **UN OUTIL D'AUDIT QUI DÉNONCE DU BON CODE FAIT PERDRE PLUS DE TEMPS QU'IL N'EN GAGNE.**
+  > *Et la sortie le dit désormais en clair : « cette liste est à examiner, pas à corriger en
+  > bloc ».*
+
+- [x] **Après les trois corrections : 46 sans ancre, dont 11 longues** *(≥ 1500 ms)*. Sur ces
+      onze, **quatre étaient encore des faux positifs** de `parcours.mjs` — d'où l'ajout de
+      `visible(`. **Sept cas réels.**
+
+### LES SEPT CAS RÉELS, ET CE QU'ILS CACHAIENT
+
+#### Trois faux verts : une page vide ne déborde jamais
+
+- [x] `ecrans-premium.mjs` *(deux routes)*, `evenements.mjs`, `parcours-10-11.mjs` mesuraient
+      `scrollWidth > innerWidth` **sans avoir vérifié que la page avait rendu quoi que ce
+      soit**. Sur un écran vide, la comparaison rend `false` et **l'assertion passe — pour la
+      pire des raisons**.
+
+  > **PREMIER VISAGE DU FAUX VERT, ET LE PLUS ANCIEN DE CE PROJET** : *une assertion d'absence
+  > s'ancre sur une présence.*
+
+- [x] **ET L'ANCRE ÉVIDENTE ÉTAIT UN PIÈGE.** `nav[aria-label="Navigation principale"]` est
+      `hidden … lg:flex` : **invisible à 375 px**, précisément la largeur testée. L'employer
+      aurait fabriqué un faux rouge. C'est le `<header>` qui est retenu — seul élément de la
+      barre **sans masquage responsive**. Pour la fiche d'événement, mieux encore : **son
+      titre**, puisque mesurer la mise en page d'une fiche qui n'a pas chargé son événement ne
+      dit rien de la fiche.
+- [x] **L'attente fixe reste, APRÈS l'ancre** : la mise en page a besoin de se stabiliser, et
+      aucun événement ne l'annonce. *On ne supprime pas une attente légitime, on lui ajoute le
+      repère qui manquait.*
+
+#### Deux URL attendues trop largement
+
+- [x] `notifications.mjs` et `parcours-10-11.mjs` attendaient le motif large de la messagerie
+      — **satisfait dès l'arrivée, avant que la conversation ne soit choisie** — puis 2 à
+      2,5 s, puis vérifiaient la présence de `?c=`. **Le délai était le vrai repère.**
+- [x] **On attend désormais `?c=` lui-même**, et l'échec nomme sa cause. *Mesuré : les deux
+      assertions rendent `c=6af058…`, donc l'attente a RÉSOLU et non expiré.*
+
+#### Une suppression vérifiée par l'API
+
+- [x] `messagerie.mjs` cliquait sur la validation, attendait **2 s**, puis demandait à l'API
+      si la conversation avait disparu. **Un pari sur la durée d'un aller-retour** : perdu,
+      l'API répondait encore « elle est là » et l'assertion accusait la suppression, alors
+      qu'elle était en vol.
+- [x] **La réponse `DELETE` est désormais attendue, et l'attente est enregistrée AVANT le
+      clic** — après, la réponse déjà arrivée ferait attendre la suivante, qui ne vient jamais.
+
+#### Et un délai qui ancrait une assertion située DEUX SECTIONS plus loin
+
+- [x] **Le cas le plus instructif.** `parcours-10-11.mjs` attendait 1,8 s après un
+      `waitForURL`, pour une assertion **tautologique** : `waitForURL` venait de garantir
+      exactement ce qu'elle contrôlait.
+
+  > **MAIS LE DÉLAI N'ÉTAIT PAS INUTILE : il laissait au bouton « Envoyer un message »,
+  > cherché deux sections plus loin par un simple `count()`, le temps de paraître.**
+  >
+  > *Un repère placé loin de ce qu'il protège est invisible à la lecture. Supprimer ce délai
+  > sans le voir aurait cassé la section suivante — et l'échec aurait accusé le bouton.*
+
+- [x] **L'ancre est déplacée là où elle agit**, sur `rendu(boutonMessage)`.
+
+### MESURES
+
+- [x] **Les cinq suites touchées, rejouées DEUX FOIS, totaux identiques à avant** :
+      `premium 18/18`, `evenements 39/39`, `messagerie 68/68`, `notifications 34/34`,
+      `parcours-10-11 35/35`. **Zéro interruption, zéro régression.**
+- [x] **Et les nouvelles ancres ont RÉSOLU, pas expiré** — vérifié sur les détails des
+      assertions, qui portent la valeur attendue et non le message d'échec.
+- [x] **L'audit après correctifs : 26 sans ancre, et ZÉRO longue** *(contre 46 dont 11)*. Les
+      26 restantes sont toutes **sous 1500 ms** : animations, anti-rebonds, stabilisation —
+      la catégorie légitime.
+
+  > **UNE ATTENTE LONGUE EST UN AVEU** : on n'attend pas une animation pendant deux secondes,
+  > on attend un aller-retour serveur. *Ce sont celles-là qui tombent sous la charge d'une
+  > campagne, et il n'en reste aucune.*
+
+### ET DEUX ERREURS DE MA PART, CORRIGÉES AVANT DE LIVRER
+
+- [x] **J'ai écrit `TITRE_PUBLIC`, une variable qui n'existe pas.** `node --check` l'a
+      attrapée. Le vrai titre est `Sortie course ${S}`, et le fichier **connaissait déjà le
+      motif** — ligne 324, avec le même libellé d'échec. Je me suis aligné sur son style au
+      lieu d'en inventer un.
+- [x] **Et mon commentaire contenait `**/messages**`.** Le `*/` au milieu **fermait le bloc de
+      commentaire en avance**, et l'erreur signalée était un `Unexpected identifier 'L'`
+      quinze lignes plus bas. *Un motif de chemin dans un commentaire de bloc est un piège
+      silencieux ; la phrase a été réécrite sans lui.*
