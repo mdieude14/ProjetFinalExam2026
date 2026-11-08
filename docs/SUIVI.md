@@ -18920,3 +18920,134 @@ Le journal répétait **`un webhook est encore posé (409)`** toutes les dix sec
       variable `VITE_` est **figée dans le paquet du navigateur**, donc **elle ne peut pas être
       de type `Secret`**. *Il faut la poser en `Config`, puis redéployer, car la valeur est
       incorporée à la construction.*
+
+---
+
+## 16.12 — Le repli NAT, la vraie raison pour laquelle les flux ne marchaient pas  `VÉRIFIÉ`
+
+### LE SYMPTÔME, ET POURQUOI IL ÉTAIT TROMPEUR
+
+Le flux de support rendait **503 « Le service d'assistance est momentanément indisponible »**,
+et n8n marquait l'exécution **`success`**.
+
+> **UNE EXÉCUTION « RÉUSSIE » QUI REND UN 503 : le flux allait bien jusqu'au bout, mais par sa
+> branche de refus.** *Le statut de n8n dit si le flux s'est déroulé, pas si le résultat est
+> celui qu'on voulait. Lire ce statut comme un verdict métier était l'erreur à ne pas faire.*
+
+### LA CAUSE, TROUVÉE EN DEUX LIGNES DE MESURE
+
+Les **7 nœuds HTTP** du flux appellent `{{ $json.api }}`, soit l'adresse **publique**.
+
+- [x] **Mesuré depuis l'intérieur du conteneur n8n** :
+
+  | Appel | Résultat |
+  |---|---|
+  | `https://srv2141095.hstgr.cloud/api/health` | **échec** |
+  | `http://api:5000/api/health` | **200** |
+
+  > **LE REPLI NAT. Un conteneur qui sort vers l'IP publique de sa propre machine pour y
+  > revenir échoue** : le paquet quitte le réseau Docker et n'y retrouve pas son chemin. *Rien
+  > n'était cassé dans les flux, ni dans Caddy, ni dans l'API. Le chemin n'existait pas, dans
+  > ce sens-là seulement.*
+
+- [x] **Et c'est la MÊME LEÇON DE LIEU qu'au diagnostic Atlas** *(16.10)* : la bonne mesure
+      était **à l'intérieur du conteneur**. *De l'extérieur, l'adresse publique répondait
+      parfaitement — ce qui écartait la bonne hypothèse.*
+
+### LA CORRECTION : UN ALIAS RÉSEAU, ET NON UNE SECONDE ADRESSE
+
+- [x] **Un alias réseau sur Caddy** fait résoudre le nom public vers **Caddy** par le DNS
+      interne de Docker. Vérifié : le nom résout vers **`172.18.0.4`** depuis n8n, et l'appel
+      rend **200**.
+
+  > **LE CERTIFICAT CORRESPOND TOUJOURS**, puisque c'est bien Caddy qui répond, et il route par
+  > chemin comme pour n'importe quel visiteur. **Les flux gardent UNE SEULE adresse**, la même
+  > qu'en façade.
+
+- [x] **L'ALTERNATIVE A ÉTÉ REJETÉE, ET POUR UNE RAISON DE FOND** : faire appeler
+      `http://api:5000` par les flux aurait marché, mais **l'adresse est FIGÉE dans leur code à
+      la génération**, et la même option `--api` sert aussi à dicter `VITE_API_URL` au client,
+      qui ne peut évidemment pas joindre un nom interne. *Il aurait fallu deux adresses pour
+      une seule option.*
+
+### LA PREUVE DE BOUT EN BOUT, ET ELLE EST COMPLÈTE
+
+- [x] **Le flux rejoué rend `401 « Session expirée : reconnectez-vous »`** au lieu de 503.
+
+- [x] **Et le journal de l'API montre l'appel ARRIVER**, ce qui ferme la boucle :
+
+  ```
+  172.18.0.3 - "GET /api/users/me HTTP/1.1" 401   axios/1.12.0
+  172.18.0.3 - "GET /api/support/service/a-notifier?limite=20" 200
+  ```
+
+  > **LA SECONDE LIGNE N'ÉTAIT PAS DEMANDÉE ET VAUT MIEUX QUE LA PREMIÈRE** : c'est le flux de
+  > **relève Telegram**, à l'heure, qui interroge l'API **avec succès**. *Un flux planifié qui
+  > tourne tout seul prouve plus qu'un appel qu'on provoque.*
+
+- [x] **Le 401 est le résultat ATTENDU**, le jeton d'essai étant volontairement faux. *La
+      chaîne navigateur → Caddy → webhook n8n → n8n → Caddy → API → Atlas → retour est
+      entièrement parcourue.*
+
+### LA VALIDATION DU FLUX EXIGE UNE SESSION, ET MES DEUX PREMIERS ESSAIS L'IGNORAIENT
+
+- [ ] **Deux appels rendus 400 avant de comprendre.** La condition est dans le nœud
+      `Préparer la demande` :
+
+  ```js
+  valide = /^Bearer [\w.-]+$/.test(autorisation)
+           && question.length >= 3 && question.length <= 2000;
+  ```
+
+  > **« session requise » SIGNIFIAIT UN EN-TÊTE `Authorization`, pas un champ du corps.** *J'ai
+  > envoyé `sessionId` dans le JSON. Le message d'erreur était juste, ma lecture ne l'était
+  > pas.*
+
+- [x] **Au passage, `allowedOrigins` du webhook porte bien
+      `https://projet-final-exam2026.vercel.app`** — ce que `verifier:n8n` annonçait ne pas
+      pouvoir vérifier.
+
+### LE CLIENT DÉPLOYÉ EST DÉJÀ BON, ET ON PEUT LE PROUVER SANS Y TOUCHER
+
+- [x] **Une variable `VITE_` est FIGÉE dans le paquet, donc elle se LIT.** Le paquet en ligne
+      *(`/assets/index-DG-37Bx1.js`, 430 441 octets)* contient :
+
+  | Cherché | Trouvé |
+  |---|---|
+  | `https://srv2141095.hstgr.cloud/api` | **oui** |
+  | `https://srv2141095.hstgr.cloud/webhook/coachconnect-support` | **oui** |
+  | `localhost:5000` | **0** |
+  | `coachconnect_support_bot` | **0** — `VITE_TELEGRAM_BOT` reste à poser |
+
+  > **CE QUI EST FIGÉ EST AUSSI AUDITABLE.** *L'inconvénient d'une variable de construction est
+  > aussi ce qui permet de vérifier un déploiement sans accès au tableau de bord.*
+
+- [x] **CORS validé dans les deux sens, et le second cas compte autant que le premier** :
+
+  | Origine | Pré-vol |
+  |---|---|
+  | `https://projet-final-exam2026.vercel.app` | **204**, `Access-Control-Allow-Origin` posé |
+  | `https://site-malveillant.invalid` | **refusée** |
+
+- [x] **`POST /api/auth/login` depuis l'origine Vercel rend `401 « Identifiants invalides »`.**
+      *Le login est donc réparé : il ne manquait que l'adresse, et elle est en place.*
+
+- [ ] **UNE RÉSERVE DE QUALITÉ, NOTÉE ET NON CORRIGÉE** : une origine refusée reçoit un **500**
+      et non un 403. *Fonctionnellement correct — le rappel CORS lève —, mais un
+      « Internal Server Error » pour une règle de sécurité appliquée volontairement brouille
+      les journaux. À reprendre hors période de soutenance.*
+
+### `verifier:deploiement` CONTRE ATLAS : 16 AU VERT, 1 ÉCHEC VOULU
+
+- [x] **Les transactions passent sur Atlas** — 20 usages, 7 modules, *« une transaction s'ouvre
+      et se referme »*. **C'était le risque principal de la migration**, et il est levé.
+
+- [x] Secrets JWT distincts et longs, clés du support distinctes, Cloudinary complet, envoi de
+      courriels en OAuth2, URI bien formée, base distante, adresse publique non locale **et
+      présente dans les origines autorisées**.
+
+- [ ] **L'unique échec est DÉLIBÉRÉ** : `sk_test` alors que `NODE_ENV=production`, donc
+      *« aucun paiement n'encaisserait »*.
+
+  > **ET C'EST LE RÉGLAGE QU'IL FAUT GARDER POUR UNE SOUTENANCE.** *Un jury ne doit pas
+  > déclencher d'encaissement réel. L'échec est à laisser en place, et à savoir expliquer.*
