@@ -12,6 +12,7 @@
     "dev": "nodemon --watch src --ext js,mjs,json src/server.js",
     "relais:stripe": "node scripts/relais-stripe.mjs",
     "verifier:deploiement": "node scripts/verifier-deploiement.mjs",
+    "migrer:atlas": "node scripts/migrer-vers-atlas.mjs",
     "start": "node src/server.js",
     "creer-admin": "node scripts/creerAdmin.js",
     "nettoyer-medias": "node scripts/nettoyerMedias.js",
