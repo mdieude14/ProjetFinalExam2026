@@ -23,6 +23,7 @@
     "test:publication-toggle": "node tests/publication-toggle.mjs",
     "test:moderation": "node tests/moderation.mjs",
     "test:cadratins": "node tests/cadratins.mjs",
+    "auditer:attentes": "node scripts/auditer-attentes.mjs",
     "test:support": "node tests/support.mjs",
     "test:carrousel": "node tests/carrousel.mjs",
     "test:telegram": "node tests/telegram.mjs"
