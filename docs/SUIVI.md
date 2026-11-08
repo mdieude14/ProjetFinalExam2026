@@ -17300,3 +17300,41 @@ est construit par un outil qui peut substituer autre chose que ce qu'on croit.
   npm run nettoyer:residus -- --supprimer            # base locale
   npm run nettoyer:residus -- --cible --supprimer    # base Atlas
   ```
+
+### UNE SEULE VARIABLE GOUVERNE L'ADRESSE DE n8n, ET J'AI CRU QU'ELLE MANQUAIT
+
+J'avais écrit dans la marche à suivre qu'il faudrait « donner la nouvelle adresse » à l'API,
+sans vérifier **quelles** variables la gouvernent. Vérifié :
+
+- [x] **Il n'y en a qu'UNE : `N8N_WEBHOOK_TELEGRAM`.** Côté client, trois variables `VITE_`
+      touchent n8n ou l'API, et **les quatre sont présentes dans `client/.env.example`**.
+- [ ] **ET J'AI ANNONCÉ À TORT QU'ELLE MANQUAIT DU GABARIT.** Mon contrôle était
+      `grep -c "^N8N_WEBHOOK_TELEGRAM=" .env.example` → **0**, et j'en ai conclu un trou de
+      documentation.
+
+  > **LA LIGNE EXISTE, COMMENTÉE** — `# N8N_WEBHOOK_TELEGRAM=`, ligne 129, avec son défaut
+  > expliqué juste au-dessus. C'est le motif délibéré du projet, le même que `PUBLIC_URL` :
+  > *une variable qu'il faut deviner est une variable qu'on oublie.*
+  >
+  > **MON ANCRE `^` NE POUVAIT PAS LA VOIR.** *Quatrième fois en deux jours qu'un motif trop
+  > étroit me fait annoncer une absence qui n'existe pas — après `[a-z]+` sans chiffres
+  > (trois fois) et `grep -o` qui n'affiche que le motif. Le dénominateur commun : **une
+  > absence mesurée par un motif n'est une absence que si le motif couvre toutes les formes
+  > possibles.***
+
+### CE QUI RESTAIT VRAIMENT À CORRIGER, ET C'EST PLUS FIN
+
+- [x] **Le commentaire disait « le webhook LOCAL de n8n ».** Exact hier, trompeur demain : n8n
+      part sur un VPS. **Et le repli est en DUR vers `localhost:5678`** —
+      `config/env.js:273`.
+
+  > **SI n8n DÉMÉNAGE ET QU'ON OUBLIE CETTE LIGNE, le back-end continue de poster vers
+  > `localhost:5678`, où il n'y a plus rien. AUCUNE ERREUR NE REMONTE, et le scrutage Telegram
+  > cesse simplement de transmettre.** *Le même genre de panne silencieuse que `CLIENT_URL`
+  > mal ordonnée : tout fonctionne du point de vue du serveur.*
+
+- [x] **Le commentaire réécrit** : « facultatif en local, **OBLIGATOIRE dès que n8n n'est plus
+      sur la même machine** », avec la forme attendue en production et la conséquence de
+      l'oubli. La ligne reste **commentée**, donc sans effet aujourd'hui.
+- [x] **Gabarit toujours sans aucune valeur réelle** : 0 occurrence du nom d'utilisateur et de
+      l'identifiant de cluster. API à 200, `verifier:deploiement` 10 au vert.
