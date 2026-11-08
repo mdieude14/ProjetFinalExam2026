@@ -289,18 +289,39 @@ TOTAL     4,06 Mo
 
 #### La migration, et ce qu'elle garantit
 
-```bash
-cd server
+#### Où mettre la chaîne : dans `server/.env`, et nulle part ailleurs
 
-# 1. VOIR ce qui serait fait, sans rien écrire
-MONGO_URI_CIBLE="mongodb+srv://…/sportsocial" npm run migrer:atlas -- --essai
+**Il n'y a aucun fichier de code à modifier.** La chaîne se pose une fois dans `server/.env`,
+à la suite des autres secrets du projet :
 
-# 2. le faire
-MONGO_URI_CIBLE="mongodb+srv://…/sportsocial" npm run migrer:atlas
+```
+MONGO_URI_CIBLE=mongodb+srv://…@…mongodb.net/sportsocial?retryWrites=true&w=majority
 ```
 
-**L'URI passe par l'environnement, jamais en argument** : un argument de commande est visible
-de toute la machine dans la liste des processus, et celui-ci porte le mot de passe de la base.
+> **Pas de guillemets**, pas d'espace autour du `=`, une seule ligne.
+
+Puis, depuis `server/` :
+
+```bash
+npm run migrer:atlas -- --essai    # VOIR, sans rien écrire
+npm run migrer:atlas               # FAIRE
+```
+
+**Pourquoi là plutôt que sur la ligne de commande** — les deux marchent, mais :
+
+| Voie | Réserve |
+|---|---|
+| **`server/.env`** | **à préférer** : le fichier n'est pas suivi par git et porte déjà tous les autres secrets |
+| `MONGO_URI_CIBLE="…" npm run …` | **le mot de passe reste dans l'HISTORIQUE du terminal**, des semaines |
+
+> **Dans les deux cas elle passe par l'ENVIRONNEMENT, jamais en argument** : un argument de
+> commande est visible de toute la machine dans la liste des processus.
+>
+> *Vérifié le 8 novembre : le script lit bien `MONGO_URI_CIBLE` depuis `server/.env`, sans
+> rien passer sur la ligne de commande.*
+
+**Et quand la migration est faite, `MONGO_URI_CIBLE` peut être retirée** : elle n'a servi
+qu'à cela. C'est `MONGO_URI`, sur l'hébergeur de l'API, qui portera l'adresse pour de bon.
 
 Ce que l'outil fait, et que `mongodump` ne ferait pas tout seul :
 
@@ -435,9 +456,99 @@ utilisateurs avec un lien mort**. Trois échecs silencieux, chez l'utilisateur.
 
 ---
 
-## 4. n8n sur le VPS Hostinger
+## 4. n8n sur Hostinger
+
+> **DEUX SITUATIONS, ET L'ARBITRAGE EST FAIT : si une instance n8n tourne déjà sur
+> Hostinger, ON LA GARDE.** Réinstaller ce qui fonctionne est du risque sans contrepartie, et
+> leur modèle gère déjà le certificat et les mises à jour. La composition de
+> `docker/n8n/hostinger/` reste le recours si cette instance ne peut pas servir.
+
+### 4 A. Une instance n8n EXISTE DÉJÀ sur Hostinger — la voie retenue
+
+#### Étape 0 — Identifier ce qu'on a, avant de rien importer
+
+Trois informations, et elles décident de la suite :
+
+| À relever | Où | Pourquoi |
+|---|---|---|
+| **L'adresse publique** | la page qui s'ouvre | c'est la base des webhooks, celle que le client et Telegram appelleront |
+| **La version de n8n** | en bas de la colonne de gauche, ou `Settings` → `About` | voir ci-dessous |
+| **Est-ce du self-hosted ou du n8n Cloud** | un VPS Hostinger = self-hosted | le Cloud restreint les nœuds `Code` |
+
+> **LA VERSION EST LE SEUL VRAI RISQUE, et il est plus faible qu'il n'y paraît.** Les flux ont
+> été bâtis sur **1.121.3**, mais :
+>
+> - **tous les nœuds employés sont des nœuds du CŒUR de n8n** — `code`, `httpRequest`, `if`,
+>   `telegram`, `scheduleTrigger`, `webhook`, `respondToWebhook`. **Aucun module
+>   communautaire à installer.**
+> - **les `typeVersion` sont figées dans le JSON** *(1.2, 1.4, 2, 2.1, 2.2, 4.3)*, et n8n
+>   honore les versions anciennes pour rester compatible.
+>
+> *Un import dans une 1.x comme dans une 2.x doit donc passer. Si un nœud s'affiche en
+> erreur après import, c'est lui qu'il faudra regarder — pas le flux entier.*
+
+#### Étape 1 — Régénérer les flux avec les adresses publiques
+
+**Avant d'importer, pas après** : les adresses sont figées dans le JSON.
+
+```bash
+cd docker/n8n/workflows
+COACHCONNECT_API=https://<api>/api \
+COACHCONNECT_APPLI=https://<client>.vercel.app \
+  node construire-agent-support.mjs
+# idem pour les quatre autres générateurs
+```
+
+> ⚠️ **`COACHCONNECT_APPLI` renseigne aussi `allowedOrigins`** du webhook du widget. Mal
+> réglée, **le widget de support se tait sans aucun message d'erreur** : le navigateur bloque
+> la réponse au titre du CORS.
+
+#### Étape 2 — Importer les six flux
+
+Dans l'éditeur n8n : `Workflows` → `Import from File`, un fichier à la fois, depuis
+`docker/n8n/workflows/*.json`.
+
+> *Les identifiants de nœuds sont dérivés de leur nom par une empreinte stable : réimporter un
+> flux ne duplique donc pas ses nœuds.*
+
+#### Étape 3 — Recréer les quatre identifiants
+
+**L'export des flux ne transporte AUCUN secret** : les flux arrivent avec des *références*
+vides. Garder exactement ces identifiants internes :
+
+```
+ccAnthropicApi01   clé API Anthropic
+ccTelegramBot001   jeton du bot Telegram
+ccCleServiceSup1   clé de service de l'API CoachConnect
+ccCleAgentSupp01   clé d'agent de l'API CoachConnect
+(Gmail)            OAuth — à réautoriser, voir ci-dessous
+```
+
+**Pour Gmail**, déclarer chez Google le rappel de CETTE instance :
+`https://<n8n>/rest/oauth2-credential/callback`
+
+#### Étape 4 — Activer, puis vérifier
+
+Activer les six flux, puis depuis le poste :
+
+```bash
+cd server && npm run test:controles
+```
+
+> Cette suite interroge l'instance et vérifie que les flux sont actifs et sains. Elle pointe
+> aujourd'hui l'instance locale : il faudra lui donner la nouvelle adresse *(variable
+> `N8N_WEBHOOK_TELEGRAM` et consorts dans `server/.env`)*.
+
+#### Étape 5 — Pointer le client
+
+Dans les variables Vercel : `VITE_SUPPORT_WEBHOOK_URL=https://<n8n>/webhook/coachconnect-support`
+
+---
+
+### 4 B. Aucune instance n8n — la composition fournie
 
 Tout est dans `docker/n8n/hostinger/` : `docker-compose.yml`, `Caddyfile`, `.env.example`.
+**Validés le 8 novembre** : `docker compose config` et `caddy validate` passent.
 
 ### Ce que cette composition change par rapport au développement
 

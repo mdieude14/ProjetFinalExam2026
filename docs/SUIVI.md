@@ -16966,3 +16966,82 @@ de séparer deux familles de pannes que le message du pilote ne distingue pas.**
 - [x] **La « compression réseau » proposée au même écran reste DÉSACTIVÉE** : elle exige des
       modules supplémentaires côté pilote *(snappy, zstd)* et n'apporte rien sur une base de
       quatre mégaoctets.
+
+---
+
+## 15.97 — « Où est-ce que je mets ça ? » : la question qui manquait, et un arbitrage n8n rendu  `VÉRIFIÉ` / `GESTES EN ATTENTE`
+
+### LA QUESTION QUE MA MARCHE À SUIVRE NE RÉPONDAIT PAS
+
+Le porteur du projet a su quoi faire de la chaîne de connexion, **mais pas OÙ**. Et en
+relisant, c'est légitime : j'écrivais `MONGO_URI_CIBLE="…" npm run migrer:atlas` sans jamais
+dire que ce n'était **pas** un fichier à éditer.
+
+- [x] **Il n'y a aucun fichier de code à modifier.** La forme
+      `VARIABLE="valeur" commande` est un réglage **qui ne vit que le temps de la commande** —
+      une évidence pour qui connaît le shell, une énigme sinon.
+
+  > **UNE MARCHE À SUIVRE QUI SUPPOSE UN PRÉALABLE NON ÉCRIT N'EST PAS UNE MARCHE À SUIVRE.**
+  > *Le défaut n'était pas dans la commande, il était dans ce que je tenais pour acquis.*
+
+### ET LA VOIE QUE JE RECOMMANDAIS ÉTAIT LA MOINS BONNE
+
+- [x] **Vérifié plutôt que supposé** : le script lit `MONGO_URI_CIBLE` depuis `server/.env`,
+      puisqu'il appelle `dotenv.config()` avant de lire l'environnement. **Une ligne dans
+      `server/.env` suffit**, et la commande se réduit à `npm run migrer:atlas`.
+
+  | Voie | Réserve |
+  |---|---|
+  | **`server/.env`** | **à préférer** : non suivi par git, et il porte déjà tous les autres secrets |
+  | `MONGO_URI_CIBLE="…" npm run …` | **le mot de passe reste dans l'HISTORIQUE du terminal**, des semaines |
+
+  > *Je recommandais la seconde. Elle est correcte sur le point qui m'occupait — ne pas passer
+  > un secret en argument, visible dans la liste des processus — et négligente sur un autre
+  > que je n'avais pas regardé : l'historique du shell.*
+
+- [x] **Éprouvé en conditions réelles** : ligne ajoutée au `.env`, script lancé *(il a bien lu
+      la cible)*, puis **fichier restauré et comparé octet par octet — identique**. Et git n'a
+      rien vu, le fichier n'étant pas suivi.
+- [x] **Le message d'aide du script réécrit** : la voie `.env` d'abord, avec la raison ; la
+      ligne de commande ensuite, pour un essai unique.
+- [x] **Et une précision utile** : `MONGO_URI_CIBLE` peut être retirée après la migration. Elle
+      n'a servi qu'à cela ; c'est `MONGO_URI`, sur l'hébergeur, qui portera l'adresse pour de
+      bon.
+
+### L'ARBITRAGE n8n, RENDU
+
+Le porteur du projet a laissé le choix, en indiquant qu'une instance n8n existe déjà sur son
+compte Hostinger.
+
+- [x] **DÉCISION : on garde l'instance existante.** Réinstaller ce qui fonctionne est du
+      risque sans contrepartie, et le modèle de l'hébergeur gère déjà le certificat et les
+      mises à jour. **La composition de `docker/n8n/hostinger/` reste le recours** si cette
+      instance ne peut pas servir.
+
+#### Et le risque de version est plus faible qu'il n'y paraît — mesuré
+
+Les flux ont été bâtis sur **1.121.3**. Avant d'annoncer un risque, j'ai relevé ce qu'ils
+emploient réellement :
+
+| Constat | Conséquence |
+|---|---|
+| **7 types de nœuds, TOUS du cœur de n8n** — `code`, `httpRequest`, `if`, `telegram`, `scheduleTrigger`, `webhook`, `respondToWebhook` | **aucun module communautaire à installer** |
+| **`typeVersion` figées dans le JSON** : 1.2, 1.4, 2, 2.1, 2.2, 4.3 | n8n honore les versions anciennes |
+
+  > **UN IMPORT DANS UNE 1.x COMME DANS UNE 2.x DOIT DONC PASSER.** *Si un nœud s'affiche en
+  > erreur après import, c'est lui qu'il faudra regarder — pas le flux entier. La nuance
+  > change l'ampleur du travail si cela arrive.*
+
+- [x] **La marche à suivre 4 A écrite en six étapes**, dont deux pièges déjà payés ailleurs :
+      **régénérer AVANT d'importer** *(les adresses sont figées dans le JSON)*, et
+      **`allowedOrigins`**, qui fait taire le widget sans aucun message d'erreur si elle est
+      mal réglée.
+- [ ] **IL MANQUE UNE SEULE INFORMATION POUR COMMENCER** : l'adresse publique de cette
+      instance, sa version, et s'il s'agit de self-hosted ou de n8n Cloud — ce dernier
+      restreint les nœuds `Code`, dont les flux font un usage central.
+
+### MESURES
+
+- [x] **`server/.env` restauré à l'octet près** après l'épreuve *(3 798 octets, `cmp`
+      identique, `MONGO_URI_CIBLE` absente)*.
+- [x] **Non-régression** : `api 73/73`, `controles 82/82`, `verifier:deploiement` 10 au vert.
