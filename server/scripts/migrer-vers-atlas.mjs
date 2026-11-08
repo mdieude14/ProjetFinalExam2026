@@ -51,6 +51,7 @@
 
 import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
+import { diagnostiquerUri, sansSecret } from './lib/uri-mongo.mjs';
 
 dotenv.config();
 
@@ -66,10 +67,6 @@ const LOT = 500;
 
 const dire = (t) => console.log(`  ${t}`);
 const crier = (t) => console.error(`  ${t}`);
-
-/** Masque tout ce qui ressemble à un identifiant dans une URI. */
-const sansSecret = (uri) =>
-  String(uri ?? '').replace(/\/\/[^@/]*@/, '//<identifiants masqués>@');
 
 /* ------------------------------------------------------------------ *
  *  1 — LES DEUX ADRESSES
@@ -114,14 +111,23 @@ const baseDe = (uri) => {
 const baseSource = baseDe(SOURCE);
 const baseCible = baseDe(CIBLE);
 
-if (!baseCible) {
-  crier('REFUS : l’URI de destination ne nomme aucune base.');
-  crier('');
-  crier('  C’est le piège le plus coûteux de la mise en place d’Atlas : sans');
-  crier('  nom de base, le pilote écrit dans `test`, et l’application paraît');
-  crier('  vide alors que tout fonctionne.');
-  crier('');
-  crier('  Insérez le nom AVANT le `?` :  …mongodb.net/sportsocial?retryWrites=true');
+/*
+ * TOUTES LES FAUTES DE FORME, D'UN COUP, AVANT DE TENTER QUOI QUE CE SOIT.
+ *
+ * `diagnostiquerUri` couvre les cinq fautes de recopie d'une URI Atlas, dont
+ * l'absence de nom de base — la seule qui ne produise AUCUNE erreur, le
+ * pilote écrivant alors dans `test`. Les énumérer ici évite de les découvrir
+ * une par une, à chaque tentative.
+ */
+const fautes = diagnostiquerUri(CIBLE);
+if (fautes.length > 0) {
+  crier(`REFUS : l’URI de destination présente ${fautes.length} faute(s).`);
+  for (const f of fautes) {
+    crier('');
+    crier(`  · ${f.quoi}`);
+    crier(`    ${f.pourquoi}`);
+    crier(`    → ${f.remede}`);
+  }
   process.exit(1);
 }
 

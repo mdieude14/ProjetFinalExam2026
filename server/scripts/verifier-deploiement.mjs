@@ -45,6 +45,7 @@
 
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import { diagnostiquerUri } from './lib/uri-mongo.mjs';
 
 dotenv.config();
 
@@ -287,6 +288,25 @@ enProduction(
  * ================================================================== */
 
 const uri = process.env.MONGO_URI ?? '';
+
+/*
+ * LA FORME DE L'URI AVANT SA JOIGNABILITÉ, ET DANS CET ORDRE.
+ *
+ * Une URI mal recopiée produit un message de pilote qui parle d'autre chose :
+ * « Authentication failed » quand la marque `<db_password>` n'a pas été
+ * remplacée, « querySrv ENOTFOUND » quand le nom du cluster est altéré. Et la
+ * pire des fautes ne produit RIEN — sans nom de base, le pilote écrit dans
+ * `test` et l'application paraît vide.
+ *
+ *   ON NOMME DONC LA FAUTE AVANT DE TENTER LA CONNEXION.
+ */
+const fautesUri = diagnostiquerUri(uri);
+verifier(
+  'l’URI de la base est bien formée',
+  fautesUri.length === 0,
+  fautesUri.length === 0 ? 'rien à signaler' : fautesUri.map((f) => f.quoi).join(' · '),
+  fautesUri.map((f) => `${f.pourquoi} → ${f.remede}`).join(' ; ')
+);
 
 enProduction(
   'la base n’est pas locale',
