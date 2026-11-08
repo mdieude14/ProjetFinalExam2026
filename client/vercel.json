@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/((?!api/|socket.io/|assets/|favicon.svg).*)",
+      "source": "/((?!api/|socket\\.io/|assets/|favicon\\.svg).*)",
       "destination": "/index.html"
     }
   ],
@@ -36,7 +36,7 @@
         },
         {
           "key": "X-Coachconnect-Config",
-          "value": "r6-lookahead"
+          "value": "v1"
         }
       ]
     }

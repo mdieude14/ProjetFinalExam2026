@@ -18031,3 +18031,105 @@ GET /api/health  -> 200  text/html      <<<
 - [x] **`/api/*` et `/socket.io/*` interceptés avant la fourre-tout**, par des réécritures
       vers elles-mêmes. Cinq règles désormais, dans cet ordre, et les quatre premières ne
       changent rien : leur seul rôle est d'empêcher la cinquième d'agir.
+
+---
+
+## 16.05 — Trois essais pour une règle de réécriture, et un nom de domaine déjà pris  `VÉRIFIÉ`
+
+### LE SYMPTÔME SIGNALÉ, ET SA MESURE
+
+Le porteur du projet a déployé sur Vercel et signalé *« Une erreur est survenue »* à la
+connexion. **Mesuré sur le site en ligne :**
+
+```
+GET /            -> 200  text/html
+GET /login       -> 200  text/html
+GET /api/health  -> 200  text/html      <<< index.html repond aux appels d'API
+```
+
+- [x] **L'enchaînement** : le client poste sur `/api/auth/login` *(chemin relatif,
+      `VITE_API_URL` étant vide)* → la fourre-tout l'envoie vers `/index.html` → axios reçoit
+      du **HTML avec un code 200** → il tente d'y lire du JSON → échec → le message générique.
+
+  > **UN 200 AVEC LE MAUVAIS CORPS EST LE PIRE DES ÉCHECS.** *Que l'API ne soit pas encore
+  > hébergée était attendu ; que l'appel reçoive un succès avec une page HTML était mon
+  > défaut.*
+
+### ET IL A FALLU TROIS ESSAIS, DONT DEUX FAUX
+
+#### Essai 1 et 2 : une réécriture vers elle-même — NE MARCHE PAS
+
+- [ ] **`/api/:chemin*` → `/api/:chemin*`**, placée avant la fourre-tout. Puis la forme
+      documentée **`/api/(.*)` → `/api/$1`**. **Les deux sans effet** : `/api/health` continuait
+      de rendre `200 text/html`.
+
+  > **ÉTABLI, ET NON SUPPOSÉ : une réécriture vers elle-même est un no-op que Vercel ignore**,
+  > et la règle suivante s'applique quand même. *Le raisonnement « la première qui correspond
+  > gagne » est juste, mais une règle qui ne change rien ne compte pas comme une
+  > correspondance.*
+
+#### Le témoin qui a rendu la mesure possible
+
+- [x] **Deux causes expliquaient le même symptôme** — soit Vercel ne redéployait pas, soit la
+      règle était inefficace. **Impossible de trancher sans savoir quelle configuration est en
+      ligne.**
+- [x] **D'où un en-tête témoin, `X-Coachconnect-Config`**, dont la valeur change à chaque
+      essai. **Il est apparu en 10 à 15 secondes** après chaque poussée : le pipeline
+      fonctionne, et vite.
+
+  > **UNE MESURE, DEUX RÉPONSES.** *Sans ce témoin, j'aurais pu passer une heure à corriger
+  > une configuration déjà bonne mais non déployée — ou l'inverse.*
+
+- [x] **Vérifié au passage que `vercel.json` EST lu** : mes trois en-têtes de sécurité et le
+      `Cache-Control: immutable` des ressources sont bien en ligne. La racine du projet est
+      donc correctement réglée sur `client`.
+
+#### Essai 3 : l'exclusion dans le MOTIF de la fourre-tout — ÇA MARCHE
+
+```json
+{ "source": "/((?!api/|socket\\.io/|assets/|favicon\\.svg).*)",
+  "destination": "/index.html" }
+```
+
+| Chemin | Avant | Après |
+|---|---|---|
+| `/api/health` | 200 `text/html` | **404 `text/plain`** |
+| `/api/auth/login` | 200 `text/html` | **404** |
+| `/socket.io/` | 200 `text/html` | **404** |
+| `/login`, `/recherche`, `/messages` | 200 | **200** *(inchangé)* |
+| le paquet, `favicon.svg` | 200 | **200**, cache `immutable` conservé |
+| `/apidocs`, `/profile/apitest` | 200 | **200** — l'exclusion porte sur `api/`, avec la barre |
+
+> **ET LA RECHERCHE EN LIGNE DISAIT L'INVERSE.** Un billet de janvier 2026 rapportait que
+> l'exclusion par lookahead ne fonctionnait pas sur Vercel, et recommandait précisément la
+> méthode qui a échoué ici. *Avec une boucle de retour de quinze secondes, mesurer coûtait
+> moins cher que choisir entre deux sources contradictoires.*
+
+### LE NOM `coachconnect.vercel.app` EST DÉJÀ PRIS
+
+Le porteur du projet a renommé son projet sans que l'URL change, et ne trouvait pas de section
+« Domains ».
+
+- [x] **Mesuré plutôt que supposé** : `https://coachconnect.vercel.app` répond bien **200**,
+      avec le titre `<title>Coach Connect</title>` — **une espace**. Le titre du projet est
+      `<title>CoachConnect</title>`, **sans espace**.
+- [x] **Et aucun de mes en-têtes n'y figure** : ni `X-Coachconnect-Config`, ni
+      `X-Frame-Options`. **Ce n'est pas ce projet.**
+
+  > **LE NOM EST OCCUPÉ PAR UNE AUTRE APPLICATION.** C'est pourquoi le renommage n'a rien
+  > donné : Vercel ne peut pas attribuer un sous-domaine déjà utilisé, et conserve donc celui
+  > d'origine.
+  >
+  > *`coach-connect.vercel.app` rend un 307, donc lui aussi est pris ou redirigé.*
+
+- [x] **Deux voies restent** : un nom libre *(`coachconnect-app`, `coachconnect-fr`…)*, ou un
+      **vrai domaine** acheté — ce qui est de toute façon préférable pour une soutenance, et
+      permet de servir l'API et n8n sur des sous-domaines du même nom.
+
+### LE TÉMOIN RESTE, ET C'EST DÉLIBÉRÉ
+
+- [x] **`X-Coachconnect-Config: v1` est conservé.** Il coûte une quarantaine d'octets par
+      réponse et répond en une commande à la question qui m'a coûté trois essais : **quelle
+      configuration est réellement en ligne ?**
+
+  > *Un déploiement qu'on ne peut pas identifier se débogue à l'aveugle.*
