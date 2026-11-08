@@ -17045,3 +17045,163 @@ emploient réellement :
 - [x] **`server/.env` restauré à l'octet près** après l'épreuve *(3 798 octets, `cmp`
       identique, `MONGO_URI_CIBLE` absente)*.
 - [x] **Non-régression** : `api 73/73`, `controles 82/82`, `verifier:deploiement` 10 au vert.
+
+---
+
+## 15.98 — LA BASE EST SUR ATLAS, et dix-neuf comptes d'essai y sont partis avec elle  `VÉRIFIÉ` / `DÉCISION ATTENDUE`
+
+### LA SAUVEGARDE D'ABORD, PUIS SEULEMENT LA MIGRATION
+
+- [x] **Une étiquette git annotée**, `avant-migration-atlas`, poussée sur GitHub. Un point de
+      retour nommé : `git checkout avant-migration-atlas`.
+- [x] **Une sauvegarde de la base locale, hors du dépôt**, sur le disque externe :
+      `D:\sauvegardes-coachconnect\base-locale_2026-11-08_14h32` — **16 collections,
+      4 817 documents, documents ET index, 2 Mo.**
+
+  > *La migration ne fait que LIRE la source. La sauvegarde ne protège donc pas d'elle : elle
+  > protège de ce qui viendra après, et elle ne coûtait rien.*
+
+### UNE OPTION POUR NE PAS RETAPER LE SECRET
+
+- [x] **`verifier:deploiement -- --cible`** lit `MONGO_URI_CIBLE` au lieu de `MONGO_URI`.
+      L'évidence aurait été `MONGO_URI="mongodb+srv://…" npm run verifier:deploiement` —
+      **ce qui remet le mot de passe dans l'historique du terminal**, précisément ce qu'on
+      venait d'éviter en le posant dans `server/.env`.
+
+  > *Un contournement qui défait la mesure prise dix minutes plus tôt n'est pas un
+  > contournement, c'est un oubli.*
+
+### LA MIGRATION, FAITE ET RELUE
+
+```
+16 collection(s) · 4 817 document(s) à la source · 4 817 à la cible
+Migration conforme, comptages relus et égaux.
+```
+
+- [x] **Les seize collections au vert, une par une**, comptage source = comptage cible.
+      **84 index recréés.** Code de sortie 0.
+- [x] **Et la base d'arrivée éprouvée, pas seulement comptée** :
+
+  ```
+  OK    l’URI de la base est bien formée                 rien à signaler
+  OK    connexion à la base                              sportsocial
+  OK    LES TRANSACTIONS PASSENT (20 usages, 7 modules)  une transaction s’ouvre et se referme
+  10 contrôle(s) au vert · 0 en échec
+  ```
+
+- [x] **Vérification approfondie, en lecture seule** :
+
+  | Contrôle | Résultat |
+  |---|---|
+  | documents | **4 817** |
+  | poids | **2,83 Mo sur 512** — 0,55 % de l'offre gratuite |
+  | index au total | **100** *(84 recréés + 16 `_id_`)* |
+  | index textuel `users` | `recherche_utilisateurs`, présent |
+  | **la recherche TROUVE** | `coachdemo` → 1, `martin` → **3** |
+  | index uniques `users` | `pseudo_1`, `email_1`, `telegram.conversation_1` |
+  | index géographique | `localisation_2dsphere`, présent |
+  | un document intact | coach `coachdemo`, Lyon, 2 sports · une publication, 2 médias |
+
+  > **L'index textuel est le piège qui a justifié d'écrire l'outil à la main**, et il est
+  > franchi : *la recherche ne répond pas, elle trouve.*
+
+### ET VOICI CE QUE LA MIGRATION A RÉVÉLÉ
+
+Un détail a accroché l'œil : `termesRecherche` peuplé sur **22 comptes sur 24**. Vérifié des
+deux côtés — **22/24 à la source aussi, les deux mêmes comptes**. La migration est fidèle ;
+le manque est antérieur.
+
+- [ ] **MAIS LES DEUX COMPTES S'APPELAIENT `epreuvetg881527` ET `epreuvetg056210`.**
+      `scripts/preparer-epreuve-telegram.mjs` déclare `const MARQUE = 'epreuvetg'` : **ce sont
+      des comptes d'épreuve**, créés les 29 et 30 octobre, et ils viennent de partir dans la
+      base destinée à la production.
+- [ ] **EN TIRANT LE FIL : DIX-NEUF COMPTES SUR VINGT-QUATRE SONT DES RÉSIDUS D'ESSAI**,
+      accumulés du 26 août au 30 octobre.
+
+  | Famille | Nombre | Date | Origine |
+  |---|---|---|---|
+  | `probe…@rchtest.local` | 4 | 26 août | sondes de recherche |
+  | `dbg[abxy]…@dbgmod.local` | 6 | 8 sept. | débogage de la modération |
+  | `agentreel…` | 1 | 21 sept. | essai d'agent |
+  | `diag…` × 6 domaines | 6 | 24-30 sept. | **mes propres séances de diagnostic** |
+  | `epreuvetg…` | 2 | 29-30 oct. | épreuve Telegram |
+
+  **Légitimes : cinq.** `mdieude14`, `l.boze`, `m.manghou` *(réels)*, plus `admin` et
+  `coachdemo` *(infrastructure attendue)*.
+
+### ET MON CONTRÔLE DE RÉSIDUS AVAIT UN ANGLE MORT
+
+- [ ] **J'ai annoncé « 0 compte de test résiduel » le 8 novembre au matin.** Mon contrôle
+      cherchait des **préfixes de pseudo devinés** — `front`, `test`, `e2e`, `zumba`, `gina`,
+      `hugo`.
+
+  > **IL NE CONNAISSAIT NI `probe`, NI `dbga`, NI `diagtls`, NI `epreuvetg`. Et il ne pouvait
+  > pas les connaître** : la liste s'allonge à chaque séance de diagnostic, et personne ne
+  > pense à la tenir à jour.
+  >
+  > *Un contrôle dont la justesse dépend d'une liste qu'il faut maintenir à la main finit
+  > toujours par rendre un vert qu'il n'a pas mérité. **Sixième visage du faux vert dans ce
+  > projet.***
+
+- [x] **LE DOMAINE DU COURRIEL, LUI, NE MENT PAS.** Un compte d'essai porte toujours un
+      domaine inventé — `.local`, `exemple.`, `invalid` — parce qu'aucun script ne veut
+      envoyer de vrai courriel. **`npm run nettoyer:residus` classe donc par le domaine**, avec
+      deux exceptions nommées :
+      les comptes d'**infrastructure** attendus *(`admin`, `coachdemo`)*, qui portent un
+      domaine inventé et doivent rester ;
+      et les **marques d'essai sur un VRAI domaine** — `epreuvetg` emploie l'adresse du
+      porteur du projet avec un suffixe `+`, parce que le script a besoin de recevoir le
+      courriel.
+- [x] **L'ESSAI À BLANC EST LE DÉFAUT, PAS L'OPTION.** Le défaut d'un outil destructeur doit
+      être de ne rien détruire : il faut `--supprimer` pour qu'il agisse. Et il **relit après
+      coup** — écrire sans relire, c'est espérer.
+- [x] **La cascade n'est pas un détail** : reprise de `tests/moderation.mjs` et étendue aux
+      modules 11 et 15, **quatorze collections**. *Supprimer un compte sans ce qui lui est
+      rattaché laisse des publications sans auteur et des conversations avec un participant
+      disparu — l'application les affiche alors vides, ou tombe.*
+- [x] **Mesuré des DEUX côtés, identique** : 5 gardés, 19 résidus, **7 documents rattachés —
+      tous des tickets.** Le nettoyage est donc peu invasif.
+
+- [ ] **DÉCISION ATTENDUE : je n'ai rien supprimé.** Dix-neuf comptes, dont un portant
+      l'adresse réelle du porteur du projet, ne se retirent pas de ma seule initiative — même
+      si la plupart sont de mon fait. *La sauvegarde est en place, le geste est réversible, et
+      il reste le sien.*
+
+  ```bash
+  npm run nettoyer:residus -- --supprimer            # base locale
+  npm run nettoyer:residus -- --cible --supprimer    # base Atlas
+  ```
+
+### ET MON CONTRÔLE DE SÉCURITÉ A LUI-MÊME DIVULGUÉ LE SECRET
+
+- [ ] **Le contrôle d'avant-commit a imprimé le mot de passe Atlas en clair.** La commande
+      était :
+
+  ```bash
+  grep -rn "<identifiant-du-cluster>" . --exclude-dir=node_modules --exclude-dir=.git
+  ```
+
+  Elle cherchait l'hôte du cluster **ailleurs que dans `.env`** — ce qui est la bonne
+  question. Mais `-n` affiche la **ligne entière** de chaque correspondance, et la seule
+  correspondance était la ligne `MONGO_URI_CIBLE=…` du `.env`, mot de passe compris.
+
+  > **UN CONTRÔLE QUI VÉRIFIE QU'UN SECRET N'EST PAS EXPOSÉ NE DOIT JAMAIS AFFICHER CE QU'IL
+  > TROUVE.** *L'ironie est complète : la mesure destinée à protéger le secret est ce qui l'a
+  > publié.*
+
+- [x] **Corrigé : `grep -rl`, qui ne rend que des NOMS DE FICHIERS**, et une exclusion
+      explicite de `server/.env` — le seul endroit où le secret a le droit d'être.
+- [x] **Rien n'a fui vers le dépôt, vérifié** : le secret n'existe que dans `server/.env`,
+      `git check-ignore` confirme qu'il est couvert par la règle `.gitignore:5`, et le diff en
+      porte **zéro** mention. **La divulgation est limitée à la conversation.**
+- [ ] **ROTATION DEMANDÉE UNE SECONDE FOIS**, et la marche à suivre est la même qu'avant :
+      `Accès à la base de données` → `Edit` → `Edit Password` → `Autogenerate` →
+      `Update User`, puis la nouvelle valeur dans `server/.env`.
+
+  > **LA LEÇON POUR LA SUITE, ET ELLE EST GÉNÉRALE** : dans un contrôle de secrets, on
+  > n'emploie que des commandes qui **comptent** ou qui **nomment** — `grep -c`, `grep -l`,
+  > `git check-ignore`. Jamais `-n`, jamais `cat`, jamais `echo` d'une variable.
+  >
+  > *C'est la troisième fois en deux jours qu'un outil à moi rend un verdict faux ou nuisible
+  > par un détail de sa commande — après `[a-z]+` sans chiffres et `grep -o` qui n'affiche que
+  > le motif. Les trois fois, l'outil avait raison sur le fond et tort dans sa forme.*
