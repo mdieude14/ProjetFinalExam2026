@@ -5,16 +5,16 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/:chemin*",
-      "destination": "/api/:chemin*"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     },
     {
-      "source": "/socket.io/:chemin*",
-      "destination": "/socket.io/:chemin*"
+      "source": "/socket.io/(.*)",
+      "destination": "/socket.io/$1"
     },
     {
-      "source": "/assets/:chemin*",
-      "destination": "/assets/:chemin*"
+      "source": "/assets/(.*)",
+      "destination": "/assets/$1"
     },
     {
       "source": "/favicon.svg",
@@ -49,6 +49,10 @@
         {
           "key": "X-Frame-Options",
           "value": "SAMEORIGIN"
+        },
+        {
+          "key": "X-Coachconnect-Config",
+          "value": "r5-api-intercepte"
         }
       ]
     }
