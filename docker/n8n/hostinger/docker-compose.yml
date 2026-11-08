@@ -81,8 +81,10 @@ services:
       - ADMIN_COURRIEL=${ADMIN_COURRIEL:?definir ADMIN_COURRIEL dans .env}
       - EDITEUR_UTILISATEUR=${EDITEUR_UTILISATEUR:?definir EDITEUR_UTILISATEUR dans .env}
       - EDITEUR_EMPREINTE=${EDITEUR_EMPREINTE:?definir EDITEUR_EMPREINTE dans .env}
+      - API_DOMAINE=${API_DOMAINE:?definir API_DOMAINE dans .env}
     depends_on:
       - n8n
+      - api
 
   # -------------------------------------------------------------------------
   #  n8n — jamais exposé directement
@@ -151,6 +153,78 @@ services:
 
     volumes:
       - n8n-data:/home/node/.n8n
+
+  # -------------------------------------------------------------------------
+  #  L'API DE COACHCONNECT — sur le MÊME VPS, et c'est tout l'intérêt
+  # -------------------------------------------------------------------------
+  #
+  # POURQUOI ICI ET PAS SUR VERCEL.
+  #
+  # L'API tient un serveur Socket.IO : `initialiserSockets(serveurHttp)`
+  # réutilise le serveur HTTP d'Express pour la messagerie et les
+  # notifications en direct. Cela exige un PROCESSUS QUI VIT.
+  #
+  #   Vercel sait faire du WebSocket depuis juin 2026, en bêta publique, mais
+  #   la connexion se ferme quand la fonction atteint sa durée maximale. Une
+  #   messagerie en direct présentée à un jury ne se joue pas là-dessus.
+  #
+  # ET LE VPS EST DÉJÀ PAYÉ POUR n8n. Un second hébergement serait une
+  # dépense pour rien : les deux services tiennent derrière le même Caddy,
+  # chacun sur son sous-domaine, et la base est sur Atlas — donc rien à
+  # stocker ici.
+  #
+  #   ÉPROUVÉ LE 8 NOVEMBRE, image construite et lancée : `/api/health` rend
+  #   200, Socket.IO annonce `"upgrades":["websocket"]`, et l'arrêt par
+  #   SIGTERM ferme la base proprement avec un code de sortie 0.
+  api:
+    build:
+      context: ../../../server
+      dockerfile: Dockerfile
+    container_name: coachconnect-api
+    restart: unless-stopped
+
+    # `init: true` confie à Docker la place du processus 1.
+    #
+    # Le premier jet du Dockerfile installait `dumb-init` pour cela —
+    # inutilement : `src/server.js:176` enregistre déjà ses gestionnaires de
+    # SIGTERM et SIGINT. Et l'installer exigeait un `apk add`, qui ÉCHOUE sur
+    # le poste de développement où l'antivirus intercepte le HTTPS. Moins de
+    # paquet, et une image qu'on peut construire chez soi pour l'éprouver.
+    init: true
+
+    # AUCUN `ports:`. L'API n'est joignable que par Caddy, sur le réseau
+    # interne — même raisonnement que pour n8n.
+
+    # ---------------------------------------------------------------------
+    #  LES SECRETS VIENNENT D'UN FICHIER, PAS DE QUINZE INTERPOLATIONS
+    # ---------------------------------------------------------------------
+    #
+    # Quinze `${VARIABLE:?}` seraient illisibles et obligeraient à tout
+    # redéclarer dans le `.env` de compose, qui sert déjà aux domaines.
+    #
+    #   `api.env` est à créer depuis `api.env.example`. Il n'est PAS suivi par
+    #   git — la règle `.env` du dépôt le couvre.
+    env_file:
+      - ./api.env
+
+    environment:
+      # Celles-ci se déduisent des domaines : on ne les redemande pas.
+      - NODE_ENV=production
+      - PORT=5000
+      - N8N_WEBHOOK_TELEGRAM=https://${N8N_DOMAINE}/webhook/telegram-support
+
+    healthcheck:
+      # La sonde du Dockerfile suffit ; on la redéclare ici pour que
+      # `docker compose ps` affiche l'état sans aller lire l'image.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
 
 volumes:
   n8n-data:

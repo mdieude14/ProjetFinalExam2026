@@ -65,3 +65,60 @@
 		reverse_proxy n8n:5678
 	}
 }
+
+# ===========================================================================
+#  L'API DE COACHCONNECT — et le WebSocket passe sans un réglage de plus
+# ===========================================================================
+#
+# POURQUOI IL N'Y A RIEN À CONFIGURER POUR SOCKET.IO.
+#
+# `reverse_proxy` de Caddy relaie nativement la montée en WebSocket : il
+# reconnaît l'en-tête `Upgrade` et bascule la connexion. C'est exactement ce
+# que Vite devait faire en développement avec `ws: true` — ici, c'est le
+# comportement par défaut, et son absence était la panne déroutante du
+# module 11.
+#
+# Et l'API tient son Socket.IO sur LE MÊME port que son HTTP
+# (`initialiserSockets(serveurHttp)` réutilise le serveur d'Express) : un
+# seul `reverse_proxy` suffit donc pour les deux.
+#
+#   ÉPROUVÉ : le point d'entrée rend
+#   `{"sid":"…","upgrades":["websocket"],…}` — le serveur annonce lui-même
+#   qu'il accepte la montée.
+#
+# ---------------------------------------------------------------------------
+#  ET ICI, TOUT EST PUBLIC — c'est l'inverse du bloc n8n
+# ---------------------------------------------------------------------------
+#
+# n8n n'ouvre que ses webhooks parce que son éditeur n'a rien à faire sur
+# Internet. L'API, elle, EST le service : ses routes sont protégées par
+# leurs propres jetons, par `helmet`, par le limiteur de débit en couches
+# (global sur /api, puis dédié à /register, /login et /refresh) et par CORS,
+# qui ne laisse entrer que les origines de `CLIENT_URL`.
+{$API_DOMAINE} {
+	encode zstd gzip
+
+	# ---------------------------------------------------------------------
+	#  L'ADRESSE RÉELLE DU VISITEUR : RIEN À AJOUTER, ET J'AI FAILLI ME
+	#  TROMPER
+	# ---------------------------------------------------------------------
+	#
+	# L'enjeu est réel : derrière un relais, si l'API voit l'adresse de Caddy
+	# au lieu de celle du visiteur, LE LIMITEUR DE DÉBIT NE SERT PLUS À RIEN —
+	# le quota de cinq tentatives de `/login` serait partagé par tout
+	# Internet, donc épuisé par n'importe qui, pour tout le monde.
+	#
+	# Premier jet : `header_up X-Real-IP {remote_host}`. VÉRIFIÉ, C'ÉTAIT
+	# INUTILE, et pour deux raisons qui se complètent :
+	#
+	#   · `app.js:27` fait déjà `app.set('trust proxy', 1)` — Express lit donc
+	#     l'adresse dans `X-Forwarded-For`, et PAS dans `X-Real-IP` ;
+	#   · `reverse_proxy` de Caddy pose `X-Forwarded-For` TOUT SEUL.
+	#
+	#   LA CHAÎNE EST DONC DÉJÀ COMPLÈTE. Mon en-tête aurait été posé, lu par
+	#   personne, et il aurait eu l'air de régler le problème.
+	#
+	# *Un réglage qui ne sert à rien est pire qu'un réglage absent : il fait
+	# croire que la question est traitée.*
+	reverse_proxy api:5000
+}

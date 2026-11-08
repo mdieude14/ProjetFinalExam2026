@@ -1,0 +1,39 @@
+# ===========================================================================
+#  CE QUI NE DOIT PAS ENTRER DANS L'IMAGE
+# ===========================================================================
+#
+# UN `.dockerignore` EST UNE MESURE DE SÉCURITÉ AVANT D'ÊTRE UNE OPTIMISATION.
+# Sans lui, `COPY . .` embarquerait `server/.env` — donc la chaîne Atlas, les
+# secrets JWT, la clé Stripe et le jeton Telegram — dans une couche d'image
+# que n'importe qui pourrait extraire avec `docker save`.
+#
+# Le Dockerfile ne copie que `src/` et `scripts/`, ce qui suffit déjà. Ce
+# fichier est la seconde barrière : il protège contre un `COPY` plus large
+# ajouté plus tard, par distraction.
+# ===========================================================================
+
+# Les secrets, d'abord et avant tout.
+.env
+.env.*
+!.env.example
+
+# Dépendances : réinstallées proprement par `npm ci` dans l'image.
+node_modules
+
+# Suites de tests et outillage de développement : hors de la production.
+tests
+.boite-mails
+
+# Traces d'exécution locales.
+*.log
+captures
+coverage
+
+# Dépôt et éditeurs.
+.git
+.gitignore
+.vscode
+.idea
+
+# Documentation : elle vit dans le dépôt, pas dans l'image.
+README.md

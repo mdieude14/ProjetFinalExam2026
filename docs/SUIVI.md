@@ -17859,3 +17859,130 @@ volume    : 5 996 Kio examinés
 
 RIEN DE SENSIBLE.          code de sortie 0
 ```
+
+---
+
+## 16.04 — Socket.IO n'a rien à corriger, et l'API tient sur le VPS déjà payé  `VÉRIFIÉ`
+
+### LA QUESTION POSÉE, ET SA VRAIE RÉPONSE
+
+Le porteur du projet a demandé « la logique pour corriger le problème de WebSocket.IO ».
+
+- [x] **IL N'Y A RIEN À CORRIGER DANS LE CODE, et c'est vérifié** :
+
+  | Point | Constat |
+  |---|---|
+  | `initialiserSockets(serveurHttp)` | **réutilise le serveur HTTP d'Express** — un seul port, une seule configuration CORS, le cookie de session partagé |
+  | CORS du socket | `origin: config.clientUrls`, `credentials: true` — **la même variable que CORS HTTP** |
+  | côté client | `io(VITE_API_URL.replace(/\/api$/, ''))`, `path: '/socket.io'` explicite |
+
+  > **LE « PROBLÈME » N'EXISTE QUE SI L'ON MET L'API SUR VERCEL.** Socket.IO exige un
+  > processus qui VIT ; une fonction qui démarre à chaque requête et s'éteint après ne peut
+  > pas tenir une connexion. *Le remède n'est pas dans le code : il est dans le choix de
+  > l'endroit où l'API tourne.*
+
+### ET L'ENDROIT ÉVIDENT ÉTAIT SOUS NOS YEUX
+
+- [x] **LE VPS HOSTINGER EST DÉJÀ PAYÉ POUR n8n.** Un second hébergement pour l'API serait une
+      dépense pour rien : les deux services tiennent derrière **le même Caddy**, chacun sur son
+      sous-domaine, et la base est sur Atlas — donc rien à stocker sur le VPS.
+
+  > *Je proposais depuis deux jours « un hébergeur à processus persistant » sans voir que le
+  > porteur du projet s'apprêtait à en payer un.*
+
+- [x] **`docker/n8n/hostinger/` compte désormais trois services** : `caddy`, `n8n`, **`api`**.
+      L'API **ne publie aucun port** — joignable par Caddy seul, même raisonnement que n8n.
+- [x] **Et le WebSocket passe sans un réglage de plus** : `reverse_proxy` de Caddy relaie
+      nativement la montée `Upgrade`. *C'est exactement ce que Vite devait faire en
+      développement avec `ws: true`, dont l'absence avait produit la panne déroutante du
+      module 11. Ici c'est le défaut.*
+
+### LE DOCKERFILE, ÉPROUVÉ ET NON LIVRÉ SUR PAROLE
+
+- [x] **Construction en deux temps**, `npm ci --omit=dev`, utilisateur `node` non privilégié,
+      sonde de santé sur la route que l'application expose déjà.
+- [x] **Et un `.dockerignore`, qui est une mesure de SÉCURITÉ avant d'être une
+      optimisation** : sans lui, un `COPY . .` ajouté plus tard par distraction embarquerait
+      `server/.env` dans une couche d'image que `docker save` révélerait.
+
+#### Les cinq contrôles de l'image construite
+
+| Contrôle | Résultat |
+|---|---|
+| `server/.env` dans l'image | **absent** |
+| `nodemon`, `@playwright/test` | **absents** |
+| utilisateur d'exécution | **`node`, uid 1000** |
+| `tests/` | **absent** |
+| contenu de `/app` | `node_modules`, `package.json`, `package-lock.json`, `scripts`, `src` |
+
+#### Et les trois épreuves d'exécution
+
+```
+/api/health                    -> 200
+/socket.io/?EIO=4&transport=polling
+  -> {"sid":"…","upgrades":["websocket"],…}
+docker stop                    -> code de sortie 0
+  [TELEGRAM] Scrutage arrêté. / [DB] Connexion fermée / [API] Arret termine
+```
+
+> **LA SECONDE LIGNE VALIDE TOUTE L'ARCHITECTURE** : le serveur annonce lui-même qu'il accepte
+> la montée en WebSocket.
+
+### DEUX FAUX PAS, ET CE QU'ILS ONT APPORTÉ
+
+#### `dumb-init`, et l'antivirus qui a bien fait
+
+- [ ] **Premier jet : `apk add --no-cache dumb-init`.** La construction a échoué ici :
+      `WARNING: fetching https://dl-cdn.alpinelinux.org/… : TLS: server certificate not
+      trusted`, puis `npm error code UNABLE_TO_VERIFY_LEAF_SIGNATURE` sur le registre npm.
+      **L'antivirus du poste intercepte le HTTPS** — la panne qui a coûté deux jours sur n8n.
+- [x] **MAIS L'ÉCHEC A MENÉ À UNE MEILLEURE IMAGE**, pour deux raisons :
+      **`dumb-init` était inutile** — le problème du processus 1 ne concerne que les signaux
+      SANS gestionnaire, et `src/server.js:176-177` enregistre déjà `SIGTERM` et `SIGINT` *(le
+      commentaire dit même « hebergeur »)* ; et `init: true` dans la composition fournit l'init
+      de Docker sans rien installer.
+      **Et sans paquet à télécharger, la construction marche sur ce poste** — donc l'image a pu
+      être ÉPROUVÉE ici.
+
+  > **UNE IMAGE QU'ON NE PEUT PAS CONSTRUIRE CHEZ SOI EST UNE IMAGE QU'ON LIVRE SANS L'AVOIR
+  > VUE TOURNER.**
+
+- [x] **`npm ci` restait bloqué par le même certificat.** Résolu par un **secret BuildKit
+      facultatif** : `--secret id=cacert,src=…/avast-root.crt`. Sans le secret, le `if` est
+      faux et la construction est celle de n'importe quelle image Node. **Le Dockerfile reste
+      portable, et le contournement ne vit que sur la machine qui en a besoin.**
+
+  > *C'est l'inverse de ce qui avait été fait pour n8n, où le certificat est monté par un
+  > fichier de surcharge qu'il ne faut SURTOUT PAS copier sur le VPS. Ici, l'absence du secret
+  > est le cas normal.*
+
+#### Un en-tête qui n'aurait servi à rien, et qui aurait rassuré
+
+- [ ] **J'ai d'abord écrit `header_up X-Real-IP {remote_host}` dans le Caddyfile**, avec un
+      commentaire expliquant que sans lui le limiteur de débit ne servirait plus à rien — le
+      quota de cinq tentatives de `/login` étant alors partagé par tout Internet.
+- [x] **L'enjeu est réel, mais le réglage était inutile, et pour DEUX raisons qui se
+      complètent** :
+      `app.js:27` fait déjà `app.set('trust proxy', 1)`, donc Express lit l'adresse dans
+      **`X-Forwarded-For`** et pas dans `X-Real-IP` ;
+      et `reverse_proxy` de Caddy pose **`X-Forwarded-For` tout seul**.
+
+  > **LA CHAÎNE ÉTAIT DÉJÀ COMPLÈTE.** Mon en-tête aurait été posé, lu par personne, et **il
+  > aurait eu l'air de régler le problème**.
+  >
+  > *Un réglage qui ne sert à rien est pire qu'un réglage absent : il fait croire que la
+  > question est traitée. Retiré, et la raison écrite à sa place.*
+
+### VALIDATIONS
+
+- [x] **`docker compose config` : code 0, trois services rendus**, l'API sans aucun port
+      publié, `init: true`, sonde présente, `N8N_WEBHOOK_TELEGRAM` correctement déduite.
+- [x] **`caddy validate` : « Valid configuration »**, aucun avertissement, redirections
+      HTTP→HTTPS confirmées.
+- [x] **La composition REFUSE de se valider sans `api.env`** — et c'est le bon comportement.
+      Éprouvé, puis le fichier temporaire retiré.
+- [x] **Croisement des variables : 6 attendues, 6 fournies, aucun manque.** `API_DOMAINE`
+      manquait au gabarit, ajoutée. *(Et `VARIABLE` que le contrôle signalait était ma propre
+      prose dans un commentaire.)*
+- [x] **Les deux gabarits ne portent AUCUNE valeur** : `.env.example` et `api.env.example`,
+      zéro variable renseignée.
