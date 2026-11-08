@@ -18505,3 +18505,128 @@ fichiers lus par Linux. **J'ai annoncé « les sept fichiers sont en CRLF », do
 - [x] **La règle, renforcée** : la danger n'est pas de se tromper, c'est d'**annoncer un
       diagnostic avant d'avoir validé l'instrument**. *Deux cas témoins coûtent dix secondes.
       J'ai écrit une alarme, un correctif et un commit avant de les écrire.*
+
+---
+
+## 16.09 — Le VPS identifié de l'extérieur, et les six identifiants transférables sans en retaper un seul  `VÉRIFIÉ` / `BLOQUÉ SUR UN GESTE`
+
+### L'IP VÉRIFIÉE AVANT TOUTE CONNEXION, ET ELLE N'AVAIT PAS L'AIR BONNE
+
+L'IP communiquée est `2.24.62.117`. **La plage `2.24.x.x` ne ressemble à aucune plage
+Hostinger connue** *(31.220, 72.60, 31.97, 147.93, 82.25, 168.231…)*.
+
+- [x] **ET J'AI VÉRIFIÉ AVANT DE M'Y CONNECTER, délibérément.** Taper sur la machine d'un
+      inconnu parce qu'un chiffre a été mal recopié n'est pas une erreur anodine.
+
+- [x] **Le nom inverse a tranché en une commande** : `srv2141095.hstgr.cloud`.
+
+  > **`2141095` EST EXACTEMENT L'IDENTIFIANT DU TABLEAU DE BORD** *(`hpanel.hostinger.com/vps/2141095/overview`)*.
+  > **C'est bien le bon serveur**, et mon soupçon sur la plage était infondé.
+  >
+  > *Vingt secondes pour écarter l'hypothèse la plus coûteuse de la session. Le nom inverse
+  > prouve l'identité ; la plage d'adresses ne prouve rien.*
+
+### ET LE SCAN A PROUVÉ, DE L'EXTÉRIEUR, QUE L'UBUNTU EST NU
+
+| Port | État | Ce que ça établit |
+|---|---|---|
+| **22** | **ouvert** | SSH est là, l'accès est possible |
+| **80** | **fermé** | **aucun relais inverse n'écoute** |
+| **443** | **fermé** | **idem** |
+
+> **LE MODÈLE « with n8n » AURAIT OUVERT 80 ET 443.** *Le porteur du projet croyait s'être
+> trompé de configuration ; la mesure dit le contraire. Son Ubuntu est nu, et Caddy aura ses
+> deux ports.*
+
+### LA CLÉ EST PROPOSÉE ET REFUSÉE : UN SEUL GESTE MANQUE
+
+- [ ] **`Permission denied (publickey,password)`**, avec la trace qui lève l'ambiguïté :
+
+  ```
+  debug1: Offering public key: coachconnect_vps ED25519 SHA256:Flcuz0Cz…
+  debug1: Authentications that can continue: publickey,password
+  ```
+
+  > **LA CLÉ EST BIEN ENVOYÉE, ET LE SERVEUR LA REJETTE : elle n'est pas installée.** *Ce
+  > n'est ni un problème de chemin, ni de permissions, ni d'algorithme. Un seul geste manque,
+  > et il est dans une interface web.*
+
+### LA DÉCOUVERTE QUI SUPPRIME PRESQUE TOUTE L'ÉTAPE MANUELLE
+
+La question *« comment faire pour que mon compte n8n soit utilisé sur le VPS ? »* est revenue
+une troisième fois. **Elle avait une bonne réponse technique que je n'avais pas donnée.**
+
+- [x] **Il faut séparer deux choses qu'on appelle « le compte »** :
+
+  | Ce qu'on appelle « compte » | Transférable ? |
+  |---|---|
+  | le **compte propriétaire** *(courriel et mot de passe)* | **non, et sans intérêt** : une ligne en base, recréée en 30 secondes |
+  | les **identifiants** *(Telegram, Anthropic, SMTP, Gmail, clés d'agent)* | **OUI, et c'est tout ce qui compte** |
+
+- [x] **Mesuré : les 6 identifiants sont chiffrés en AES** *(préfixe `U2FsdGVkX1`, soit
+      `Salted__`)*. **Ils voyagent chiffrés et ne se déchiffrent qu'avec la même
+      `N8N_ENCRYPTION_KEY`** — laquelle est **fixée** en local, et non générée au hasard.
+
+  | Identifiant | Type |
+  |---|---|
+  | Clé d'agent, Clé de service | `httpHeaderAuth` |
+  | Anthropic | `anthropicApi` |
+  | Bot Telegram | `telegramApi` |
+  | Envoi support | `smtp` |
+  | Gmail | `oAuth2Api` |
+
+  > **AUCUN SECRET N'A DONC À ÊTRE RETAPÉ, ni même lu.** *L'étape « ressaisir Telegram et
+  > Anthropic », que j'avais mise à la charge du porteur du projet, disparaît.*
+
+- [x] **Et les 6 flux locaux sont tous ACTIFS**, donc exportables tels quels.
+
+### `transferer-n8n.mjs`, ET LE CONTRÔLE QUI PASSE AVANT TOUT
+
+- [x] **Les deux clés sont comparées par EMPREINTE SHA-256, jamais par leur valeur.** Locale :
+      `583f2cefaca62da3`, 44 caractères.
+
+  > **SI LES CLÉS DIFFÉRAIENT, L'IMPORT RÉUSSIRAIT ET LES IDENTIFIANTS SERAIENT
+  > INDÉCHIFFRABLES.** n8n ne le signalerait **qu'au premier appel**, donc en pleine
+  > soutenance. *C'est le seul contrôle qui doit passer avant l'envoi, et il refuse de
+  > continuer plutôt que d'avertir.*
+
+- [x] **Mode essai par défaut** ; `--appliquer` exigé pour transférer. **Validé** : il lit le
+      conteneur local, calcule l'empreinte, et s'arrête sur le bon diagnostic SSH avec le
+      **code 1**.
+
+- [x] **Refus explicite si un identifiant n'est PAS chiffré** : il ne doit pas voyager ainsi.
+
+- [x] **Les fichiers sont écrits en `600`, hors du dépôt, et effacés des deux côtés.**
+
+- [ ] **ET J'AI TROUVÉ UN DÉFAUT DANS MON PROPRE SCRIPT** : `process.exit()` **n'exécute pas
+      le `finally`** en Node, parce qu'il termine sans dérouler la pile. **Les deux fichiers
+      d'identifiants chiffrés restaient donc dans le dossier temporaire du poste.**
+
+  > **UN `finally` QUI NETTOIE NE SERT À RIEN SI LA SORTIE NE PASSE PAS PAR LUI.** *Corrigé
+  > par un `sortir(code)` qui efface d'abord : 8 sorties sur 10 y passent, les deux autres
+  > étant l'usage — avant toute création — et `sortir` lui-même.*
+
+- [x] **Vérifié par comptage avant et après, et non par relecture** : `1 → 1`, la nouvelle
+      exécution **ne laisse rien**. *Le dossier restant datait de l'essai d'avant la
+      correction, et a été retiré.*
+
+- [ ] **AU PASSAGE, MA MESURE DU CODE DE SORTIE ÉTAIT FAUSSE** : un `echo` intercalé avait
+      réinitialisé `PIPESTATUS`, qui rendait donc **0**. *Cinquième instrument défaillant de
+      la session. Le code réel était bien 1.*
+
+### CE QUI RESTE VRAIMENT MANUEL, ET C'EST PEU
+
+| | Qui | Quoi |
+|---|---|---|
+| **1** | **le porteur** | **installer la clé publique** — le seul verrou |
+| **2** | **le porteur** | acheter le domaine, puis `api` **A** et `n8n` **A** vers `2.24.62.117` |
+| 3 | moi | `installer-vps.sh`, `.env` avec la **même** clé de chiffrement, `docker compose up -d` |
+| 4 | moi | `preparer:production`, puis `transferer:n8n --appliquer` |
+| **5** | **le porteur** | créer le compte propriétaire n8n, **et rien d'autre** |
+| **6** | **le porteur** | déclarer l'adresse de retour OAuth dans Google Cloud Console *(Gmail seul)* |
+| 7 | moi | activer les flux, `verifier:n8n`, `verifier:deploiement`, campagne complète |
+
+> **SEUL GMAIL RÉSISTE AU TRANSFERT, et pour une raison de fond** : un identifiant OAuth2 est
+> lié à une **adresse de retour** déclarée chez Google. Changer de domaine change cette
+> adresse. *Le jeton chiffré voyage, mais toute réautorisation future exigera que
+> `https://n8n.<domaine>/rest/oauth2-credential/callback` soit déclarée.*
