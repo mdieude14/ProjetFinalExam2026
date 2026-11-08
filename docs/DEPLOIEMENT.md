@@ -527,6 +527,62 @@ ccCleAgentSupp01   clé d'agent de l'API CoachConnect
 **Pour Gmail**, déclarer chez Google le rappel de CETTE instance :
 `https://<n8n>/rest/oauth2-credential/callback`
 
+#### Étape 3 bis — LES TROIS ADRESSES À CHANGER, ET DANS CET ORDRE
+
+**Trois partis adressent n8n, et le déménagement les casse tous les trois — différemment.**
+
+| Qui appelle | Variable | Chemin | Ce qui se passe si on oublie |
+|---|---|---|---|
+| **le serveur** | `N8N_WEBHOOK_TELEGRAM` | `/webhook/telegram-support` | poste vers `localhost:5678` *(repli EN DUR)* — **aucune erreur, le scrutage Telegram cesse de transmettre** |
+| **le client** | `VITE_SUPPORT_WEBHOOK_URL` | `/webhook/coachconnect-support` | le navigateur bloque la réponse au titre du CORS — **le widget se tait** |
+| **n8n lui-même** | `COACHCONNECT_API` *(à la génération)* | rappelle l'API | appelle `host.docker.internal`, qui **n'existe pas sur un VPS** |
+
+> **AUCUN DES TROIS NE PRODUIT DE MESSAGE D'ERREUR VISIBLE.** Les trois pannes sont
+> silencieuses, et c'est ce qui les rend coûteuses.
+
+**L'ordre, et il est contraint :**
+
+1. **Régénérer les flux** avec `COACHCONNECT_API` et `COACHCONNECT_APPLI` *(étape 1
+   ci-dessus)* — **avant** l'import, puisque les adresses sont figées dans le JSON.
+2. **Importer et ACTIVER** les flux. `import:workflow` remet toujours `active: false`.
+3. **Poser `N8N_WEBHOOK_TELEGRAM`** dans l'environnement de l'hébergeur de l'API :
+   `https://<n8n>/webhook/telegram-support`
+4. **Poser `VITE_SUPPORT_WEBHOOK_URL`** dans les variables Vercel :
+   `https://<n8n>/webhook/coachconnect-support` — **et reconstruire le client**, une variable
+   `VITE_` étant figée dans le paquet à la construction.
+
+#### Étape 3 ter — Le contrôle, sans déclencher un seul flux
+
+```bash
+cd server
+npm run verifier:n8n -- --adresse=https://<n8n>
+```
+
+> **Il n'a aucun effet de bord.** Poster pour de vrai sur `/webhook/coachconnect-support`
+> créerait un ticket, appellerait le modèle *(facturé)* et enverrait une alerte Telegram. Le
+> contrôle interroge donc en `GET`, et **n8n distingue les deux cas dans son message** :
+>
+> | Réponse en `GET` | Ce que ça veut dire |
+> |---|---|
+> | `This webhook is not registered for GET requests…` | **le chemin EXISTE**, déclaré en POST ✅ |
+> | `The requested webhook "GET …" is not registered.` | **le chemin est ABSENT** — flux non importé, ou **non activé** ❌ |
+>
+> *Les deux rendent 404 : c'est le texte qui tranche, pas le statut.*
+
+Ce qu'il vérifie :
+
+- l'instance répond *(`/healthz`)* ;
+- **les deux chemins de webhook existent** ;
+- l'adresse testée est bien celle que **le serveur appellera** — il compare avec
+  `N8N_WEBHOOK_TELEGRAM` ;
+- l'adresse publique est en **HTTPS** *(Telegram et Google l'exigent)* ;
+- **l'API REST de n8n est protégée** *(`/rest/login` doit rendre 401)* ;
+- et il **alerte si l'éditeur est servi publiquement** — à mettre derrière un mot de passe.
+
+**Et il dit ce qu'il ne voit pas** : si `allowedOrigins` porte le bon domaine *(il faudrait un
+navigateur sur ce domaine)*, et si les flux rappellent la bonne adresse d'API *(elle est figée
+dans leur code, seule une exécution réelle le montrerait)*.
+
 #### Étape 4 — Activer, puis vérifier
 
 Activer les six flux, puis depuis le poste :

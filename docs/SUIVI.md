@@ -17338,3 +17338,121 @@ sans vérifier **quelles** variables la gouvernent. Vérifié :
       l'oubli. La ligne reste **commentée**, donc sans effet aujourd'hui.
 - [x] **Gabarit toujours sans aucune valeur réelle** : 0 occurrence du nom d'utilisateur et de
       l'identifiant de cluster. API à 200, `verifier:deploiement` 10 au vert.
+
+---
+
+## 16.00 — Les dix-neuf résidus retirés des deux bases, et un pré-vol n8n sans effet de bord  `VÉRIFIÉ`
+
+### LA MIGRATION EST BIEN EN PLACE, ET LES DEUX BASES ONT DÉRIVÉ
+
+Le porteur du projet a demandé confirmation. **Vérifié des deux côtés plutôt qu'affirmé de
+mémoire** :
+
+| Base | Collections | Documents *(compte exact)* |
+|---|---|---|
+| Docker, locale | 16 | 4 825 |
+| **Atlas, cluster** | **16** | **4 817** |
+
+- [x] **L'écart de huit documents est identifié** : `notifications +7`, `tickets +1` — produits
+      par les suites rejouées **après** la migration. *Pure trace d'essai : rien d'utile n'a
+      été manqué, et la base locale continue de vivre.*
+- [x] **ET `dbStats.objects` EST UNE ESTIMATION, PAS UN DÉCOMPTE.** Il annonçait 4 820 là où
+      `countDocuments` en trouve 4 825 — **cinq de moins**. *Sur Atlas, l'estimation était
+      juste ; sur la base locale, non. Un chiffre qu'on cite doit venir d'un décompte, pas
+      d'une statistique du moteur de stockage.*
+
+### LES DIX-NEUF RÉSIDUS, RETIRÉS
+
+Accord explicite du porteur du projet obtenu, la garde a laissé passer cette fois.
+
+```
+19 compte(s) et 7 document(s) rattaché(s) retirés.
+Relu : 5 compte(s) en base, aucun résidu restant.
+```
+
+- [x] **Des DEUX bases, avec le même résultat.** Et le script **relit après coup** — écrire
+      sans relire, c'est espérer.
+- [x] **Les cinq comptes qui restent sont exactement les bons** : `mdieude14` *(admin)*,
+      `admin`, `coachdemo` *(coach)*, `l.boze` et `m.manghou`.
+- [x] **Non-régression : NEUF suites serveur, `703/703`, aucun échec** — `api`, `moderation`,
+      `support`, `recherche`, `relations`, `messagerie`, `notifications`, `evenements`,
+      `controles`.
+
+### ET MON CONTRÔLE « ZÉRO ADMINISTRATEUR » ÉTAIT VIDE DE SENS
+
+J'avais rassuré le porteur du projet : *« 0 administrateur parmi les dix-neuf »*. Le test
+était `x.role === 'admin'`.
+
+- [ ] **LE CHAMP `role` N'EXISTE PAS DANS `User.js`** — zéro occurrence. Mon test comparait
+      donc toujours `undefined` à `'admin'` : **il ne pouvait jamais s'allumer.** Le vrai champ
+      est `type`.
+
+  > **UN TEST SUR UN CHAMP INEXISTANT PASSE TOUJOURS.** *Septième visage du faux vert dans ce
+  > projet, et le plus insidieux : il ne rend pas un mauvais résultat, il rend un résultat qui
+  > n'a jamais été calculé.*
+
+- [x] **MAIS LA CONCLUSION TENAIT, pour une raison solide que je n'avais pas invoquée** :
+      `auth.controller.js:59` refuse explicitement `type === 'admin'` à l'inscription —
+      *« Un compte administrateur ne peut pas être créé via l'API »* — et
+      `tests/regression.mjs:175` le vérifie. Les dix-neuf étant tous nés par l'API, **aucun ne
+      pouvait être administrateur.**
+
+  > *La bonne réponse par le mauvais raisonnement reste la bonne réponse, mais elle ne vaut
+  > rien comme méthode. Il fallait le dire.*
+
+### LE PRÉ-VOL n8n : TROIS ADRESSES, TROIS PANNES SILENCIEUSES
+
+Le déménagement de n8n casse **trois** liens, et chacun échoue différemment **sans produire
+d'erreur visible** :
+
+| Qui appelle | Variable | Panne silencieuse |
+|---|---|---|
+| le **serveur** | `N8N_WEBHOOK_TELEGRAM` | poste vers `localhost:5678` *(repli EN DUR)* — le scrutage cesse de transmettre |
+| le **client** | `VITE_SUPPORT_WEBHOOK_URL` | le navigateur bloque la réponse (CORS) — **le widget se tait** |
+| **n8n** | `COACHCONNECT_API` | appelle `host.docker.internal`, inexistant sur un VPS |
+
+- [x] **`npm run verifier:n8n`**, et son intérêt est de **n'avoir aucun effet de bord**.
+
+  > **POSTER POUR DE VRAI SUR `/webhook/coachconnect-support` DÉCLENCHERAIT LE FLUX** : un
+  > ticket créé, un appel **facturé** au modèle, une alerte Telegram. *Un contrôle ne doit pas
+  > avoir d'effet de bord.*
+
+- [x] **La découverte qui rend la chose possible, mesurée sur l'instance locale** : n8n
+      distingue les deux cas **dans son message**.
+
+  | Réponse en `GET` | Sens |
+  |---|---|
+  | `This webhook is not registered for GET requests…` | **le chemin EXISTE**, déclaré en POST |
+  | `The requested webhook "GET …" is not registered.` | **le chemin est ABSENT** |
+
+  > **LES DEUX RENDENT 404 : C'EST LE TEXTE QUI TRANCHE, PAS LE STATUT.** Un contrôle qui ne
+  > regarderait que le code conclurait « absent » dans les deux cas.
+
+- [x] **ET LES DEUX MESSAGES SE CHEVAUCHENT.** *« This webhook **is not registered** for GET
+      requests »* contient littéralement le motif du cas « absent ».
+
+  > **L'ORDRE DES DEUX TESTS PORTE DONC LE RÉSULTAT** : tester l'absence d'abord déclarerait
+  > MANQUANT un webhook parfaitement déclaré, et l'on chercherait à réimporter un flux qui
+  > n'a rien. *Le cas le plus spécifique passe en premier, et un avertissement est écrit dans
+  > le fichier pour qui serait tenté d'inverser.*
+
+- [x] **Il contrôle aussi ce qui ne doit pas être public** : `/rest/login` doit rendre **401**,
+      et **il alerte si l'éditeur est servi publiquement** — l'image étant épinglée en
+      `1.121.3`, un choix fait pour un poste local.
+- [x] **Et il dit ce qu'il ne voit pas** : si `allowedOrigins` porte le bon domaine *(il
+      faudrait un navigateur sur ce domaine)*, et si les flux rappellent la bonne adresse
+      d'API *(figée dans leur code)*.
+
+### MESURES
+
+- [x] **Contre l'instance locale : 5 contrôles au vert**, aucun flux déclenché.
+- [x] **Trois branches d'échec éprouvées** : adresse injoignable *(`ECONNREFUSED`, code 1)*,
+      adresse publique en HTTP *(Telegram refuse un webhook en clair)*, et **incohérence entre
+      l'adresse testée et celle que le serveur appellera** — avec la ligne exacte à poser dans
+      `server/.env`.
+- [ ] **Trois branches non éprouvées, et je le dis** : le cas « webhook absent » *(les deux
+      messages ont été mesurés à la main, mais la branche n'est pas exercée
+      automatiquement)*, `/rest/login → 200` et « éditeur public » — les deux demandent une
+      instance publique.
+- [x] **`docs/DEPLOIEMENT.md` : étapes 3 bis et 3 ter**, avec l'ordre contraint des quatre
+      gestes et le tableau des deux messages.
