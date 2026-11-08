@@ -29,7 +29,7 @@
     "test:telegram": "node tests/telegram.mjs"
   },
   "dependencies": {
-    "axios": "^1.19.0",
+    "axios": "^1.21.0",
     "leaflet": "^1.9.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -46,5 +46,8 @@
     "oxlint": "^1.79.0",
     "tailwindcss": "^4.3.3",
     "vite": "^8.2.2"
+  },
+  "overrides": {
+    "follow-redirects": "^1.16.2"
   }
 }
