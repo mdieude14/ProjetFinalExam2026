@@ -14,7 +14,6 @@
 #   et rien d'autre. Tout le reste demande un mot de passe.
 #
 # ---------------------------------------------------------------------------
-
 {
 	# Adresse pour les avis d'expiration de Let's Encrypt. Sans elle, Caddy
 	# obtient quand même le certificat, mais personne n'est averti si le
