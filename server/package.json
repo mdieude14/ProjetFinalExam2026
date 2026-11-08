@@ -15,6 +15,7 @@
     "migrer:atlas": "node scripts/migrer-vers-atlas.mjs",
     "verifier:atlas": "node scripts/verifier-atlas.mjs",
     "nettoyer:residus": "node scripts/nettoyer-residus.mjs",
+    "verifier:n8n": "node scripts/verifier-n8n.mjs",
     "start": "node src/server.js",
     "creer-admin": "node scripts/creerAdmin.js",
     "nettoyer-medias": "node scripts/nettoyerMedias.js",
