@@ -18284,3 +18284,44 @@ pour n8n **seul**.
 - [ ] **Et la propagation se vérifie AVANT de démarrer Caddy** : `dig +short api.<domaine>`.
       *Si le nom ne résout pas encore, Caddy échoue en boucle et peut atteindre la limite de
       Let's Encrypt, qui bloque le domaine plusieurs heures.*
+
+### « CONFIGURATION INVALIDE » : UN VRAI DOMAINE AJOUTÉ SANS ÊTRE POSSÉDÉ
+
+Le porteur du projet a ajouté **`coachconnect-sport.com`** — un vrai domaine, en `.com` — là
+où il visait `coachconnect-sport.vercel.app`.
+
+- [x] **Vercel a accepté le nom** *(il est syntaxiquement valide)* **et refuse la
+      configuration** : il attend que le DNS de ce domaine pointe vers lui. Impossible sans
+      en être propriétaire.
+
+  > **LA DIFFÉRENCE EST DE NATURE, PAS DE DEGRÉ** : `*.vercel.app` est un sous-domaine que
+  > Vercel **attribue**, un `.com` est un domaine qu'on **achète**. Le même champ accepte les
+  > deux, et seul le second demande un bureau d'enregistrement.
+
+- [x] **Le `308` sur `www.coachconnect-sport.com` n'est pas une erreur** : Vercel ajoute
+      d'office la redirection du `www` vers le domaine nu. *Elle apparaît dès l'ajout, avant
+      même que le domaine soit valide.*
+
+### ET LE DOMAINE EST PROBABLEMENT LIBRE — CE QUI CHANGE LE CONSEIL
+
+Mesuré avec la méthode validée *(deux cas témoins à chaque fois)* :
+
+| Domaine | DNS | HTTP |
+|---|---|---|
+| `coachconnect-sport.com` | **aucun** | injoignable |
+| `coachconnect-sport.fr` · `.net` · `.app` | **aucun** | — |
+
+- [x] **Les quatre extensions sont sans DNS.** *Avec la réserve déjà posée : aucun DNS ne
+      prouve pas qu'un domaine est libre — seule la recherche du bureau d'enregistrement fait
+      foi.*
+
+  > **LE PORTEUR DU PROJET A TAPÉ `.com` SPONTANÉMENT.** C'est le domaine qu'il veut, il porte
+  > le nom du projet, et il semble disponible. *Une erreur de saisie qui désigne la bonne
+  > solution.*
+
+- [x] **Décision proposée : garder l'entrée Vercel et acheter le domaine.** Elle deviendra
+      valide d'elle-même une fois le DNS posé, et elle donne les trois adresses d'un coup —
+      `coachconnect-sport.com`, `api.` et `n8n.` sur le VPS.
+- [x] **Et ajouter `coachconnect-sport.vercel.app` en parallèle**, pour disposer d'une adresse
+      courte qui marche **tout de suite**. *Les deux peuvent coexister : Vercel accepte
+      plusieurs domaines par projet.*
