@@ -45,7 +45,8 @@
     "test:courriel": "node tests/courriel-support.mjs",
     "test:escalade": "node tests/escalade-support.mjs",
     "test:scrutage": "node tests/telegram-scrutage.mjs",
-    "test:controles": "node tests/controles-exploitation.mjs"
+    "test:controles": "node tests/controles-exploitation.mjs",
+    "verifier:secrets": "node scripts/verifier-secrets.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

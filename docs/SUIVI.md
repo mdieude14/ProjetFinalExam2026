@@ -17802,3 +17802,60 @@ Le porteur du projet a demandé ce qu'il contient et pourquoi il devrait rester 
   > **LA LEÇON : un outil de travail ne doit pas dépendre d'un support amovible.** *Le disque
   > peut être débranché quand il veut ; il reste 124 Mo de mes affaires dessus, qui ne servent
   > plus à rien.*
+
+### ET LE CONTRÔLE DEVIENT UN SCRIPT, PARCE QUE DEUX FAUTES DE MÉTHODE
+
+Le balayage ci-dessus était un `grep` retapé à la main. Deux défauts l'ont rendu dangereux.
+
+- [ ] **LE GARDE NE BLOQUAIT PAS.** Je lançais le contrôle et le `git commit` **dans la même
+      commande**, puis je lisais la sortie à l'œil. Le 8 novembre il a annoncé
+      **« 2 correspondances » et le commit est parti quand même.**
+
+  > **UN GARDE QUI NE BLOQUE PAS EST UNE DÉCORATION.** *`npm run verifier:secrets` ressort
+  > **1** — il peut donc être enchaîné devant un commit, ou posé en crochet `pre-commit`.*
+
+- [ ] **LES MOTIFS ÉTAIENT INCOHÉRENTS.** Certains exigeaient une longueur
+      *(`sk_live_[A-Za-z0-9]{6}`)*, deux ne l'exigeaient pas — `sk-ant-` et `ghp_`. Ils se
+      déclenchaient donc **sur leur propre nom**, dès que j'écrivais « sk-ant- » dans le
+      journal pour expliquer le contrôle. *C'étaient exactement les deux correspondances du
+      8 novembre.*
+- [x] **Tous exigent désormais une longueur réaliste**, et les **marques de documentation sont
+      écartées explicitement** — `docs/DEPLOIEMENT.md` montre la forme d'une URI, et
+      `scripts/lib/uri-mongo.mjs` DOIT contenir des URI puisqu'il teste un diagnostic d'URI.
+
+### ET LE SCRIPT A TROUVÉ TROIS DÉFAUTS DANS LUI-MÊME
+
+| Défaut | Symptôme | Correction |
+|---|---|---|
+| **`dotenv` oublié** | le test décisif annonçait « rien à comparer » et ne tournait pas | chargement explicite de `server/.env` |
+| **Motif Mongo trop large** | 5 alarmes sur mes propres exemples | liste de marques, nommée |
+| **Extraction du cluster à un label près** | **106 occurrences d'un « identifiant réel »** | prendre le **second** label de l'hôte |
+
+- [x] **Le troisième mérite d'être raconté.** Un hôte Atlas s'écrit
+      `<nom-du-cluster>.<identifiant>.mongodb.net`. Mon extraction prenait le **premier**
+      label — donc le **nom** du cluster, que son porteur avait appelé « coachconnect ».
+
+  > **LE CONTRÔLE A DONC ANNONCÉ 106 OCCURRENCES D'UN SECRET QUI ÉTAIT LE NOM DU PROJET.**
+  > *Une alarme assourdissante et entièrement fausse, née d'une extraction qui visait un label
+  > de trop à gauche. Le nom d'un cluster n'est d'ailleurs pas un secret.*
+
+- [x] **ET `dotenv` OUBLIÉ EST LE TROISIÈME CONTRÔLE EN DEUX JOURS QUI NE S'EXÉCUTAIT PAS** —
+      après l'auto-contrôle d'`uri-mongo.mjs` *(comparaison `file://` à deux barres)* et le
+      test sur le champ `role` *(qui n'existe pas)*.
+
+  > **UN CONTRÔLE QUI NE S'EXÉCUTE PAS REND LE MÊME VERDICT QU'UN CONTRÔLE QUI PASSE.** *Trois
+  > fois la même famille de faute : la vérification était écrite, elle n'a jamais tourné.*
+
+### LE VERDICT, SUR TOUT L'HISTORIQUE
+
+```
+périmètre : tout l’historique (144 commits)
+volume    : 5 996 Kio examinés
+
+12 motifs génériques        aucune trace
+6 identifiants RÉELS        absents  (utilisateur, hôte, identifiant de cluster,
+                                      et les trois clés de service)
+4 fichiers sensibles        ignorés, non suivis
+
+RIEN DE SENSIBLE.          code de sortie 0
+```
