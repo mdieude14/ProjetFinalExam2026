@@ -19051,3 +19051,101 @@ Les **7 nœuds HTTP** du flux appellent `{{ $json.api }}`, soit l'adresse **publ
 
   > **ET C'EST LE RÉGLAGE QU'IL FAUT GARDER POUR UNE SOUTENANCE.** *Un jury ne doit pas
   > déclencher d'encaissement réel. L'échec est à laisser en place, et à savoir expliquer.*
+
+---
+
+## 16.13 — Un renommage de domaine touche TROIS endroits, et pourquoi Telegram marchait déjà  `VÉRIFIÉ`
+
+### L'AVERTISSEMENT S'EST RÉALISÉ EN MOINS D'UNE HEURE
+
+Le porteur du projet a renommé l'adresse Vercel en `coachconnect-sport.vercel.app`. **Mesuré
+immédiatement** :
+
+| Mesure | Résultat |
+|---|---|
+| `coachconnect-sport.vercel.app` | **200**, témoin présent — c'est le site |
+| `projet-final-exam2026.vercel.app` | **404** — l'ancienne adresse n'existe plus |
+| **l'API face à la nouvelle origine** | **500, AUCUN en-tête CORS** |
+
+> **LE SITE ÉTAIT EN LIGNE ET AUCUN APPEL D'API NE PASSAIT.** *Un renommage paraît cosmétique
+> parce qu'il se fait en un clic ; il déplace en réalité l'identité sur laquelle reposent
+> toutes les autorisations d'origine.*
+
+### UN CHANGEMENT DE DOMAINE TOUCHE TROIS ENDROITS, ET C'EST LA LEÇON
+
+- [x] **1. `CLIENT_URL` et `PUBLIC_URL` de l'API** — la première pour CORS, la seconde pour les
+      **liens des courriels** et les **retours Stripe**.
+- [x] **2. `allowedOrigins` du webhook du widget** — **figé dans le flux**, donc invisible
+      depuis les variables d'environnement.
+- [x] **3. les liens que les flux rendent à l'utilisateur** — également figés à la génération.
+
+  > **DEUX DES TROIS NE SONT PAS DES VARIABLES**, et c'est ce qui rend l'oubli facile.
+  > *Chercher le domaine dans les seuls fichiers d'environnement en aurait laissé deux sur
+  > trois.*
+
+- [x] **Corrigé puis vérifié dans les deux sens**, ce second cas comptant autant que le
+      premier :
+
+  | Origine | Pré-vol |
+  |---|---|
+  | `https://coachconnect-sport.vercel.app` | **204**, en-tête posé |
+  | `https://projet-final-exam2026.vercel.app` | **refusée** |
+
+- [x] **Flux régénérés** : **5** occurrences de la nouvelle adresse, **0** de l'ancienne, **0**
+      locale. Réimportés sur les **mêmes identifiants**, réactivés puis redémarrés.
+
+- [x] **Chaîne complète reparcourue** : `POST /auth/login` rend **401 « Identifiants
+      invalides »**, et le webhook du widget **401 « Session expirée »** avec la nouvelle
+      origine.
+
+### POURQUOI TELEGRAM FONCTIONNAIT SANS AUCUNE VARIABLE SUR VERCEL
+
+Le porteur du projet l'a remarqué lui-même : *« mon telegram fonctionne alors que j'ai pas la
+clé Api sur vercel »*. **L'observation est juste, et elle décrit l'architecture.**
+
+- [x] **LE CANAL TELEGRAM NE PASSE PAS PAR LE NAVIGATEUR, À AUCUN MOMENT.** Le back-end
+      **scrute** `api.telegram.org` *(`getUpdates`)*, puis réinjecte chaque message dans le
+      flux n8n. Le client n'est sur aucun de ces deux segments.
+
+  > **D'OÙ UNE PROPRIÉTÉ QUI N'AVAIT PAS ÉTÉ FORMULÉE : le canal Telegram survit à n'importe
+  > quelle panne du client, et à n'importe quelle erreur de configuration Vercel.** *Il ne
+  > dépend que du VPS et d'Atlas.*
+
+- [x] **`VITE_TELEGRAM_BOT` ne sert donc PAS à faire marcher le canal** : c'est le **nom
+      d'utilisateur du bot**, affiché par le client pour proposer le lien
+      `t.me/<bot>`. *Son absence retire un lien d'interface, elle n'empêche aucun message
+      d'arriver.*
+
+- [x] **Et `N8N_WEBHOOK_TELEGRAM` est une variable de SERVEUR, lue 0 fois dans `client/src`.**
+      Vérifiée en place dans le conteneur API :
+      `https://srv2141095.hstgr.cloud/webhook/telegram-support`.
+
+  > **LE PRÉFIXE `VITE_` EST LE SEUL CRITÈRE QUI TRANCHE** : il désigne ce qui est figé dans le
+  > paquet du navigateur. *Tout le reste appartient au serveur, et une variable de serveur
+  > posée dans Vercel n'y est simplement jamais lue.*
+
+### LE COMPTE GOOGLE PROPRIÉTAIRE, DÉDUIT PLUTÔT QUE DEMANDÉ
+
+La console Cloud renvoyait le porteur du projet vers `myaccount.google.com`, donc vers son
+compte personnel.
+
+- [x] **La cause est un compte sans accès au projet**, et l'identité du bon compte était
+      **déjà dans la configuration** : `SMTP_USER` est **identique** à l'adresse contenue dans
+      `MAIL_FROM`, soit `support.coachconnect.app@gmail.com`.
+
+- [x] **Et le numéro de projet se lit dans le client OAuth lui-même** : la partie avant le
+      premier tiret du `GOOGLE_OAUTH_CLIENT_ID` est **`82922914472`**.
+
+  > **UNE ADRESSE DIRECTE AVEC `?project=82922914472` ÉVITE LA DEVINETTE DE L'INDEX `authuser`.**
+  > *Le jeton de rafraîchissement appartient à un compte précis : c'est celui-là, et aucun
+  > autre, qui peut déclarer l'adresse de retour.*
+
+### `sk_test` RESTE, ET CE N'EST PAS UNE DETTE
+
+- [x] **L'unique échec de `verifier:deploiement` est le réglage voulu.** *Rien à corriger : le
+      contrôle signale une incohérence réelle entre `NODE_ENV=production` et une clé de test,
+      et c'est exactement l'état souhaité pour une soutenance.*
+
+  > **UN JURY NE DOIT PAS DÉCLENCHER D'ENCAISSEMENT RÉEL.** *Le passer en clé réelle exigerait
+  > un compte Stripe activé, des informations bancaires et les neuf événements de webhook
+  > recochés sur le tableau de bord. Aucun de ces gestes n'a sa place avant la soutenance.*
