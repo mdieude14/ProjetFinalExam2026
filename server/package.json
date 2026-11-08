@@ -16,6 +16,7 @@
     "verifier:atlas": "node scripts/verifier-atlas.mjs",
     "nettoyer:residus": "node scripts/nettoyer-residus.mjs",
     "verifier:n8n": "node scripts/verifier-n8n.mjs",
+    "preparer:production": "node scripts/preparer-production.mjs",
     "start": "node src/server.js",
     "creer-admin": "node scripts/creerAdmin.js",
     "nettoyer-medias": "node scripts/nettoyerMedias.js",
