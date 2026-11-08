@@ -846,12 +846,35 @@ ok('**elle dit que l’autre garde la sienne** — croire qu’on efface chez lu
   /gardera la sienne/i.test(texteDialogue));
 ok('et qu’un nouveau message la fera revenir', /reviendra/i.test(texteDialogue));
 
+/*
+ * ON ATTEND LA RÉPONSE DU SERVEUR, ET ON L'ENREGISTRE AVANT LE CLIC.
+ *
+ * La vérification qui suit interroge l'API : elle demande à la messagerie si
+ * la conversation a disparu. Les deux secondes qui séparaient le clic de
+ * cette question étaient donc un PARI sur la durée d'un aller-retour. Perdu,
+ * l'API répondait encore « elle est là » et l'assertion accusait la
+ * suppression — alors qu'elle était simplement en vol.
+ *
+ * L'attente est enregistrée AVANT le clic : après, la réponse déjà arrivée
+ * ferait attendre la suivante, qui ne vient jamais.
+ */
+const suppressionRecue = pageGina
+  .waitForResponse(
+    (r) => /\/api\/messages\/conversations\//.test(r.url()) && r.request().method() === 'DELETE',
+    { timeout: 20000 }
+  )
+  .then(() => true)
+  .catch(() => false);
+
 await pageGina.locator('[data-test="valider-suppression-conversation"]').click();
-await pageGina.waitForTimeout(2000);
+const suppressionAboutie = await suppressionRecue;
 
 const listeAlice = await appel('/messages/conversations', { token: gina.token });
 ok('**elle a disparu de la liste de Gina**',
-  !(listeAlice.json?.elements ?? []).some((c) => c._id === idConvActions));
+  !(listeAlice.json?.elements ?? []).some((c) => c._id === idConvActions),
+  suppressionAboutie
+    ? ''
+    : 'LA SUPPRESSION N’A PAS RÉPONDU EN 20 s — serveur ou machine, pas défaut de suppression');
 
 const listeBob = await appel('/messages/conversations', { token: hugo.token });
 ok('**et Hugo la garde, avec son historique**',

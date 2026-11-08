@@ -457,11 +457,25 @@ for (const largeur of [375, 768]) {
 
 await page.setViewportSize({ width: 375, height: 900 });
 await page.goto(BASE + `/evenements/${idPublic}`, { waitUntil: 'domcontentloaded' });
+
+/*
+ * UNE PAGE QUI N'A RIEN RENDU NE DÉBORDE JAMAIS — ON ANCRE SUR UNE PRÉSENCE.
+ *
+ * Ici l'ancre peut être meilleure qu'un `<header>` : c'est une FICHE
+ * d'événement, et son titre est ce qu'on veut avoir sous les yeux avant de
+ * mesurer sa mise en page. Mesurer le débordement d'une fiche qui n'a pas
+ * chargé son événement ne dit rien de la fiche.
+ */
+const ficheRendueMobile = await rendu(
+  page.getByRole('heading', { name: `Sortie course ${S}` })
+);
 await page.waitForTimeout(1500);
+
 const debordeDetail = await page.evaluate(
   () => document.documentElement.scrollWidth > window.innerWidth + 1
 );
-ok('la fiche sans débordement en 375 px', !debordeDetail);
+ok('la fiche sans débordement en 375 px', ficheRendueMobile && !debordeDetail,
+  ficheRendueMobile ? '' : 'FICHE NON RENDUE : une absence de débordement ne conclut rien');
 await page.screenshot({ path: DOSSIER_CAPTURES + '/evenement-mobile.png' });
 
 /* ================================================================== *

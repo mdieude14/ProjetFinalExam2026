@@ -519,11 +519,29 @@ ok('elle porte un lien vers la conversation',
   demandeAnnoncee ? '' : 'LISTE NON RENDUE : rien de concluant');
 
 await lienMessagerie.click();
-await pageAlice.waitForURL('**/messages**', { timeout: 15000 });
-await pageAlice.waitForTimeout(2000);
+
+/*
+ * ON ATTEND L'ADRESSE QU'ON VÉRIFIE, PAS UNE ADRESSE PLUS LARGE PUIS DU TEMPS.
+ *
+ * Le motif d'URL employé jusqu'ici était satisfait dès l'arrivée sur la
+ * messagerie, AVANT que la conversation ne soit choisie. Les deux secondes
+ * qui suivaient étaient donc le vrai repère : sur une machine chargée, la
+ * vérification lisait une URL encore dépourvue de `?c=` et accusait la
+ * notification, alors que le lien fonctionnait.
+ *
+ *   ON ATTEND DONC `?c=` LUI-MÊME. L'attente est tolérante — c'est la
+ *   vérification qui juge — mais son échec nomme sa cause.
+ */
+const surLaConversation = await pageAlice
+  .waitForURL(/\/messages\?c=/, { timeout: 20000 })
+  .then(() => true)
+  .catch(() => false);
 
 ok('**le clic mène directement à la bonne conversation**',
-  pageAlice.url().includes('/messages?c='), pageAlice.url().split('?')[1]);
+  pageAlice.url().includes('/messages?c='),
+  surLaConversation
+    ? pageAlice.url().split('?')[1]
+    : `L’URL EST RESTÉE « ${pageAlice.url().replace(BASE, '')} » EN 20 s — machine ou navigation, pas défaut du lien`);
 
 /*
  * `pastilleAttendue` ET NON `pastilleDe`, pour la même raison qu'ailleurs : une

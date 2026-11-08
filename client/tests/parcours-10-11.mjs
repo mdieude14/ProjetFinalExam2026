@@ -288,8 +288,22 @@ await page.screenshot({ path: DOSSIER_CAPTURES + '/parcours-resultats-personnes.
 
 await lienProfil.click();
 await page.waitForURL(`**/profile/${cible.pseudo}`, { timeout: 15000 });
-await page.waitForTimeout(1800);
 
+/*
+ * CES 1,8 s N'ANCRAIENT PAS L'ASSERTION QUI SUIT — ELLES ANCRAIENT LA SUIVANTE.
+ *
+ * La vérification ci-dessous est TAUTOLOGIQUE : `waitForURL` vient de
+ * garantir exactement ce qu'elle contrôle, elle ne peut pas échouer. L'attente
+ * ne lui servait donc à rien.
+ *
+ * En revanche la section d'après cherche le bouton « Envoyer un message »
+ * avec un simple `count()`, sans aucune attente. C'ÉTAIT CE DÉLAI QUI LUI
+ * LAISSAIT LE TEMPS DE PARAÎTRE — un repère placé à deux sections de ce
+ * qu'il protégeait, et invisible à la lecture.
+ *
+ *   SUPPRIMER LE DÉLAI SANS VOIR CELA AURAIT CASSÉ LA SECTION SUIVANTE.
+ *   L'ancre est donc déplacée là où elle agit, sur le bouton lui-même.
+ */
 ok('**cliquer sur le résultat ouvre le profil**',
   page.url().includes(`/profile/${cible.pseudo}`));
 
@@ -300,14 +314,31 @@ ok('**cliquer sur le résultat ouvre le profil**',
 section('Module 11 — ouvrir une conversation');
 
 const boutonMessage = page.getByRole('button', { name: 'Envoyer un message' });
-ok('**le profil propose « Envoyer un message »**', (await boutonMessage.count()) === 1);
+
+/* L'ancre que les 1,8 s de la section précédente fournissaient par accident. */
+const boutonParu = await rendu(boutonMessage);
+ok('**le profil propose « Envoyer un message »**',
+  boutonParu && (await boutonMessage.count()) === 1,
+  boutonParu ? '' : 'BOUTON NON PARU EN 15 s — le profil n’a pas fini de se rendre');
 
 await boutonMessage.click();
-await page.waitForURL('**/messages**', { timeout: 20000 });
-await page.waitForTimeout(2500);
+
+/*
+ * ON ATTEND L'ADRESSE QU'ON VÉRIFIE. Le motif d'URL employé jusqu'ici était
+ * satisfait dès l'arrivée sur la messagerie, avant que la conversation ne
+ * soit choisie : les 2,5 s qui suivaient étaient le vrai repère, et c'est
+ * elles qui tombaient sous la charge.
+ */
+const surLaConversation = await page
+  .waitForURL(/\/messages\?c=/, { timeout: 20000 })
+  .then(() => true)
+  .catch(() => false);
 
 ok('**le clic mène à la messagerie, sur la bonne conversation**',
-  page.url().includes('/messages?c='), page.url().split('?')[1]);
+  page.url().includes('/messages?c='),
+  surLaConversation
+    ? page.url().split('?')[1]
+    : `L’URL EST RESTÉE « ${page.url().replace(BASE, '')} » EN 20 s — machine ou navigation, pas défaut du bouton`);
 
 const enBase = await bdd.collection('conversations').countDocuments({
   participants: { $size: 2 },
@@ -476,11 +507,24 @@ await page.setViewportSize({ width: 375, height: 900 });
 await page.goto(BASE + `/recherche?q=${encodeURIComponent(NOM)}`, {
   waitUntil: 'domcontentloaded',
 });
+/*
+ * UNE PAGE QUI N'A RIEN RENDU NE DÉBORDE JAMAIS — ON ANCRE SUR UNE PRÉSENCE.
+ * Le `<header>` et non un `nav` : `Navigation principale` est `hidden …
+ * lg:flex`, donc absent à 375 px, et l'ancre fabriquerait un faux rouge.
+ */
+const rechercheRendue = await page
+  .locator('header')
+  .first()
+  .waitFor({ state: 'visible', timeout: 15000 })
+  .then(() => true)
+  .catch(() => false);
 await page.waitForTimeout(1500);
+
 const debordeRecherche = await page.evaluate(
   () => document.documentElement.scrollWidth > window.innerWidth + 1
 );
-ok('la recherche sans débordement en 375 px', !debordeRecherche);
+ok('la recherche sans débordement en 375 px', rechercheRendue && !debordeRecherche,
+  rechercheRendue ? '' : 'PAGE NON RENDUE : une absence de débordement ne conclut rien');
 
 await navigateur.close();
 

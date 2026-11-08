@@ -144,11 +144,36 @@ const mobile = await acteur(navigateur, 375);
 await connexion(mobile, 'coachdemo');
 for (const route of ['/abonnements', '/coach/premium']) {
   await mobile.goto(BASE + route, { waitUntil: 'domcontentloaded' });
+
+  /*
+   * UNE PAGE QUI N'A RIEN RENDU NE DÉBORDE JAMAIS.
+   *
+   * `scrollWidth > innerWidth` sur un écran vide rend `false`, et
+   * l'assertion passe — pour la pire des raisons. C'est le premier visage du
+   * faux vert recensé dans ce projet : *une assertion d'absence s'ancre sur
+   * une présence.*
+   *
+   * L'ancre est le `<header>`, et NON `nav[aria-label="Navigation
+   * principale"]` : ce dernier est `hidden … lg:flex`, donc invisible à
+   * 375 px — l'utiliser ici fabriquerait un faux rouge. Le `<header>`, lui,
+   * n'a aucun masquage responsive.
+   *
+   * L'attente à durée fixe reste APRÈS l'ancre : la mise en page a besoin de
+   * se stabiliser, et aucun événement ne l'annonce.
+   */
+  const rendue = await mobile
+    .locator('header')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false);
   await mobile.waitForTimeout(1500);
+
   const deborde = await mobile.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth + 1
   );
-  ok(`${route} sans débordement en mobile 375 px`, !deborde);
+  ok(`${route} sans débordement en mobile 375 px`, rendue && !deborde,
+    rendue ? '' : 'PAGE NON RENDUE : une absence de débordement ne conclut rien');
 }
 
 await navigateur.close();
