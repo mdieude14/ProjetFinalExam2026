@@ -18325,3 +18325,141 @@ Mesuré avec la méthode validée *(deux cas témoins à chaque fois)* :
 - [x] **Et ajouter `coachconnect-sport.vercel.app` en parallèle**, pour disposer d'une adresse
       courte qui marche **tout de suite**. *Les deux peuvent coexister : Vercel accepte
       plusieurs domaines par projet.*
+
+---
+
+## 16.08 — « 24.04 c'est pas celle qu'il fallait éviter ? » : non, et mon faux vert sur les ports  `VÉRIFIÉ`
+
+### LE MALENTENDU QUE J'AI CRÉÉ, ET SA CORRECTION
+
+Le VPS est créé *(hPanel, VPS 2141095)*. Le porteur du projet s'est alarmé : **« c'est la
+24.04, c'est pas justement celle qu'il fallait éviter ? »**
+
+- [x] **NON, et la confusion vient de ma formulation.** Ce qu'il fallait refuser n'est pas
+      Ubuntu 24.04, c'est le **modèle** Hostinger nommé `Ubuntu 24.04 with n8n`.
+
+  | Ce que le panneau affiche | Verdict |
+  |---|---|
+  | `Ubuntu 24.04 LTS` | **la cible exacte** |
+  | `Ubuntu 24.04 LTS with n8n` | le modèle à refuser *(relais sur 80/443, et n'héberge pas l'API)* |
+
+  > **UN NOM DE VERSION ET UN NOM DE MODÈLE NE SE DISTINGUENT PAS QUAND ON ÉCRIT « ÉVITER
+  > UBUNTU 24.04 AVEC n8n ».** *La version et le gabarit portent le même numéro ; seule la
+  > mention « with n8n » les sépare. Nommer le gabarit en entier aurait suffi.*
+
+- [x] **Et son propre symptôme était la preuve** : *« je ne vois pas n8n »*. Si le modèle avait
+      été pris, n8n serait visible. **Rien à réinstaller.**
+
+### IL N'Y A PAS DE « COMPTE n8n » À CONNECTER, ET IL A FALLU LE DIRE DEUX FOIS
+
+La question est revenue à l'identique après ma première réponse : *« faire la connexion avec
+mon compte n8n »*. **Répéter les mêmes mots n'a rien donné ; une analogie a débloqué.**
+
+- [x] **n8n auto-hébergé ne s'authentifie contre aucun service distant.** Il crée son **propre
+      compte propriétaire local** au premier accès *(« Set up owner account »)*. n8n Cloud est
+      un produit distinct et payant, sans rapport.
+
+  > **L'ANALOGIE QUI PORTE : c'est WordPress.** *On n'y « connecte pas son compte WordPress »,
+  > on installe le logiciel et il crée son administrateur, qui n'existe que chez soi.*
+
+- [x] **Les flux ne sont pas « dans un compte »** : **5 générateurs** produisent **6 flux JSON**
+      *(la messagerie en donne deux, tri et corbeille)*, versionnés dans le dépôt.
+
+### CE QUI BLOQUE RÉELLEMENT LE BOUT EN BOUT, MESURÉ
+
+- [x] **Dix adresses locales subsistent dans les 6 flux** :
+
+  | Occurrences | Adresse | Rôle |
+  |---|---|---|
+  | **5** | `http://host.docker.internal:5000` | les appels vers l'API |
+  | **5** | `http://localhost:5173` | les liens rendus à l'utilisateur |
+
+- [x] **ET LE DOMAINE N'EST PAS OPTIONNEL, pour deux raisons techniques** *(et non de confort)* :
+
+  > **Telegram REFUSE un webhook qui n'est pas en HTTPS** avec un certificat valide : sans
+  > domaine, aucun flux Telegram. **Et le client sur Vercel est en HTTPS** : s'il appelait
+  > `http://<IP>:5000`, le navigateur bloquerait l'appel en **contenu mixte**.
+
+- [ ] **Mesuré** : `coachconnect-sport.com`, `api.` et `n8n.` **n'ont aucun DNS**. *Le domaine
+      reste le préalable de Caddy.*
+
+### JE PEUX FAIRE LE TRAVAIL VPS MOI-MÊME, ET JE ME TROMPAIS
+
+- [x] **`ssh`, `scp` et `ssh-keygen` existent sur le poste**, et mes commandes s'y exécutent.
+      **Je peux donc joindre le VPS directement.** J'avais annoncé l'inverse.
+
+  > **LA QUESTION N'ÉTAIT PAS « AI-JE UN ACCÈS RÉSEAU » MAIS « AI-JE UN IDENTIFIANT ».**
+  > *Deux choses différentes, que j'avais fondues en une seule réponse négative.*
+
+- [x] **Clé dédiée créée** : `ed25519`, empreinte `SHA256:Flcuz0Cz…`, sans phrase de passe pour
+      permettre l'usage non interactif. **Le mot de passe root n'est PAS demandé** *(un mot de
+      passe a déjà fuité dans cette session ; la clé publique, elle, se montre sans risque)*.
+
+- [x] **Et le dépôt est PUBLIC**, vérifié par l'API GitHub *(`"private": false`)* : **le clone
+      sur le VPS ne demandera aucun jeton.** *Ce qui confirme rétrospectivement que le balayage
+      des 144 commits n'était pas du zèle.*
+
+### `installer-vps.sh`, ET LE FAUX VERT QUE SON PROPRE CAS TÉMOIN A RÉVÉLÉ
+
+Écrit pour les étapes que je peux automatiser : pré-vol, Docker depuis le dépôt officiel, clone.
+**Il ne démarre pas la composition**, qui exige les secrets et un DNS déjà résolu.
+
+- [x] **Un mode `--verifier` qui ne modifie rien**, et le contrôle l'a prouvé : ni
+      `/opt/coachconnect`, ni `.env` créés.
+
+- [ ] **ET LE CAS TÉMOIN A TROUVÉ UN DÉFAUT DANS MON SCRIPT.** Lancé sur Windows, il annonçait
+      **« port 80 libre »** et **« port 443 libre »** — alors que `ss` n'existe pas sur Git Bash.
+      **Il n'avait rien mesuré et rendait un vert.**
+
+  > **UNE ABSENCE QU'ON N'A PAS PU MESURER N'EST PAS UNE ABSENCE.** *Même famille que la page
+  > vide qui valide tout ce qu'on y cherche en vain : l'outil manquant rend une liste vide,
+  > donc tous les ports paraissent libres.*
+
+- [x] **Corrigé en ancrant l'absence sur une présence** : l'outil doit exister **et** voir au
+      moins un port à l'écoute, sans quoi la mesure est déclarée **muette** et compte comme une
+      anomalie.
+
+  > *Un serveur joignable en SSH écoute forcément quelque part. Zéro port à l'écoute n'est pas
+  > un serveur propre, c'est un instrument cassé.*
+
+- [x] **Validé par DEUX cas témoins**, et non par relecture :
+
+  | Cas | Attendu | Obtenu |
+  |---|---|---|
+  | Windows, pas de `ss` utilisable | refus de conclure | **« mesure non credible »** |
+  | faux `ss` montrant 22, 80, 5432 | 80 pris, 443 libre | **80 occupé par nginx, 443 libre** |
+
+- [x] **Et la détection du modèle n8n est prouvée, pas supposée** : sur le poste, le script a
+      bien listé `coachconnect-n8n n8nio/n8n:1.121.3`. *L'instrument trouve ce que je sais être
+      présent.*
+
+- [ ] **AU PASSAGE, `python` N'EXISTE PAS SUR LE POSTE** *(raccourci Microsoft Store)*. Ma
+      première correction a donc échoué **en silence**, et `bash -n` a répondu « VALIDE » en
+      validant le fichier **inchangé**.
+
+  > **UN CONTRÔLE DE SYNTAXE SUR UN FICHIER NON MODIFIÉ PASSE TOUJOURS.** *Seul le cas témoin
+  > rejoué a montré que le faux vert était encore là. Les retouches passent par `node`.*
+
+### VERCEL : LE CHOIX A MARCHÉ, MAIS EN REDIRECTION
+
+- [x] **Mesuré** : `coachconnect-sport.vercel.app` rend un **308 vers
+      `projet-final-exam2026.vercel.app`**, qui répond **200 avec le témoin**.
+
+  > **LE JOLI NOM REBONDIT VERS LE MOCHE**, au lieu de servir le site. **Sans importance** :
+  > l'adresse définitive sera `coachconnect-sport.com`. *À ne pas corriger maintenant.*
+
+### LE PARTAGE DES GESTES, ARRÊTÉ
+
+| | Qui | Quoi |
+|---|---|---|
+| **1** | **le porteur** | coller la clé publique dans **VPS → SSH Keys** |
+| **2** | **le porteur** | communiquer **l'IP** de la page overview |
+| **3** | **le porteur** | acheter le domaine, puis `api` **A** → IP et `n8n` **A** → IP |
+| 4 | moi | `installer-vps.sh --verifier`, puis l'installation |
+| 5 | moi | `preparer:production` : les 10 adresses, et les 6 flux régénérés |
+| 6 | moi | `docker compose up -d` une fois le DNS résolu |
+| 7 | **le porteur** | créer le compte propriétaire n8n, ressaisir Telegram et Anthropic |
+| 8 | moi | importer et activer les 6 flux, puis `verifier:n8n` et `verifier:deploiement` |
+
+> **LES ÉTAPES 4 À 6 ET 8 SONT AUTOMATIQUES dès que l'IP est connue.** *Seules 1, 2, 3 et 7
+> demandent des clics, parce qu'elles passent par des interfaces web ou touchent des secrets.*
