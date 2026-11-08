@@ -17573,3 +17573,137 @@ production, mais `git status` n'en montrait que quatre.**
 - [x] **Non-régression après le va-et-vient : `625/625`** — `api 73`, `canaux 308`,
       `messagerie-agent 104`, `scrutage 58`, `controles 82`.
 - [x] **Pré-vol n8n : 5 contrôles au vert**, aucun flux déclenché. Quatre services à 200.
+
+---
+
+## 16.02 — 2 325/2 325 sur les 39 suites, et deux vulnérabilités qui partaient chez les visiteurs  `VÉRIFIÉ`
+
+### LA CAMPAGNE COMPLÈTE, D'UN SEUL TENANT
+
+| Périmètre | Suites | Vérifications |
+|---|---|---|
+| Serveur | **21 / 21** | **1 623 / 1 623** |
+| Navigateur | **18 / 18** | **702 / 702** |
+| **Ensemble** | **39 / 39** | **2 325 / 2 325** |
+
+- [x] **Zéro échec, zéro interruption**, relais Stripe compris *(`test:paiement` 47/47)*.
+- [x] **Et elle a tourné à `0,82 Go` de mémoire libre**, alors que le journal consignait un
+      seuil de **2 Go**.
+
+  > **CE SEUIL ÉTAIT UN MAUVAIS DIAGNOSTIC, ET IL M'A FAIT REFUSER LA CAMPAGNE TROIS FOIS.**
+  >
+  > La cause des campagnes qui tombaient n'était pas la mémoire : c'était **le disque
+  > saturé**, qui tuait les services en cours de route — établi le 8 novembre, quand les cinq
+  > suites interrompues sont toutes repassées seules après que `C:` est revenu à 21 Go.
+  >
+  > *J'avais noté la corrélation « peu de mémoire → campagne rouge » et j'en avais fait une
+  > règle. La corrélation était réelle ; la cause était ailleurs. Le seuil de 2 Go est
+  > retiré.*
+
+### LE DISQUE EXTERNE S'EST DÉBRANCHÉ, ET MA SAUVEGARDE ÉTAIT DESSUS
+
+- [ ] **`CM_PROB_PHANTOM`, le code 45 déjà connu.** `D:` a disparu en cours de séance.
+- [x] **Et c'est ce qui a tué mes deux serveurs de développement** : leurs journaux étaient
+      redirigés vers `/d/temp-tests`. Le `>` échouait, bash sortait en 1, **npm n'était même
+      pas lancé.**
+
+  > *Le message disait « exited with code 1 » et ne nommait rien. Un redirecteur qui échoue
+  > avant la commande donne l'apparence d'une application qui refuse de démarrer.*
+
+- [x] **Tout est repassé sur `C:`** — journaux et sauvegardes.
+- [x] **ET LA SAUVEGARDE DEMANDÉE ÉTAIT SUR `D:`, donc inaccessible.** Refaite sur `C:`, et
+      cette fois **les DEUX bases** : locale *(4 830 documents)* et Atlas *(4 791)*, index
+      compris, 4 Mo, hors du dépôt.
+
+  > **UNE SAUVEGARDE SUR UN DISQUE QUI DISPARAÎT N'EST PAS UNE SAUVEGARDE.** *Celle du matin
+  > était sincère et inutilisable.*
+
+### LA CONSTRUCTION VERCEL, REPRODUITE AVANT DE DÉPLOYER
+
+Plutôt que d'espérer que Vercel y arrive, **on a refait exactement ce qu'il fera** : cloner le
+dépôt et construire depuis zéro.
+
+- [x] **`git clone --depth 1`** dans un dossier neuf, puis les sept fichiers que Vercel doit
+      trouver : tous présents, `client/vercel.json` compris.
+- [x] **`npm ci` : code 0.** *C'est le test qui compte : `npm ci` ÉCHOUE si `package.json` et
+      `package-lock.json` sont désynchronisés — la panne de déploiement la plus courante, et
+      celle qu'on ne voit jamais en local où `npm install` rattrape tout.*
+- [x] **`npm run build` avec des variables de production : code 0**, `dist/` produit.
+- [x] **Et le paquet du clone porte bien les adresses publiques** : API ×2, webhook n8n ×1,
+      **zéro mention de `localhost`**.
+
+### ET L'AUDIT A TROUVÉ DEUX VULNÉRABILITÉS QUI PARTAIENT CHEZ LES VISITEURS
+
+`npm audit --omit=dev` sur le clone : **2 de sévérité haute.**
+
+#### `follow-redirects` 1.16.0-1.16.1 — installé, jamais exécuté
+
+- [x] **Mesuré avant d'alarmer** : `0` occurrence dans `dist/`, et **absent du
+      `package-lock.json` du serveur**. `axios` déclare un champ `browser` qui remplace
+      l'adaptateur Node — lequel est le seul à employer `follow-redirects`.
+
+  > *La vulnérabilité ne part pas chez le visiteur et ne tourne pas sur le serveur. Elle
+  > méritait d'être corrigée, pas d'être dramatisée.*
+
+#### `axios` ≤ 1.19.0 — celle-là, si
+
+- [x] **Douze avis, dont plusieurs touchent l'adaptateur `fetch`** — celui que le navigateur
+      emploie : pollution de prototype altérant les requêtes sortantes, injection d'en-têtes,
+      et `maxRedirects: 0` non respecté.
+
+  > **CELLE-CI PART DANS LE PAQUET.** *Et elle serait partie en production si l'audit n'avait
+  > pas été lancé avant.*
+
+#### Et `npm audit fix` en faisait trop
+
+- [x] **Éprouvé dans le clone d'abord** : il corrige bien, **mais il remonte aussi
+      `@oxc-project/types` et les binaires `@rolldown/*`** — c'est-à-dire **la chaîne de
+      construction de Vite**.
+
+  > **À QUELQUES JOURS D'UNE SOUTENANCE, C'EST UN CHANGEMENT BIEN PLUS GROS QUE LE CORRECTIF
+  > VISÉ.** *Un outil qui répare plus qu'on ne lui demande demande à être mesuré avant d'être
+  > lancé.*
+
+- [x] **Correctif ÉTROIT retenu** : un `overrides` pour `follow-redirects ^1.16.2`, et
+      `axios ^1.21.0` *(la plage vulnérable s'arrête à 1.19.0 ; le `^1.19.0` déclaré
+      autorisait déjà 1.21 — seul le lock était figé)*.
+- [x] **Le lock garde exactement le même nombre de lignes** : 2 560 avant, 2 560 après. *Mon
+      premier diff m'avait fait croire à un bouleversement : `npm install` réordonne les
+      entrées sans les multiplier.*
+- [x] **`npm audit --omit=dev` : 0 vulnérabilité**, dans le clone **et** sur le dépôt réel.
+- [x] **Validé à l'exécution, pas seulement à la construction** : les **18 suites navigateur
+      au vert** avec axios 1.21.0 — c'est le client HTTP de chaque appel de l'application.
+
+### DEUX POINTS SUR LA CLÉ PUBLIQUE STRIPE
+
+- [ ] **`VITE_STRIPE_PUBLIC_KEY` EST UNE CONFIGURATION MORTE, ET JE L'AVAIS FAIT DICTER PAR
+      MON PROPRE OUTIL.** Vérifié : **zéro lecture** dans `client/src`, **aucune dépendance
+      `@stripe/*`** côté client.
+
+  > Le paiement est **entièrement côté serveur** : le client appelle
+  > `POST /subscriptions/:coach/checkout`, l'API crée la session Stripe et rend l'adresse vers
+  > laquelle rediriger. **Le navigateur n'a jamais besoin de la clé publiable.**
+  >
+  > *`preparer-production.mjs` la dictait parmi les variables Vercel. Corrigé, avec la raison
+  > écrite à sa place — j'aurais fait chercher une clé `pk_live_` pour rien.*
+
+- [x] **Le porteur du projet a ajouté `STRIPE_PUBLIC_KEY` dans `server/.env`.** Contrôlé
+      **sans rien afficher** :
+      `SUPPORT_SERVICE_KEY` **intacte** *(64 signes, aucun préfixe `pk_`)*, les deux clés du
+      support toujours distinctes, et **aucune variable du fichier ne commence par `pk_`**.
+      Il décrivait l'emplacement dans le fichier, pas le nom de la variable.
+- [x] **Et rien ne lit `STRIPE_PUBLIC_KEY`** — ni le serveur, ni le client. *Inoffensive, mais
+      inerte : autant le savoir plutôt que de croire qu'elle sert.*
+
+  > **UNE CLÉ PUBLIABLE STRIPE N'EST PAS UN SECRET** — elle est faite pour figurer dans une
+  > page web. Le `.env` reste néanmoins ignoré par git, vérifié.
+
+- [x] **Et le fichier a été contrôlé dans sa structure**, le porteur du projet signalant un
+      « miss-clic » : **0 doublon de variable, 0 ligne mal formée**, et les **douze variables
+      requises** présentes avec des longueurs cohérentes. *Rien n'a été cassé.*
+- [x] **Confirmé à l'exécution** : `verifier:deploiement` **10 au vert sur la base locale ET
+      sur Atlas**, `support 134/134`, `releve 78/78` *(les deux suites qui traversent les clés
+      du support)*, quatre services à 200.
+
+  > *Un contrôle de structure ne remplace pas une exécution : un fichier bien formé peut
+  > porter une valeur fausse. Les deux ont été faits.*
