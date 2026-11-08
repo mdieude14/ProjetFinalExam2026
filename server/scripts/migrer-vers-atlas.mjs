@@ -4,8 +4,22 @@
  *  MIGRATION DE LA BASE VERS UNE AUTRE — DOCKER LOCAL → MONGODB ATLAS
  * ===========================================================================
  *
+ * LA VOIE RECOMMANDÉE — une ligne ajoutée à `server/.env` :
+ *
+ *   MONGO_URI_CIBLE=mongodb+srv://…@…mongodb.net/sportsocial?retryWrites=true
+ *
+ * puis :
+ *
+ *   npm run migrer:atlas -- --essai        voir, sans rien écrire
+ *   npm run migrer:atlas                   faire
+ *
+ * POURQUOI `.env` PLUTÔT QUE LA LIGNE DE COMMANDE : un mot de passe tapé dans
+ * un terminal reste dans son HISTORIQUE, des semaines. `server/.env` n'est pas
+ * suivi par git et porte déjà tous les autres secrets du projet.
+ *
+ * L'autre voie reste possible pour un essai unique :
+ *
  *   MONGO_URI_CIBLE="mongodb+srv://…/sportsocial" npm run migrer:atlas -- --essai
- *   MONGO_URI_CIBLE="mongodb+srv://…/sportsocial" npm run migrer:atlas
  *
  * ---------------------------------------------------------------------------
  *  POURQUOI PAS `mongodump | mongorestore`
@@ -83,11 +97,24 @@ if (!SOURCE) {
 if (!CIBLE) {
   crier('MONGO_URI_CIBLE est absente.');
   crier('');
-  crier('  L’URI de destination se passe par l’ENVIRONNEMENT, jamais en');
-  crier('  argument : un argument de commande est visible de toute la machine');
-  crier('  dans la liste des processus, et celui-ci porte un mot de passe.');
+  crier('  ── LA VOIE RECOMMANDÉE : une ligne dans server/.env ──');
   crier('');
-  crier('    MONGO_URI_CIBLE="mongodb+srv://…/sportsocial" npm run migrer:atlas -- --essai');
+  crier('    MONGO_URI_CIBLE=mongodb+srv://…@…mongodb.net/sportsocial?retryWrites=true');
+  crier('');
+  crier('  puis simplement :   npm run migrer:atlas -- --essai');
+  crier('');
+  crier('  POURQUOI LÀ PLUTÔT QUE SUR LA LIGNE DE COMMANDE : un mot de passe');
+  crier('  tapé dans un terminal reste dans son HISTORIQUE, et y reste des');
+  crier('  semaines. `server/.env` n’est pas suivi par git, et ce fichier');
+  crier('  porte déjà tous les autres secrets du projet — c’est sa place.');
+  crier('');
+  crier('  ── l’autre voie, pour un essai unique ──');
+  crier('');
+  crier('    MONGO_URI_CIBLE="mongodb+srv://…" npm run migrer:atlas -- --essai');
+  crier('');
+  crier('  Dans les deux cas elle passe par l’ENVIRONNEMENT et jamais en');
+  crier('  argument : un argument de commande est visible de toute la machine');
+  crier('  dans la liste des processus.');
   process.exit(1);
 }
 
