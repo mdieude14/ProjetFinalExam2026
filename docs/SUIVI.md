@@ -17986,3 +17986,48 @@ docker stop                    -> code de sortie 0
       prose dans un commentaire.)*
 - [x] **Les deux gabarits ne portent AUCUNE valeur** : `.env.example` et `api.env.example`,
       zéro variable renseignée.
+
+### DEUX FAUTES DE PLUS, TROUVÉES ET CORRIGÉES DANS LA MÊME HEURE
+
+#### `api.env` n'était pas ignoré, et j'ai poussé en le sachant
+
+- [ ] **Le contrôle d'avant-commit a répondu « NON IGNORÉ », et le commit est parti.** Parce
+      que le contrôle et le `git commit` étaient **dans la même commande** — exactement la
+      faute que la section précédente décrivait, répétée deux heures plus tard.
+- [x] **La cause de l'exclusion manquée** : les règles visent les noms qui **commencent** par
+      `.env` — `.env`, `.env.*`. **`api.env` FINIT par `.env`.** Aucune ne le couvrait, et il
+      porte tous les secrets de production : chaîne Atlas, secrets JWT, clé Stripe réelle,
+      jeton Telegram.
+- [x] **Règle posée : `*.env`**, qui vise **la forme** et non les noms connus. Les quatre
+      gabarits `*.env.example` restent suivables, et aucun fichier déjà suivi ne devient
+      ignoré — vérifié.
+
+  > **UNE RÈGLE D'EXCLUSION ÉCRITE POUR LES CAS QU'ON A VUS NE COUVRE PAS CEUX QU'ON VERRA.**
+
+#### Et ma règle de réécriture Vercel répondait aux appels d'API
+
+Le porteur du projet a déployé sur Vercel et signalé *« Une erreur est survenue »* à la
+connexion. **Mesuré sur le site en ligne plutôt que supposé :**
+
+```
+GET /            -> 200  text/html
+GET /login       -> 200  text/html
+GET /api/health  -> 200  text/html      <<<
+                    <!doctype html><html lang="fr">…
+```
+
+- [x] **L'enchaînement exact** : le client poste sur `/api/auth/login` *(chemin relatif,
+      `VITE_API_URL` étant vide)* → **la fourre-tout de `vercel.json` l'envoie vers
+      `/index.html`** → axios reçoit du **HTML avec un code 200** → il tente d'y lire du JSON
+      → échec → le message générique.
+- [ ] **DEUX PROBLÈMES DISTINCTS, ET LE SECOND EST LE MIEN.** Que l'API ne soit pas encore
+      hébergée était attendu et annoncé. Mais j'avais exclu `assets/*` et `favicon.svg` de la
+      fourre-tout **sans penser à `/api/*`**.
+
+  > **UN 200 AVEC LE MAUVAIS CORPS EST LE PIRE DES ÉCHECS** : il a l'air d'un succès. Sans la
+  > fourre-tout, l'appel aurait rendu un 404 propre, et le diagnostic aurait tenu en dix
+  > secondes.
+
+- [x] **`/api/*` et `/socket.io/*` interceptés avant la fourre-tout**, par des réécritures
+      vers elles-mêmes. Cinq règles désormais, dans cet ordre, et les quatre premières ne
+      changent rien : leur seul rôle est d'empêcher la cinquième d'agir.

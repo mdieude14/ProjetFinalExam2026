@@ -5,6 +5,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/:chemin*",
+      "destination": "/api/:chemin*"
+    },
+    {
+      "source": "/socket.io/:chemin*",
+      "destination": "/socket.io/:chemin*"
+    },
+    {
       "source": "/assets/:chemin*",
       "destination": "/assets/:chemin*"
     },

@@ -15,6 +15,24 @@ node_modules/
 .env.*
 !.env.example
 
+# ET TOUT FICHIER QUI FINIT PAR .env, pas seulement ceux qui COMMENCENT par la.
+#
+# Le 8 novembre 2026, la composition Hostinger a gagne un `api.env` portant
+# tous les secrets de production de l'API -- chaine Atlas, secrets JWT, cle
+# Stripe reelle, jeton Telegram. Les regles ci-dessus ne le couvraient PAS :
+# elles visent les noms qui commencent par « .env », et celui-la finit par
+# « .env ». Un `git add .` l'aurait donc committe.
+#
+# Trouve par le controle d'avant-commit, qui a dit « NON IGNORE » -- et le
+# commit est parti quand meme, parce que le controle et le commit etaient dans
+# la MEME commande. La regle est posee, et le controle est desormais un script
+# qui ressort 1 : npm run verifier:secrets.
+#
+#   LA LECON : une regle d'exclusion ecrite pour les cas qu'on a vus ne couvre
+#   pas ceux qu'on verra. `*.env` vise la FORME, pas les noms connus.
+*.env
+
+
 # Builds
 dist/
 build/
