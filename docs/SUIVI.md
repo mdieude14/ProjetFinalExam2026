@@ -16887,3 +16887,82 @@ docker compose. **C'était une affirmation. La voici mesurée :**
 
   > *Un fichier de déploiement validé n'est pas un déploiement. La distinction vaut d'être
   > dite, parce qu'elle est facile à perdre de vue quand tout est vert.*
+
+---
+
+## 15.96 — Un pré-vol qui sépare le réseau de l'autorisation, et le cluster mesuré avant d'être employé  `VÉRIFIÉ`
+
+### LE CLUSTER DU PORTEUR DU PROJET, MESURÉ SANS UN SEUL IDENTIFIANT
+
+Le cluster `CoachConnect` a été créé. Avant de migrer quoi que ce soit, trois faits ont été
+établis **sans employer de mot de passe** — un nom de cluster se résout par DNS public, et y
+accéder exige un mot de passe ET une IP autorisée.
+
+- [x] **DNS SRV : trois nœuds.** C'est la signature visible d'un jeu de répliques, et donc la
+      confirmation que **les 20 transactions passeront**. *L'offre gratuite M0 en donne trois,
+      comme les offres payantes : c'est bien pourquoi payer n'apportait rien sur ce point.*
+- [x] **Options annoncées par le cluster** : `authSource=admin&replicaSet=atlas-rfph44-shard-0`.
+      Le nom du jeu de répliques est là, noir sur blanc.
+- [x] **Les trois nœuds joignables sur le port 27017.** Ni le pare-feu, ni Avast, ni le
+      fournisseur d'accès ne filtrent ce port.
+- [x] **Latence : médiane de 22 ms. La région est bien européenne.**
+
+### ET LA PREMIÈRE MESURE ÉTAIT TROMPEUSE
+
+- [x] **La première ouverture a rendu 1 130 ms.** De quoi croire à un cluster mal placé, ou à
+      un réseau en peine.
+- [x] **Les suivantes : 21, 22, 22, 24, 25 ms.** La seconde entière était **la résolution
+      DNS**, pas la latence.
+
+  > **ON ÉCARTE DONC LA PREMIÈRE, ET ON PREND LA MÉDIANE.** Une moyenne laisserait un
+  > à-coup peser sur le verdict ; une mesure unique aurait fait conclure l'inverse de la
+  > vérité. *Troisième fois dans ce projet qu'une mesure unique mène à la mauvaise
+  > conclusion — après le disque et la mémoire.*
+
+### POURQUOI CE DIAGNOSTIC MÉRITAIT D'ÊTRE OUTILLÉ
+
+`npm run verifier:atlas` fait ce qui précède, et son intérêt n'est pas de constater : **c'est
+de séparer deux familles de pannes que le message du pilote ne distingue pas.**
+
+| Famille | En cause | Où ça se corrige |
+|---|---|---|
+| **A — le chemin** | DNS du poste, pare-feu, antivirus, fournisseur d'accès | sur le poste |
+| **B — l'autorisation** | mot de passe, ou IP absente de `Network Access` | dans Atlas |
+
+> **UN `ETIMEDOUT` PEUT VENIR DES DEUX.** C'est l'erreur la plus courante de la mise en place
+> d'Atlas, et la plus mal attribuée : on vérifie le mot de passe pendant une heure alors que
+> le DNS du poste ne répond pas — *ce projet en a déjà fait l'expérience le 7 novembre, où un
+> `ENOTFOUND` venait du poste et non du code.*
+>
+> **Ce script ne teste que la famille A.** S'il passe et que la connexion échoue quand même,
+> c'est la famille B, et il n'y a plus rien à chercher du côté du réseau.
+
+- [x] **Et il dit ce qu'il ne prouve PAS**, en fin de rapport : ni que le mot de passe est
+      bon, ni que l'IP figure dans la liste. *Un contrôle qui laisse croire qu'il couvre plus
+      qu'il ne couvre est pire qu'un contrôle absent.*
+
+### ÉPROUVÉ DANS LES QUATRE SENS
+
+| Essai | Résultat |
+|---|---|
+| le cluster réel | **3 nœuds, 22 ms, « chemin dégagé »**, code 0 |
+| un cluster inexistant | `ECHEC DNS SRV ENOTFOUND` + les deux causes nommées, code 1 |
+| une URI **complète** avec mot de passe | **seul l'hôte est affiché**, et il résout |
+| `--hote=localhost` | refusé : ce script vérifie un cluster Atlas |
+
+- [x] **Le mot de passe n'apparaît pas une seule fois** dans la sortie, éprouvé avec une URI
+      qui en portait un. *Le script n'extrait que l'hôte, précisément pour ne jamais
+      manipuler le reste.*
+
+### CE QUE LA CHAÎNE D'ATLAS NE DIT PAS
+
+- [x] **La chaîne proposée par Atlas se termine par `/`, sans nom de base et sans option.**
+      Recopiée telle quelle, elle fonctionne — **et écrit dans la base `test`**.
+
+  > C'est le piège déjà consigné, et le voir sur la chaîne réelle le confirme : **Atlas ne
+  > propose pas le nom de base, il le laisse à l'utilisateur.** `diagnostiquerUri` le refuse
+  > désormais d'avance, et `migrer:atlas` l'énumère parmi ses fautes.
+
+- [x] **La « compression réseau » proposée au même écran reste DÉSACTIVÉE** : elle exige des
+      modules supplémentaires côté pilote *(snappy, zstd)* et n'apporte rien sur une base de
+      quatre mégaoctets.

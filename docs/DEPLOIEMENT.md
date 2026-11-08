@@ -169,6 +169,42 @@ sortie de l'hébergeur, soit `0.0.0.0/0` : **l'IP du poste n'autorise que le pos
     > **Le nom exact de la base est `sportsocial`** — c'est celui qu'affiche le contrôle en
     > développement, à la ligne « connexion à la base ».
 
+#### Étape 4 bis — Le pré-vol, sans aucun identifiant
+
+```bash
+cd server
+npm run verifier:atlas -- --hote=<cluster>.mongodb.net
+```
+
+**Il ne teste QUE le chemin réseau**, sans mot de passe et sans rien lire. Son intérêt est de
+**séparer deux pannes que le message du pilote ne distingue pas** :
+
+| Famille | Ce qui est en cause | Où ça se corrige |
+|---|---|---|
+| **A — le chemin** | DNS du poste, pare-feu, antivirus, FAI | ici, et ce script le voit |
+| **B — l'autorisation** | mot de passe, IP absente de `Network Access` | dans Atlas |
+
+> **S'il passe et que la connexion échoue quand même, c'est la famille B** — inutile de
+> chercher du côté du réseau. *Un `ETIMEDOUT` peut venir des deux : c'est l'erreur la plus
+> courante de la mise en place d'Atlas, et la plus mal attribuée.*
+
+**Il mesure aussi la latence, et cela répond à une question qu'on se pose trop tard.** La
+région se choisit à la création et ne se change plus : il faut recréer le cluster. Une région
+lointaine ne provoque **aucune erreur** — elle ajoute ~100 ms à chaque appel.
+
+```
+OK     DNS SRV résolu           3 nœud(s)
+       → trois nœuds ou plus : jeu de répliques, les transactions passeront
+OK     options annoncées       authSource=admin&replicaSet=atlas-…-shard-0
+médiane de 5 ouvertures : 22 ms
+lecture : EUROPE — le cluster est bien placé
+```
+
+> ⚠️ **La première ouverture est toujours lente** : elle porte la résolution DNS. Mesurée
+> seule, elle a rendu **1 130 ms** là où la médiane des suivantes était de **22 ms**. Le
+> script écarte donc la première et prend la **médiane** — une moyenne laisserait un à-coup
+> peser sur le verdict.
+
 #### Étape 5 — Vérifier AVANT de déployer quoi que ce soit
 
 11. Depuis le poste de développement, **sans modifier `server/.env`** :
