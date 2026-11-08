@@ -18204,3 +18204,83 @@ sept candidats ont répondu « probablement PRIS ».** Sept sur sept, dont
   > ⚠️ **ET LA RÉSERVE EST RÉELLE : aucun DNS ne prouve pas qu'un domaine est libre.** Un
   > domaine peut être enregistré sans être publié. *Seule la recherche du bureau
   > d'enregistrement fait foi ; ce tableau écarte des candidats, il n'en garantit aucun.*
+
+---
+
+## 16.07 — Le VPS : Ubuntu NU et non le modèle n8n, et pourquoi KVM 1 suffit  `ARBITRÉ`
+
+### LE BLOCAGE SUR VERCEL : UN NOM D'HÔTE, PAS UNE ÉTIQUETTE
+
+- [x] **« Le domaine doit être un nom d'hôte valide »** : le porteur du projet avait tapé
+      `coachconnect-sport` seul. Vercel attend le **nom complet** — son propre exemple dans le
+      champ est `example.com`.
+
+  > **`coachconnect-sport` n'est pas un nom d'hôte, c'est une étiquette.** Il faut
+  > `coachconnect-sport.vercel.app`.
+
+### LE CHOIX DU SYSTÈME, ET C'EST LE POINT QUI COMPTE
+
+Hostinger propose un modèle **« Ubuntu 24.04 with n8n »** qui installe n8n dans Docker,
+clés en main.
+
+- [ ] **ET IL FAUT LE REFUSER, pour une raison structurelle** : ce modèle installe son propre
+      relais inverse, lié aux ports **80 et 443**. La composition de `docker/n8n/hostinger/`
+      y place **Caddy**, qui a besoin des mêmes ports.
+
+  > **DEUX RELAIS NE PEUVENT PAS ÉCOUTER LE MÊME PORT.** Le second démarre en erreur, et le
+  > diagnostic est pénible parce que tout *paraît* installé.
+
+- [x] **DÉCISION : `Ubuntu 24.04 LTS`, NU.** Puis la composition du dépôt, qui monte les
+      **trois** services d'un coup — `caddy`, `n8n`, `api` — avec un seul certificat
+      automatique et les deux sous-domaines.
+
+  > **ET LE MODÈLE n8n NE RÉSOUDRAIT QUE LA MOITIÉ DU PROBLÈME** : il n'héberge pas l'API, qui
+  > est précisément ce qui ne peut pas aller sur Vercel. *Prendre le modèle obligerait à
+  > ajouter l'API ensuite, donc à se battre avec son relais. Autant partir propre.*
+
+### LA TAILLE, CALCULÉE PLUTÔT QUE RECOPIÉE
+
+Les comparatifs poussent **KVM 2** *(2 vCPU, 8 Go, ~9 $/mois sur 24 mois, ~15 $ au
+renouvellement)*. Hostinger lui-même annonce **KVM 1 en minimum** et KVM 2 en recommandé —
+pour n8n **seul**.
+
+- [x] **Le besoin réel, additionné** :
+
+  | Service | Mémoire observée |
+  |---|---|
+  | n8n | ~400 à 600 Mo |
+  | l'API Node | ~150 à 300 Mo |
+  | Caddy | ~30 Mo |
+  | Ubuntu + Docker | ~400 à 600 Mo |
+  | **total** | **~1,5 à 2 Go** |
+
+- [x] **KVM 1 offre 4 Go : le double de ce qu'il faut.** *Et la base est sur Atlas, donc rien
+      à stocker ni à faire tourner ici — c'est ce qui change tout par rapport à un
+      hébergement classique.*
+
+  > **RECOMMANDATION : KVM 1.** Le seul point serré est le processeur unique si n8n appelle un
+  > modèle pendant que l'API répond. **Pour une soutenance, c'est sans conséquence.**
+  >
+  > *Les sources qui poussent KVM 2 sont des comparatifs d'affiliation. L'addition ci-dessus
+  > est le seul argument qui compte.*
+
+- [ ] **ET LE PRIX DE RENOUVELLEMENT EST À REGARDER** : il vaut **1,7 à 2,2 fois** le tarif
+      d'appel selon les comparatifs. *Un engagement long baisse le mensuel et augmente ce
+      qu'on paie d'avance.*
+
+### CE QUE LE DOMAINE DOIT PORTER
+
+- [x] **Trois enregistrements, dont DEUX pointent la même IP** :
+
+  | Nom | Type | Valeur |
+  |---|---|---|
+  | `@` ou `www` | ce que **Vercel** dicte | le site |
+  | `api` | **A** | **l'IP du VPS** |
+  | `n8n` | **A** | **la même IP** |
+
+  > **C'EST CADDY QUI DISTINGUE, par le nom demandé — pas le réseau.** D'où un seul VPS pour
+  > deux services.
+
+- [ ] **Et la propagation se vérifie AVANT de démarrer Caddy** : `dig +short api.<domaine>`.
+      *Si le nom ne résout pas encore, Caddy échoue en boucle et peut atteindre la limite de
+      Let's Encrypt, qui bloque le domaine plusieurs heures.*

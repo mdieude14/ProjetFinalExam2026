@@ -601,10 +601,48 @@ Dans les variables Vercel : `VITE_SUPPORT_WEBHOOK_URL=https://<n8n>/webhook/coac
 
 ---
 
-### 4 B. Aucune instance n8n — la composition fournie
+### 4 B. Le VPS Hostinger, de zéro — **la voie retenue**
 
-Tout est dans `docker/n8n/hostinger/` : `docker-compose.yml`, `Caddyfile`, `.env.example`.
-**Validés le 8 novembre** : `docker compose config` et `caddy validate` passent.
+Tout est dans `docker/n8n/hostinger/` : `docker-compose.yml`, `Caddyfile`, `.env.example`,
+`api.env.example`. **Validés le 8 novembre** : `docker compose config` et `caddy validate`
+passent, et l'image de l'API a été construite et lancée.
+
+#### ⚠️ Le choix du système : `Ubuntu 24.04 LTS` **NU**, pas le modèle « with n8n »
+
+Hostinger propose un modèle **« Ubuntu 24.04 with n8n »** qui installe n8n dans Docker, clés
+en main. **Il faut le refuser**, et pour deux raisons :
+
+| Raison | Détail |
+|---|---|
+| **Conflit de ports** | le modèle installe **son propre relais inverse** sur les ports **80 et 443**. La composition y place **Caddy**, qui a besoin des mêmes. **Deux relais ne peuvent pas écouter le même port** — le second démarre en erreur, et le diagnostic est pénible parce que tout *paraît* installé. |
+| **Il ne résout que la moitié** | le modèle **n'héberge pas l'API** — précisément ce qui ne peut pas aller sur Vercel. Le prendre obligerait à ajouter l'API ensuite, donc à se battre avec son relais. |
+
+> **La composition du dépôt monte les TROIS services d'un coup** — `caddy`, `n8n`, `api` — avec
+> un seul certificat automatique et les deux sous-domaines. *Autant partir propre.*
+
+#### La taille : **KVM 1 suffit**, et c'est une addition
+
+Les comparatifs poussent KVM 2. Hostinger annonce KVM 1 en minimum — **pour n8n seul**. Le
+besoin réel, additionné :
+
+| Service | Mémoire |
+|---|---|
+| n8n | ~400 à 600 Mo |
+| l'API Node | ~150 à 300 Mo |
+| Caddy | ~30 Mo |
+| Ubuntu + Docker | ~400 à 600 Mo |
+| **total** | **~1,5 à 2 Go** |
+
+**KVM 1 offre 4 Go : le double.** *Et la base est sur Atlas — rien à stocker ni à faire
+tourner ici, c'est ce qui change tout par rapport à un hébergement classique.*
+
+> Le seul point serré est le **processeur unique** si n8n appelle un modèle pendant que l'API
+> répond. Pour une soutenance, sans conséquence.
+>
+> ⚠️ **Regarder le prix de RENOUVELLEMENT** : il vaut 1,7 à 2,2 fois le tarif d'appel. Un
+> engagement long baisse le mensuel et augmente ce qu'on paie d'avance.
+
+#### Les gestes, dans l'ordre
 
 ### Ce que cette composition change par rapport au développement
 
