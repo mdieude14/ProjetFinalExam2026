@@ -18630,3 +18630,152 @@ une troisième fois. **Elle avait une bonne réponse technique que je n'avais pa
 > lié à une **adresse de retour** déclarée chez Google. Changer de domaine change cette
 > adresse. *Le jeton chiffré voyage, mais toute réautorisation future exigera que
 > `https://n8n.<domaine>/rest/oauth2-credential/callback` soit déclarée.*
+
+---
+
+## 16.10 — La pile montée sur le VPS, un nom gratuit qui vaut un domaine acheté, et deux fautes à moi  `VÉRIFIÉ` / `BLOQUÉ SUR UN GESTE`
+
+### LE SERVEUR N'EST PAS CELUI QUE LE PANNEAU ANNONÇAIT
+
+| | Annoncé | Mesuré en SSH |
+|---|---|---|
+| système | `Ubuntu 24.04` | **`Ubuntu 26.04.1 LTS`**, noyau 7.0.0 |
+| Docker | à installer | **déjà là, 29.9.3**, compose 5.7.0, actifs et au démarrage |
+| taille | KVM 1 | **1 vCPU, 3,8 Gio, 46 Go libres** — conforme au calcul de 16.07 |
+
+- [x] **Mon pré-vol a traité la surprise sans broncher** : `version 26.04 : non testée, mais
+      Docker suffit`, et l'étape Docker est devenue un simple constat. **0 anomalie.**
+
+  > **ET L'ANCRAGE DU FAUX VERT A SERVI DÈS SA PREMIÈRE ÉPREUVE RÉELLE** : `ss voit 4 port(s)
+  > à l'écoute : la mesure est crédible`, **puis** seulement `port 80 libre, et mesuré pour de
+  > bon`. *Sur le poste, le même script refusait de conclure. Le même code, deux verdicts
+  > justes.*
+
+- [x] **Pare-feu écarté comme hypothèse** : `ufw` inactif, `INPUT ACCEPT`, et
+      `acme-v02.api.letsencrypt.org` joignable. *Vérifié AVANT de démarrer Caddy, parce qu'un
+      échec ACME répété épuise le quota.*
+
+### LE NOM GRATUIT DU VPS VAUT UN DOMAINE ACHETÉ, ET C'EST LA LISTE DES SUFFIXES QUI LE DIT
+
+Le porteur du projet a tranché : **pas d'achat de domaine.** Or le HTTPS n'est pas optionnel —
+Telegram refuse un webhook sans certificat valide, et un client HTTPS sur Vercel ne peut pas
+appeler une API en HTTP *(contenu mixte)*.
+
+- [x] **La mesure qui a tout décidé, sur la liste des suffixes publics téléchargée** *(16 584
+      lignes, et quatre cas témoins : `com`, `co.uk`, `github.io` présents, un suffixe
+      inventé absent)* :
+
+  | Suffixe | Dans la liste ? | Quota Let's Encrypt |
+  |---|---|---|
+  | `nip.io`, `sslip.io` | **absents** | **PARTAGÉ** entre tous leurs utilisateurs |
+  | **`hstgr.cloud`** | **présent** | **propre à chaque `srvXXXXXXX`** |
+
+  > **LES SERVICES DE DNS JOKER ÉTAIENT LE RÉFLEXE, ET C'ÉTAIT LE MAUVAIS.** *`nip.io`
+  > résolvait parfaitement `api.2.24.62.117.nip.io` et `n8n.2.24.62.117.nip.io` — deux noms
+  > gratuits, tentant. Mais un quota partagé par le monde entier s'épuise sans prévenir, et le
+  > symptôme serait un certificat refusé la veille de la soutenance.*
+
+- [x] **`srv2141095.hstgr.cloud` a un enregistrement A vers `2.24.62.117`**, donc vers ce VPS
+      exactement. **Aucun achat, aucune propagation à attendre.**
+
+### UN SEUL NOM, DONC UN ROUTAGE PAR CHEMIN — ET SANS AUCUNE RÉÉCRITURE
+
+- [x] **`Caddyfile.nom-unique`**, parce que **deux blocs de site ne peuvent pas porter la même
+      adresse** et que Caddy n'a pas de condition. Le montage devient configurable par
+      `CADDYFILE`, et **la composition n'a besoin d'aucun autre changement** : il suffit de
+      donner la même valeur aux deux variables de domaine.
+
+  | Chemin | Vers |
+  |---|---|
+  | `/api/*`, `/socket.io/*` | l'API Node |
+  | `/webhook/*`, `/webhook-test/*`, `/healthz`, le rappel OAuth | n8n, **public** |
+  | tout le reste | n8n, **derrière mot de passe** |
+
+  > **ET AUCUN `uri strip_prefix`, AUCUN `N8N_PATH` : l'API sert DÉJÀ sous `/api`, et n8n
+  > possède tous ses chemins propres.** *Le partage tombe juste tout seul. `N8N_PATH`, dont la
+  > mise en place est réputée délicate, n'a jamais été nécessaire.*
+
+- [x] **Validé par `caddy validate` sur les DEUX variantes**, avec un **cas témoin cassé** qui
+      produit bien `syntax error`. *Sans ce témoin, « Valid configuration » ne prouvait rien.*
+
+### CE QUI MARCHE, MESURÉ DE L'EXTÉRIEUR
+
+- [x] **Certificat Let's Encrypt obtenu** : `certificate obtained successfully`, puis lu depuis
+      le serveur lui-même — `issuer=C=US, O=Let's Encrypt, CN=YE2`, valable jusqu'au **6
+      février 2027**.
+
+  > ⚠️ **ET MA PREMIÈRE LECTURE DU CERTIFICAT ÉTAIT TROMPEUSE** : depuis le poste, l'émetteur
+  > s'affichait `Avast Web/Mail Shield`. *L'antivirus réémet les certificats qu'il inspecte.
+  > Pour juger d'un certificat, il faut le lire depuis une machine qui ne l'intercepte pas.*
+
+- [x] **Le mot de passe de l'éditeur, prouvé par TROIS cas** et non par un seul :
+
+  | Appel | Code |
+  |---|---|
+  | sans identifiants | **401** |
+  | avec le bon mot de passe | **200** |
+  | avec un mauvais | **401** |
+
+  > **C'EST CE QUI VALIDE LE DOUBLAGE DES `$`.** *Une empreinte bcrypt tronquée par compose
+  > aurait donné 401 dans les trois cas, sans rien dans le journal.* Mesurée : **63
+  > caractères, 6 `$`**, soit 60 de bcrypt et 3 dollars doublés.
+
+- [x] **n8n `1.121.3` répond `{"status":"ok"}`**, et son empreinte de clé de chiffrement est
+      **`583f2cefaca62da3`, identique au local** : les 6 identifiants se déchiffreront.
+
+### L'API EST BLOQUÉE, ET J'AI FAILLI ACCUSER L'IPv6
+
+L'API rend **502** sur `/api/*`. Le journal est explicite : **l'IP n'est pas dans la liste
+d'autorisation d'Atlas.**
+
+- [ ] **ET J'AI CRU TENIR UNE CAUSE PLUS PROFONDE** : l'adresse publique vue par
+      `ifconfig.me` depuis l'hôte est **IPv6**, `2a02:4780:83:add5::1`. Or la liste
+      d'autorisation d'Atlas en offre gratuite est IPv4. *J'allais annoncer un problème de
+      famille d'adresses.*
+
+- [x] **MESURÉ DEPUIS LE CONTENEUR, ET NON DEPUIS L'HÔTE — c'est ce qui a tranché** :
+
+  | Depuis | IPv4 | IPv6 |
+  |---|---|---|
+  | l'hôte | `2.24.62.117` | `2a02:…` *(préféré par défaut)* |
+  | **le conteneur API** | **`2.24.62.117`** | **`ENETUNREACH`** |
+
+  > **LE RÉSEAU DOCKER N'A PAS D'IPv6, DONC L'API SORT FORCÉMENT EN IPv4.** La préférence de
+  > l'hôte ne la concerne pas. **Une seule adresse à autoriser : `2.24.62.117/32`.**
+  >
+  > *La leçon est de lieu, pas de méthode : la bonne mesure était à l'intérieur du conteneur.
+  > Mesurer au mauvais endroit rend un résultat juste à une question que personne ne pose.*
+
+- [x] **Et le réseau est hors de cause, ce qui ferme le diagnostic** : les **trois nœuds** du
+      replica ont leur port 27017 **ouvert** depuis le VPS. *Seule l'autorisation manque.*
+
+### ET `preparer:production --essai` A ATTRAPÉ UNE FAUTE À MOI
+
+- [ ] **J'avais écrit `PUBLIC_URL=https://srv2141095.hstgr.cloud`**, l'adresse de l'API. **Le
+      script dicte l'adresse de l'APPLICATION**, et le code lui donne raison :
+      `src/config/env.js:79` en fait le domaine public, lu pour les **URL de retour de Stripe**
+      et les **liens des courriels de réinitialisation**.
+
+  > **CES LIENS AURAIENT POINTÉ VERS L'API, QUI NE SERT AUCUNE PAGE.** Trois parcours
+  > échouaient **en silence, chez l'utilisateur** — exactement l'avertissement que le script
+  > porte dans son propre texte.
+  >
+  > *Un outil qui dicte la configuration n'a de valeur que si on le lit AVANT d'écrire à la
+  > main. Je l'ai lancé après, et il m'a rattrapé.*
+
+- [x] **Corrigé, avec `CLIENT_URL` remis dans l'ordre dicté** *(le domaine Vercel EN PREMIER,
+      car sa première valeur sert d'adresse publique)*, et **vérifié par un diff** : aucune
+      autre variable n'a bougé.
+
+### L'ÉTAT, ET LE SEUL GESTE QUI MANQUE
+
+| Élément | État |
+|---|---|
+| Caddy, certificat, routage par chemin | **en service** |
+| n8n, éditeur protégé, clé de chiffrement alignée | **en service** |
+| les 28 variables de l'API, 5 adresses de production | **posées, 0 adresse locale** |
+| **l'API** | **bloquée : `2.24.62.117/32` à autoriser dans Atlas** |
+
+> **UN SEUL CLIC, DANS UNE INTERFACE QUE JE N'AI PAS** : Atlas → **Network Access** → **Add IP
+> Address** → `2.24.62.117/32`. *L'API redémarre en boucle, donc elle se connectera d'elle-même
+> dès l'autorisation posée.*
