@@ -18133,3 +18133,74 @@ Le porteur du projet a renommé son projet sans que l'URL change, et ne trouvait
       configuration est réellement en ligne ?**
 
   > *Un déploiement qu'on ne peut pas identifier se débogue à l'aveugle.*
+
+---
+
+## 16.06 — Renommer un projet Vercel n'attribue pas son domaine, et un test DNS qui comptait l'adresse du serveur  `VÉRIFIÉ`
+
+### LE RENOMMAGE NE SUFFIT PAS, ET C'EST MESURÉ
+
+Le porteur du projet a renommé son projet en `coachconnect-sport` ; l'URL est restée
+`projet-final-exam2026.vercel.app`.
+
+- [x] **`coachconnect-sport.vercel.app` rend un 404 : le nom est LIBRE, mais NON ATTRIBUÉ.**
+
+  > **EN VERCEL ACTUEL, RENOMMER UN PROJET NE RÉASSIGNE PAS SON DOMAINE `.vercel.app`.**
+  > Le domaine de production est un **alias** attaché au projet, et il reste celui d'origine.
+  > *Il faut l'ajouter explicitement — ce que la section « Domains » fait.*
+
+- [x] **Et le témoin `X-Coachconnect-Config` rend ce diagnostic possible en une commande.**
+      Il distingue trois états qu'on ne pouvait pas séparer autrement :
+
+  | Réponse | Sens |
+  |---|---|
+  | **404** | le nom est **libre** |
+  | 200 **avec** le témoin | **c'est ce projet** |
+  | 200 **sans** le témoin | **pris par quelqu'un d'autre** |
+
+  > *Posé pour déboguer une règle de réécriture, il sert maintenant à inventorier des noms de
+  > domaine. Un marqueur d'identité vaut plus que l'usage pour lequel on l'a écrit.*
+
+### L'INVENTAIRE DES NOMS, MESURÉ
+
+| Libre | Pris par un autre |
+|---|---|
+| `coachconnect-sport` · `coachconnect-fr` · `coach-connect-fr` | `coachconnect` *(« Coach Connect »)* |
+| `coachconnect2` · `coachconnect-v2` · `coachconnecte` | `coachconnect-app` *(« Create Next App »)* |
+| `moncoachconnect` · `moncoachsport` · `sportconnect-coach` | `coachlink` *(« CoachLink »)* |
+| `coachsphere` · `coachly-sport` · `trouvetoncoach` | `coach-connect` *(307)* |
+
+### ET MON TEST DNS NE MESURAIT RIEN — LE CAS TÉMOIN L'A PROUVÉ
+
+Pour conseiller l'achat d'un vrai domaine, j'ai voulu vérifier lesquels étaient libres. **Les
+sept candidats ont répondu « probablement PRIS ».** Sept sur sept, dont
+`coachconnect-sport.fr` et `moncoachconnect.fr` — invraisemblable.
+
+- [ ] **La cause** : mon `grep -cE "^Address"` comptait la ligne `Address:` de la **réponse du
+      résolveur lui-même** — l'adresse du serveur DNS de la box — et non celle du domaine
+      cherché. Le texte disait pourtant `Non-existent domain`, trois lignes plus bas.
+
+  > **J'AI FAILLI ANNONCER SEPT DOMAINES PRIS SANS AVOIR MESURÉ QUOI QUE CE SOIT.**
+  >
+  > *C'est la même famille de faute que `[a-z]+` sans chiffres, que `grep -o` qui n'affiche
+  > que le motif, et que le champ `role` qui n'existe pas : **un motif qui attrape autre chose
+  > que ce qu'on croit, et qui rend un résultat parfaitement crédible.***
+
+- [x] **UN CAS TÉMOIN ABSURDE A SUFFI À LE RÉVÉLER** :
+      `zzqxwvbnmlkjhgfd-nexiste-absolument-pas-2026.fr` rendait **1 enregistrement**.
+
+  > **LA MÉTHODE À RETENIR : avant de croire une mesure, lui donner une entrée dont on CONNAÎT
+  > la réponse.** *Deux cas témoins — un domaine impossible et `google.fr` — coûtent dix
+  > secondes et valident l'instrument.*
+
+- [x] **Refait avec la bonne lecture** *(« Non-existent domain » cherché explicitement, et les
+      adresses lues APRÈS la ligne « Nom : »)*, et validé par les deux témoins :
+
+  | Domaine | DNS |
+  |---|---|
+  | `coachconnect.fr` · `coach-connect.fr` · `coachconnect.app` · `trouvetoncoach.fr` | **répond → pris** |
+  | `coachconnect-sport.fr` · `moncoachconnect.fr` · `coachconnecte.fr` | **aucun DNS → peut-être libre** |
+
+  > ⚠️ **ET LA RÉSERVE EST RÉELLE : aucun DNS ne prouve pas qu'un domaine est libre.** Un
+  > domaine peut être enregistré sans être publié. *Seule la recherche du bureau
+  > d'enregistrement fait foi ; ce tableau écarte des candidats, il n'en garantit aucun.*
