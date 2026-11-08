@@ -1,7 +1,7 @@
 {
   "id": "ccSupportAgent01",
   "name": "CoachConnect — agent de support du widget",
-  "versionId": "19711278-a323-67c6-9535-04e1745412a1",
+  "versionId": "103c2f5d-c8ef-11d8-451f-ef5ebd60ce33",
   "active": false,
   "nodes": [
     {
@@ -10,7 +10,7 @@
         "path": "coachconnect-support",
         "responseMode": "responseNode",
         "options": {
-          "allowedOrigins": "https://projet-final-exam2026.vercel.app"
+          "allowedOrigins": "https://coachconnect-sport.vercel.app"
         }
       },
       "id": "5258ec90-dd00-4fd5-57b5-57a44d36c40e",
