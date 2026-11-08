@@ -16593,3 +16593,119 @@ que les trois défauts de l'outil sont apparus.
       commentaire en avance**, et l'erreur signalée était un `Unexpected identifier 'L'`
       quinze lignes plus bas. *Un motif de chemin dans un commentaire de bloc est un piège
       silencieux ; la phrase a été réécrite sans lui.*
+
+---
+
+## 15.93 — La migration vers Atlas, outillée et éprouvée avant d'être utile  `VÉRIFIÉ`
+
+### LE CHOIX DE L'OFFRE, TRANCHÉ PAR UNE MESURE
+
+Le porteur du projet est arrivé sur l'écran de création de cluster, devant trois formules.
+
+- [x] **La base pèse `4,06 Mo`** — `1,06 Mo` de données et **`3,00 Mo` d'index**, 16
+      collections, 4 784 documents.
+- [x] **L'offre gratuite M0 donne 512 Mo : cent vingt-six fois la place nécessaire.**
+
+  | Formule | Stockage | Coût | Verdict |
+  |---|---|---|---|
+  | **Free (M0)** | 512 Mo | **0 €, sans carte** | **le bon choix** |
+  | Flex | 5 Go | à l'usage | inutile |
+  | M10 | 10 Go dédiés | ~50 €/mois | hors sujet |
+
+  > **ET LES TROIS SONT DES JEUX DE RÉPLIQUES.** C'est la seule propriété qui compte ici,
+  > puisque les 20 transactions l'exigent. **Payer n'apporterait rien sur ce point.** *Ce que
+  > M0 ne donne pas — sauvegardes planifiées, restauration à un instant donné, processeur
+  > dédié — ne concerne aucune soutenance.*
+
+- [x] **Région : `eu-west`.** Un cluster aux États-Unis ajoute environ **100 ms par appel**,
+      et une page qui en fait dix devient lente sans qu'aucune mesure du code ne l'explique.
+
+### POURQUOI PAS `mongodump | mongorestore`
+
+Les deux outils existent — **mais seulement dans le conteneur**, pas sur le poste. Les deux
+voies évidentes ont chacune un défaut qui se paie cher.
+
+- [ ] **Faire passer l'archive par un tube `docker exec`** : sous Git Bash, un flux
+      **binaire** traversant un tube Windows peut être altéré. *Une archive à moitié
+      restaurée coûte une soirée de diagnostic, et le projet a déjà payé ce motif trois fois
+      avec `\n` devenu `\r\n`.*
+- [ ] **Appeler `mongorestore --uri=<atlas>` dans le conteneur** : l'URI porte le **mot de
+      passe de la base**, et un argument de commande est visible de toute la machine dans la
+      liste des processus.
+
+  > **C'EST EXACTEMENT LA LEÇON DU RELAIS STRIPE**, et elle se répète : *un secret passe par
+  > l'environnement, jamais en argument.*
+
+- [x] **D'où `npm run migrer:atlas`, en Node pur** : l'URI ne quitte pas l'environnement du
+      processus, rien de binaire ne circule, et chaque étape se relit.
+
+### LE PIÈGE DES INDEX, ET CE N'EST PAS CELUI QU'ON CROIT
+
+- [x] **Copier les documents sans les index donne une base qui RÉPOND mais qui ne TROUVE
+      rien** — et qui n'empêche plus deux comptes de porter le même pseudo. **84 index sont
+      en jeu**, dont trois uniques sur `users`.
+- [x] **ET UN INDEX TEXTUEL NE SE RECOPIE PAS TEL QUEL.** `listIndexes` le décrit avec la clé
+      interne `{ _fts: 'text', _ftsx: 1 }`, les vrais champs vivant à côté dans `weights`.
+      Renvoyer cette clé à `createIndex` échoue.
+
+  > **IL FAUT RECONSTRUIRE LA CLÉ DEPUIS `weights`.** Trois collections sont concernées :
+  > `users`, `posts`, `sportevents`. *Sans cela, la recherche du module 10 répondrait
+  > normalement et ne trouverait jamais personne — un faux vert de plus, et celui-là côté
+  > utilisateur.*
+
+- [x] **L'ORDRE COMPTE AUSSI : les index APRÈS les documents.** Créer un index unique avant
+      d'insérer ferait échouer l'insertion au premier doublon légitime d'une base de
+      développement, **en laissant la cible à moitié migrée** — pire que de n'avoir rien
+      fait. Après, s'il refuse, c'est que la source violait sa propre contrainte, et il valait
+      mieux l'apprendre là.
+
+### ÉPROUVÉ AVANT D'ÊTRE UTILE, SUR UNE BASE D'ÉPREUVE LOCALE
+
+- [x] **Les cinq refus, tous allumés** :
+
+  | Refus | Déclenché par |
+  |---|---|
+  | aucune cible | `MONGO_URI_CIBLE` absente |
+  | source = cible | la même URI des deux côtés |
+  | **la cible ne nomme aucune base** | URI sans `/sportsocial` |
+  | cible non vide sans `--ecraser` | seconde migration |
+  | *(et `--ecraser` vide puis recopie)* | troisième migration : conforme |
+
+  > Le troisième refus mérite d'être cité : **sans nom de base dans l'URI, le pilote écrit
+  > dans `test`** et l'application paraît vide alors que tout fonctionne. C'est le piège le
+  > plus coûteux de la mise en place d'Atlas, et il est désormais refusé d'avance.
+
+- [x] **La migration réelle : 16 collections, 4 789 documents, TOUS LES COMPTAGES RELUS
+      ÉGAUX, 84 index recréés.** Code de sortie 0.
+- [x] **ET LA BASE MIGRÉE A ÉTÉ ÉPROUVÉE, pas seulement comptée** :
+
+  ```
+  OK    connexion à la base                              sportsocial-epreuve
+  OK    LES TRANSACTIONS PASSENT (20 usages, 7 modules)  une transaction s’ouvre et se referme
+
+  recherche textuelle     : 1 résultat
+  index textuel présent   : recherche_utilisateurs
+  champs indexés          : nom, prenom, pseudo
+  index uniques recréés   : 3 (pseudo_1, email_1, telegram.conversation_1)
+  ```
+
+  > **UN COMPTAGE ÉGAL NE DIT RIEN DES TRANSACTIONS NI DE LA RECHERCHE.** C'est pourquoi la
+  > fin du script renvoie vers `verifier:deploiement` au lieu d'annoncer que tout va bien.
+
+- [x] **`--sauf` éprouvé aussi**, et il a un usage concret : sur les 4 784 documents,
+      **4 436 sont du bruit d'essai** *(3 036 notifications, 1 400 accusés de webhook)*, soit
+      **93 %**. Les exclure donne une base plus lisible sans rien perdre d'utile.
+- [x] **La base d'épreuve a été retirée** — il ne reste que `sportsocial`, intacte :
+      `verifier:deploiement` au vert, `api 73/73`, `support 134/134`.
+
+### CE QUE LE SCRIPT DIRA SI ÇA SE PASSE MAL
+
+- [x] **Deux pannes sont anticipées, parce qu'elles se ressemblent et n'ont pas la même
+      cause** :
+      un message parlant de **certificat** renvoie à l'interception HTTPS d'Avast — *la panne
+      qui a occupé n8n pendant deux jours* ;
+      un **délai dépassé** renvoie aux deux seules causes réelles, l'IP non autorisée dans
+      « Network Access » ou le nom du cluster mal recopié.
+
+  > *Une erreur de connexion qui ne nomme pas sa cause coûte le diagnostic entier. Ce motif
+  > revient pour la quatrième fois dans ce journal.*

@@ -165,6 +165,103 @@ de répliques à la main sur un VPS, c'est trois nœuds à surveiller pour le m�
 13. **Puis seulement**, poser la chaîne dans `MONGO_URI` **sur l'hébergeur de l'API** — jamais
     dans un fichier du dépôt.
 
+### Quelle offre choisir, et pourquoi la question est tranchée
+
+Atlas propose trois formules à la création d'un cluster. **Mesuré sur la base réelle plutôt
+que supposé :**
+
+```
+base sportsocial : 16 collections · 4 784 documents
+données   1,06 Mo
+index     3,00 Mo
+TOTAL     4,06 Mo
+```
+
+| Formule | Stockage | Coût | Verdict |
+|---|---|---|---|
+| **Free (M0)** | **512 Mo** | **0 €, sans carte** | **✅ le bon choix — 126 fois la place nécessaire** |
+| Flex | 5 Go | à l'usage, quelques euros/mois | inutile ici |
+| M10 | 10 Go, dédié | ~50 €/mois | hors sujet |
+
+> **Et M0 est un JEU DE RÉPLIQUES à trois nœuds**, comme toutes les formules : c'est la seule
+> chose qui compte vraiment, puisque les 20 transactions l'exigent. **Payer n'apporterait
+> rien sur ce point.**
+>
+> *Ce que M0 ne donne pas : les sauvegardes planifiées, la restauration à un instant donné,
+> et un processeur dédié. Aucune des trois ne concerne une soutenance.*
+
+#### Les réglages exacts à la création
+
+| Champ | Valeur | Pourquoi |
+|---|---|---|
+| **Cluster tier** | `M0` | voir ci-dessus |
+| **Provider** | `AWS` | le plus fourni en régions européennes |
+| **Region** | `eu-west-1` (Irlande) ou `eu-west-3` (Paris) | ~100 ms **par appel** depuis les États-Unis |
+| **Name** | `coachconnect` | il apparaît dans la chaîne de connexion |
+| Additional settings | **ne rien changer** | la version de MongoDB par défaut convient ; le chiffrement et les sauvegardes ne sont pas proposés en M0 |
+
+> ⚠️ **Un seul cluster M0 par compte Atlas.** S'il en existe déjà un, Atlas refuse le second —
+> il faut supprimer l'ancien ou choisir Flex.
+
+### Reprendre les données du Mongo local
+
+**C'est un choix, et les deux options se défendent :**
+
+| Option | Quand la préférer |
+|---|---|
+| **Partir à vide** | une démonstration propre, sans trace d'essais |
+| **Reprendre la base locale** | garder les comptes, les publications et les événements déjà créés |
+
+> **Si tu reprends la base, regarde d'abord ce qu'elle contient** : sur les 4 784 documents,
+> **4 436 sont du bruit d'essai** — 3 036 notifications et 1 400 accusés de webhook Stripe,
+> soit **93 %**. Les exclure donne une base plus lisible sans rien perdre d'utile :
+>
+> ```bash
+> # depuis server/, l'URI de destination passe par l'ENVIRONNEMENT
+> MONGO_URI_CIBLE="mongodb+srv://…/sportsocial" \
+>   npm run migrer:atlas -- --essai --sauf=notifications,processedwebhooks
+> ```
+
+#### La migration, et ce qu'elle garantit
+
+```bash
+cd server
+
+# 1. VOIR ce qui serait fait, sans rien écrire
+MONGO_URI_CIBLE="mongodb+srv://…/sportsocial" npm run migrer:atlas -- --essai
+
+# 2. le faire
+MONGO_URI_CIBLE="mongodb+srv://…/sportsocial" npm run migrer:atlas
+```
+
+**L'URI passe par l'environnement, jamais en argument** : un argument de commande est visible
+de toute la machine dans la liste des processus, et celui-ci porte le mot de passe de la base.
+
+Ce que l'outil fait, et que `mongodump` ne ferait pas tout seul :
+
+- **Il recopie les index, APRÈS les documents.** Créer un index unique avant d'insérer
+  ferait échouer l'insertion à mi-parcours ; après, s'il refuse, c'est que la source
+  elle-même violait sa contrainte — et il valait mieux l'apprendre là.
+- **Il reconstruit les index TEXTUELS.** `listIndexes` les décrit avec la clé interne
+  `{ _fts: 'text', _ftsx: 1 }` et les vrais champs dans `weights` ; renvoyer cette clé échoue.
+  **Sans cela, la recherche répondrait sans jamais rien trouver.**
+- **Il relit et compare les comptages**, collection par collection, et ressort `1` sur le
+  moindre écart.
+- **Il refuse** une cible non vide sans `--ecraser`, une cible identique à la source, et une
+  URI qui ne nomme aucune base.
+
+> **Éprouvé le 8 novembre** sur une base d'épreuve locale : **16 collections, 4 789 documents,
+> tous les comptages relus égaux, 84 index recréés**. La base migrée passe ensuite
+> `verifier:deploiement` — transactions comprises — et sa recherche textuelle trouve.
+
+#### Et ensuite, le geste qui n'est pas optionnel
+
+```bash
+MONGO_URI="mongodb+srv://…/sportsocial" npm run verifier:deploiement
+```
+
+> **Un comptage égal ne dit rien des transactions.** C'est ce contrôle qui en ouvre une vraie.
+
 ### Les données : partir à vide
 
 La base locale ne contient que des données de développement et des comptes d'essai. **Partir
