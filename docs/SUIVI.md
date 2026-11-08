@@ -17456,3 +17456,120 @@ d'erreur visible** :
       instance publique.
 - [x] **`docs/DEPLOIEMENT.md` : étapes 3 bis et 3 ter**, avec l'ordre contraint des quatre
       gestes et le tableau des deux messages.
+
+---
+
+## 16.01 — La bascule en une commande, et deux « corrections » qui n'en étaient pas  `VÉRIFIÉ`
+
+### TROIS MALENTENDUS À LEVER, ET ILS CHANGENT CE QU'IL RESTE À FAIRE
+
+Le porteur du projet est revenu sur la popup de connexion d'Atlas, pensant la migration
+« prête ». Trois points, dont deux où il m'a demandé de corriger quelque chose **qui était
+déjà fait**.
+
+- [x] **LA MIGRATION EST FAITE, PAS « PRÊTE ».** Re-vérifiée devant lui : `16 collections,
+      4 791 documents, 100 index`, la recherche textuelle trouve, les transactions passent.
+      *4 817 à la migration, moins les 26 du nettoyage.* **La popup peut être fermée** ; si
+      l'on veut revoir la chaîne, c'est `Drivers and Client Libraries` — les autres choix
+      sont des outils d'exploration ou d'analyse, aucun ne sert à une application Node.
+- [x] **LES DEUX MESSAGES QUI SE CHEVAUCHENT : DÉJÀ CORRIGÉ.** Il m'a demandé « la logique
+      pour corriger cela ». Il n'y a rien à corriger : le défaut a été vu **en écrivant** le
+      contrôle, l'ordre des tests est le bon depuis le premier jet *(ligne 200 : le cas
+      spécifique d'abord)*, et un avertissement est dans le fichier pour qui serait tenté
+      d'inverser.
+
+  > **DEUXIÈME FOIS QU'UNE LEÇON CONSIGNÉE EST LUE COMME UNE TÂCHE EN ATTENTE.** *À moi de
+  > distinguer plus nettement, dans mes rapports, « voici ce que j'ai trouvé et corrigé » de
+  > « voici ce qui reste ». Une trouvaille racontée au présent ressemble à un problème ouvert.*
+
+### ET LA CORRECTION QU'IL M'A DEMANDÉ DE RÉEXPLIQUER
+
+- [x] **Le champ `role` n'existe pas dans `User.js`.** Mon contrôle disait
+      `if (compte.role === 'admin')`. Comme ce champ est absent, l'expression vaut toujours
+      `undefined === 'admin'`, donc **toujours faux**. Le compteur restait à zéro **sans
+      jamais rien compter** — et j'ai annoncé « 0 administrateur » comme un résultat.
+
+  > **CE N'EST PAS UN MAUVAIS RÉSULTAT, C'EST UN RÉSULTAT QUI N'A JAMAIS ÉTÉ CALCULÉ.** *Le
+  > vrai champ s'appelle `type`, et il vaut `admin`, `coach` ou `utilisateur`.*
+
+- [x] **La conclusion restait juste, par un chemin que je n'avais pas emprunté** :
+      `auth.controller.js:59` refuse explicitement `type === 'admin'` à l'inscription, et
+      `tests/regression.mjs:175` le vérifie. Les dix-neuf comptes étant tous nés par l'API,
+      **aucun ne pouvait être administrateur.**
+
+### LES QUATRE ÉTAPES AUTORISÉES, ET POURQUOI JE NE PEUX PAS LES EXÉCUTER
+
+- [ ] **Les trois adresses publiques n'existent pas encore** : aucun projet Vercel, aucun
+      hébergeur d'API, aucun sous-domaine n8n. Les étapes 1, 3 et 4 ont toutes besoin d'une
+      adresse réelle. *Exécuter avec des adresses inventées produirait des flux qui pointent
+      dans le vide, et un faux sentiment d'avancement.*
+
+### D'OÙ `npm run preparer:production` — QUATRE GESTES EN UNE COMMANDE
+
+```
+npm run preparer:production -- --essai --api=… --appli=… --n8n=…
+npm run preparer:production --         --api=… --appli=… --n8n=…
+npm run preparer:production -- --revenir
+```
+
+- [x] **Il écrit ce qui peut l'être** : les cinq flux régénérés, les adresses étant **figées
+      dans le code des nœuds** — n8n tournant avec `N8N_BLOCK_ENV_ACCESS_IN_NODE=true`, un
+      nœud ne peut pas lire l'environnement, *parce qu'il y lirait aussi la clé qui déchiffre
+      tous les identifiants.*
+- [x] **Il dicte ce qu'il ne peut pas écrire** : les variables des deux hébergeurs vivent dans
+      leurs consoles. Trois blocs prêts à coller, **adresses substituées**, chacun suivi de la
+      conséquence de son oubli.
+
+  | Bloc | Piège nommé |
+  |---|---|
+  | hébergeur de l'API | **`CLIENT_URL` : le domaine Vercel EN PREMIER** — sa première valeur sert d'adresse publique à Checkout, à l'onboarding Connect et aux **liens des courriels** |
+  | Vercel | **une variable `VITE_` est FIGÉE DANS LE PAQUET** : après l'avoir posée, il faut REDÉPLOYER |
+  | n8n | **déclarer le rappel OAuth chez Google**, sans quoi Gmail ne se réautorise plus |
+
+- [x] **Et il refuse quatre fautes d'adresse**, chacune avec sa raison :
+
+  | Refus | Pourquoi |
+  |---|---|
+  | pas en `https://` | le cookie `secure` ne serait pas posé, et Telegram refuse un webhook en clair |
+  | **finit par `/`** | les adresses sont composées par concaténation : `https://api.fr//support/…` |
+  | adresse locale | |
+  | **`--api` ne finit pas par `/api`** | le socket est construit en RETIRANT ce suffixe ; sans lui il s'ouvrirait sur une adresse qui n'écoute pas |
+
+### LE VA-ET-VIENT, PROUVÉ
+
+- [x] **Bascule réelle** avec des adresses d'épreuve : les cinq flux régénérés, **les quatre
+      JSON suivis modifiés**, les adresses de production présentes dans les cinq.
+- [x] **`--revenir` : les quatre JSON suivis sont IDENTIQUES À L'OCTET PRÈS** *(`git status`
+      ne rend rien)*, aucune adresse de production ne subsiste, et le cinquième a retrouvé
+      `localhost:5173`.
+- [x] **L'instance n8n n'a pas bougé** : 0 flux portant une adresse de production, **6/6
+      actifs**. *La bascule touche les fichiers, pas le conteneur — l'import reste un geste
+      séparé et explicite.*
+
+  > *Un outil de bascule qui ne sait pas revenir n'est pas un outil, c'est un aller simple.*
+
+### UNE INCOHÉRENCE APPARENTE, ET SA RAISON
+
+Pendant l'épreuve, un écart a accroché l'œil : **cinq fichiers portaient l'adresse de
+production, mais `git status` n'en montrait que quatre.**
+
+- [x] **Les deux flux de messagerie sont exclus du dépôt, à dessein** — `.gitignore:73-74`,
+      décidé le 28 octobre. **Le générateur y grave en dur l'identifiant de conversation
+      Telegram**, lu dans un fichier lui-même exclu : les suivre publierait, sur un dépôt
+      public, l'identifiant que le `.gitignore` protège une ligne plus haut.
+
+  > **MON « INCOHÉRENCE » ÉTAIT UNE MESURE DE SÉCURITÉ.** *Le `.mjs` reste la source de
+  > vérité et sait les reconstruire ; aucune suite ne lit ces JSON. Les quatre autres sont
+  > suivis parce qu'ils ne portent aucune valeur locale.*
+
+- [x] **Conséquence pratique à connaître** : après une bascule, `git status` ne montre que
+      **quatre** JSON modifiés sur cinq. **C'est normal.**
+
+### MESURES
+
+- [x] **Les quatre refus d'adresse éprouvés**, un par un, chacun nommant sa cause.
+- [x] **Essai à blanc** : les trois blocs affichés, adresses substituées, générateurs non
+      lancés.
+- [x] **Non-régression après le va-et-vient : `625/625`** — `api 73`, `canaux 308`,
+      `messagerie-agent 104`, `scrutage 58`, `controles 82`.
+- [x] **Pré-vol n8n : 5 contrôles au vert**, aucun flux déclenché. Quatre services à 200.
