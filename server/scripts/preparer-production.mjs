@@ -245,8 +245,13 @@ bloc(
   [
     `VITE_API_URL=${API}`,
     `VITE_SUPPORT_WEBHOOK_URL=${N8N}/webhook/coachconnect-support`,
-    `VITE_STRIPE_PUBLIC_KEY=pk_live_…`,
     `VITE_TELEGRAM_BOT=<le nom du bot>`,
+    ``,
+    `# et PAS de VITE_STRIPE_PUBLIC_KEY : vérifié, le client ne la lit nulle part.`,
+    `# Le paiement est ENTIÈREMENT côté serveur — le client appelle`,
+    `# POST /subscriptions/:coach/checkout, l'API crée la session Stripe et`,
+    `# rend l'adresse vers laquelle rediriger. Aucune dépendance @stripe/* côté`,
+    `# client, zéro lecture de cette variable dans client/src.`,
   ],
   `Une variable VITE_ est FIGÉE DANS LE PAQUET à la construction. Après les
         avoir posées, il faut REDÉPLOYER — modifier la variable seule ne change
