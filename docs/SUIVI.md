@@ -17707,3 +17707,98 @@ dépôt et construire depuis zéro.
 
   > *Un contrôle de structure ne remplace pas une exécution : un fichier bien formé peut
   > porter une valeur fausse. Les deux ont été faits.*
+
+---
+
+## 16.03 — Aucun secret dans les 143 commits, et le disque externe ne sert à rien  `VÉRIFIÉ`
+
+### LE BALAYAGE QUI MANQUAIT : TOUT L'HISTORIQUE, PAS SEULEMENT LE DIFF
+
+Le contrôle d'avant-commit porte depuis le début sur **le diff en cours**. C'est utile et
+insuffisant : **un secret committé une fois reste dans l'historique pour toujours**, même
+retiré du fichier au commit suivant. Et le dépôt s'apprête à être relié à Vercel.
+
+- [x] **Aucun fichier `.env` n'a JAMAIS été committé** — `git log --all --full-history` sur
+      `.env` et `*/.env` rend **0 commit**.
+- [x] **Dix motifs à haute valeur, cherchés dans les 143 commits**, par un comptage qui
+      n'affiche jamais ce qu'il trouve :
+
+  | Motif | Historique |
+  |---|---|
+  | clé Stripe réelle `sk_live_` | **aucune trace** |
+  | clé Stripe de test `sk_test_` | **aucune trace** |
+  | secret de webhook `whsec_` | **aucune trace** |
+  | jeton de bot Telegram | **aucune trace** |
+  | clé Google API `AIza` | **aucune trace** |
+  | **clé API Anthropic `sk-ant-`** | **aucune trace** |
+  | jeton GitHub `ghp_` | **aucune trace** |
+  | jeton de rafraîchissement Google `1//` | **aucune trace** |
+  | clé privée `BEGIN … PRIVATE KEY` | **aucune trace** |
+  | URI Mongo avec identifiants | **15 occurrences** |
+
+- [x] **Les quinze sont expliquées, et par le test décisif** : plutôt que de lire les lignes,
+      j'ai cherché **les identifiants RÉELS** dans tout l'historique.
+
+  | Cherché | Résultat |
+  |---|---|
+  | le vrai nom d'utilisateur Atlas | **absent de tout l'historique** |
+  | le vrai identifiant de cluster | **absent** |
+  | le vrai hôte du cluster | **absent** |
+
+  Les quinze vivent dans trois fichiers — `docs/DEPLOIEMENT.md`, `server/.env.example`,
+  `server/scripts/lib/uri-mongo.mjs` — et les noms d'utilisateur qu'elles portent sont
+  `<UTILISATEUR>`, `<user>`, `util`, `utilisateur`. **Des marques.**
+
+  > **LA MÉTHODE COMPTE AUTANT QUE LE RÉSULTAT.** *Un motif générique attrape toujours les
+  > exemples de documentation — et un fichier qui teste un diagnostic d'URI doit bien
+  > contenir des URI. Chercher les identifiants RÉELS, qu'on connaît, tranche en une
+  > commande ce qu'une inspection ligne par ligne ferait mal, en risquant la divulgation.*
+
+### LE DURCISSEMENT, VÉRIFIÉ PLUTÔT QUE SUPPOSÉ
+
+- [x] **Les cinq protections sont branchées dans `app.js`** : `helmet`,
+      `express-mongo-sanitize`, le limiteur de débit, `compression`, `cookie-parser`.
+- [x] **Le limiteur est EN COUCHES**, et c'est ce qui compte : `limiteurGlobal` sur tout
+      `/api`, puis un limiteur **dédié** à `/register`, `/login` et `/refresh`.
+- [x] **La pile d'appel ne fuit pas** : `error.middleware.js:98` ne l'inclut dans la réponse
+      que **hors production** — `...(!estProduction && { stack: erreur.stack })`.
+- [ ] **UNE QUESTION RESTE OUVERTE : le dépôt est-il public ?** `gh` n'est pas installé sur ce
+      poste, je ne peux pas le lire. *Le résultat du balayage est bon dans les deux cas ; la
+      réponse change seulement la gravité qu'aurait eue une trouvaille.*
+
+### LE CLONE DU HEAD COMMITTÉ, ET POURQUOI LE REFAIRE N'ÉTAIT PAS UN DOUBLON
+
+- [x] **Mon premier essai portait sur le HEAD d'AVANT le correctif axios.** Le refaire vérifie
+      **le lock que je venais de committer** — c'est-à-dire exactement ce que Vercel
+      installera.
+
+  | Épreuve sur le clone du HEAD | Résultat |
+  |---|---|
+  | `npm ci` | **code 0**, axios **1.21.0**, follow-redirects **1.16.2** |
+  | `npm audit --omit=dev` | **0 vulnérabilité** |
+  | `npm run build` *(variables de production)* | **code 0**, 8 fichiers JS, `index.html` |
+  | le paquet | adresse absolue ×2, **`localhost` : 0** |
+
+  > *Rejouer une épreuve sur un état différent n'est pas la rejouer.*
+
+### LE DISQUE EXTERNE : IL N'A AUCUNE RAISON DE RESTER BRANCHÉ
+
+Le porteur du projet a demandé ce qu'il contient et pourquoi il devrait rester connecté.
+**Réponse mesurée : il ne contient que ce que J'Y AI MIS, et rien n'en dépend.**
+
+| Sur `D:` | Taille | Nature |
+|---|---|---|
+| `temp-tests` | 4 Mo | **mes** journaux de suites |
+| `sauvegardes-coachconnect` | 2 Mo | une sauvegarde, **déjà dupliquée sur `C:`** |
+| `epreuves-build` | 118 Mo | **mon** clone d'essai de construction |
+| le reste | — | vide, hors les installateurs WD |
+
+- [x] **Aucun fichier du projet ne référence `D:`** — ni le code, ni les scripts, ni les
+      suites, ni `server/.env`.
+- [x] **Je m'en étais servi parce que `C:` était à 0,08 Go ce matin-là.** Mauvaise idée : son
+      débranchement a tué les deux serveurs de développement, **et ma sauvegarde avec**. Tout
+      est repassé sur `C:`.
+
+  > **LA LEÇON : un outil de travail ne doit pas dépendre d'un support amovible.** *Le disque
+  > peut être débranché quand il veut ; il reste 124 Mo de mes affaires dessus, qui ne servent
+  > plus à rien.*
