@@ -46,7 +46,8 @@
     "test:escalade": "node tests/escalade-support.mjs",
     "test:scrutage": "node tests/telegram-scrutage.mjs",
     "test:controles": "node tests/controles-exploitation.mjs",
-    "verifier:secrets": "node scripts/verifier-secrets.mjs"
+    "verifier:secrets": "node scripts/verifier-secrets.mjs",
+    "transferer:n8n": "node scripts/transferer-n8n.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
