@@ -17205,3 +17205,98 @@ le manque est antérieur.
   > *C'est la troisième fois en deux jours qu'un outil à moi rend un verdict faux ou nuisible
   > par un détail de sa commande — après `[a-z]+` sans chiffres et `grep -o` qui n'affiche que
   > le motif. Les trois fois, l'outil avait raison sur le fond et tort dans sa forme.*
+
+---
+
+## 15.99 — Le mot de passe réémis vérifié sans l'afficher, et le déploiement scindé prouvé dans le paquet  `VÉRIFIÉ` / `GESTE EN ATTENTE`
+
+### LE NOUVEAU MOT DE PASSE, CONTRÔLÉ PAR DES COMMANDES QUI NE PEUVENT RIEN IMPRIMER
+
+Après la divulgation de la veille — `grep -rn` affichant la ligne entière du `.env` — le
+contrôle a été refait **avec des outils incapables de fuite** :
+
+```
+base examinée : celle de MONGO_URI_CIBLE   (option --cible)
+OK    l’URI de la base est bien formée                 rien à signaler
+OK    connexion à la base                              sportsocial
+OK    LES TRANSACTIONS PASSENT (20 usages, 7 modules)  une transaction s’ouvre et se referme
+10 contrôle(s) au vert · 0 en échec
+```
+
+- [x] **`verifier:deploiement -- --cible` masque les identifiants par construction** : il lit
+      la variable, ne l'affiche jamais, et ne rend que des verdicts.
+
+  > **LA RÈGLE RETENUE, ET ELLE EST SIMPLE** : dans un contrôle de secrets, on n'emploie que
+  > des commandes qui **comptent** ou qui **nomment** — `grep -c`, `grep -l`,
+  > `git check-ignore`. *Jamais `-n`, jamais `cat`, jamais l'écho d'une variable.*
+
+### « EST-CE DANGEREUX ? » — MESURÉ, ET LA RÉPONSE EST NON
+
+Le porteur du projet a conditionné son accord à mon jugement : supprimer **si** ces comptes
+peuvent servir à nuire. **Plutôt que de donner une impression, les dix-neuf ont été
+examinés :**
+
+| Contrôle | Résultat |
+|---|---|
+| administrateurs parmi eux | **0** |
+| coachs *(accès au premium, aux versements)* | **0** |
+| jeton Telegram lié | **0** |
+| réinitialisation de mot de passe en cours | **0** |
+| **sessions jamais émises** | **0** — aucun ne s'est jamais connecté |
+| comptes actifs et profils publics | **19 / 19** |
+
+- [x] **CE N'EST PAS UNE FAILLE, ET JE NE VAIS PAS PRÉTENDRE LE CONTRAIRE** pour justifier une
+      suppression. Aucun privilège, aucune session, aucun canal ouvert.
+
+  > **MAIS LES DIX-NEUF SONT ACTIFS ET PUBLICS.** Un jury qui parcourt l'application verrait
+  > `probe1787774585432` et `diagtls1790772066` dans les résultats de recherche et sur la
+  > carte. *C'est cela qui nuit au projet — pas un risque d'intrusion, une démonstration
+  > salie. La distinction méritait d'être faite plutôt que confondue.*
+
+- [ ] **LA SUPPRESSION A ÉTÉ REFUSÉE PAR LA GARDE.** `nettoyer:residus -- --supprimer` touche
+      à des enregistrements de base : le garde-fou l'a bloquée, et **je ne l'ai pas
+      contournée.** Les deux commandes sont remises au porteur du projet, la sauvegarde du
+      14 h 32 étant en place.
+
+### LE DÉPLOIEMENT SCINDÉ, PROUVÉ DANS LE PAQUET ET PLUS SEULEMENT DANS LA SOURCE
+
+J'avais annoncé « **l'option retenue ne demande aucun changement de code** » après avoir
+**lu** le code. C'est juste, mais une lecture n'est pas une preuve : le paquet de production
+est construit par un outil qui peut substituer autre chose que ce qu'on croit.
+
+- [x] **Construction réelle avec une API sur un autre domaine** :
+      `VITE_API_URL="https://api-coachconnect.exemple.test/api" npm run build` → code 0.
+- [x] **Et le paquet porte littéralement la dérivation du socket** :
+
+  ```js
+  api-coachconnect.exemple.test/api`.replace(/\/api$/,``)||`/`
+  ```
+
+  | Mesure dans `dist/assets/*.js` | Résultat |
+  |---|---|
+  | adresse absolue de l'API | **2** *(axios + socket)* |
+  | `localhost:5000` | **0** |
+  | `localhost:5173` | **0** |
+  | chemin `/socket.io` explicite | **1** |
+  | `test:cadratins` *(lit le paquet de production)* | **9/9** |
+
+  > **AUCUNE ADRESSE LOCALE NE SURVIT À LA CONSTRUCTION.** L'affirmation tient donc au niveau
+  > où elle compte : *ce qui part chez le visiteur.*
+
+- [x] **Et le paquet a été reconstruit en configuration de développement** : `baseURL`
+      relative revenue, **0 adresse d'essai résiduelle**, `cadratins 9/9`. *Une épreuve qui
+      laisse le dépôt dans l'état où elle l'a trouvé.*
+
+### MESURES
+
+- [x] **Atlas** : nouveau mot de passe au vert, 10 contrôles, transactions comprises.
+- [x] **Le paquet de production** éprouvé dans les deux configurations, et rendu à l'état de
+      développement.
+- [ ] **Dix-neuf résidus toujours en base**, des deux côtés. Refus de la garde, geste remis au
+      porteur du projet :
+
+  ```bash
+  cd server
+  npm run nettoyer:residus -- --supprimer            # base locale
+  npm run nettoyer:residus -- --cible --supprimer    # base Atlas
+  ```
