@@ -16709,3 +16709,93 @@ voies évidentes ont chacune un défaut qui se paie cher.
 
   > *Une erreur de connexion qui ne nomme pas sa cause coûte le diagnostic entier. Ce motif
   > revient pour la quatrième fois dans ce journal.*
+
+---
+
+## 15.94 — Des identifiants Atlas exposés, et une URI qui ne dira plus « authentification refusée »  `VÉRIFIÉ` / `GESTE EN ATTENTE`
+
+### LE POINT DE SÉCURITÉ, ET C'ÉTAIT LA RÈGLE DU PORTEUR DU PROJET
+
+- [ ] **Les identifiants de la base Atlas ont été collés dans la conversation** — nom
+      d'utilisateur, mot de passe, et l'adresse IP publique du poste.
+
+  > **CE SONT EXACTEMENT LES INFORMATIONS QUE LA RÈGLE MAISON PROTÈGE** : « vérifier que rien
+  > de critique ou de sensible n'est exposé ». La règle a été écrite pour le dépôt ; elle
+  > valait ici pour une conversation.
+
+- [x] **Ils n'ont été écrits nulle part** : ni fichier, ni commit, ni journal. **Ce paragraphe
+      lui-même ne les contient pas.**
+- [ ] **ROTATION DEMANDÉE AVANT USAGE** : `Database Access` → l'utilisateur → `Edit` →
+      `Edit Password` → `Autogenerate` → `Update User`. *Changer un mot de passe avant de
+      s'en servir coûte trente secondes ; après, il faut aussi le changer partout où il a
+      servi.*
+
+### CE QUE L'ASSISTANT ATLAS FAIT À VOTRE PLACE
+
+L'assistant de connexion a pris **deux décisions**, et les deux comptent pour la suite.
+
+| Ce qu'il fait | Ce que cela implique |
+|---|---|
+| **Ajoute l'IP du poste** à la liste d'accès | suffit pour migrer d'ici, mais **une IP domestique change**, et celle de l'hébergeur n'y est pas |
+| **Crée un utilisateur ADMINISTRATEUR Atlas** | plus large que nécessaire : `readWriteAnyDatabase` suffit à l'application |
+
+- [x] **Consigné dans `docs/DEPLOIEMENT.md`**, avec le rappel de revenir dans
+      `Network Access` avant de déployer l'API : **l'IP du poste n'autorise que le poste.**
+
+### L'URI QUI NE DIRA PLUS AUTRE CHOSE QUE SA FAUTE
+
+Une URI Atlas se recopie à la main depuis une page web. **Les cinq fautes possibles rendent
+toutes un message qui parle d'autre chose** — et l'une ne rend rien du tout.
+
+| Faute | Ce que le pilote dit | Ce que c'est vraiment |
+|---|---|---|
+| marque `<db_password>` laissée | « Authentication failed » | rien n'a été substitué |
+| **aucun nom de base** | **RIEN** | **le pilote écrit dans `test` : l'application paraît VIDE** |
+| mot de passe avec un `@` | « ENOTFOUND <bout de passe> » | l'URI coupe au dernier `@` |
+| mot de passe avec `/ ? # [ ]` | hôte introuvable | l'URI coupe au mauvais endroit |
+| un port avec `+srv` | erreur de schéma | `+srv` découvre les ports par DNS |
+
+- [x] **`scripts/lib/uri-mongo.mjs` les nomme toutes, avec leur remède**, et le module est
+      branché sur **les deux** scripts : `verifier:deploiement` et `migrer:atlas`.
+
+  > **LA DEUXIÈME LIGNE EST LA PIRE DU TABLEAU, parce qu'elle ne produit aucune erreur.** On
+  > la découvre en se demandant pourquoi l'application a perdu ses données. *Elle est
+  > désormais refusée d'avance.*
+
+- [x] **Éprouvé sur onze cas, 11/11 conformes** — et les **deux URI correctes rendent zéro
+      faute**. *Un contrôle qui ne s'allume jamais ne vérifie rien ; un contrôle qui s'allume
+      toujours est pire.*
+
+### ET L'AUTO-CONTRÔLE A TROUVÉ DEUX DÉFAUTS DANS MON PROPRE CODE
+
+- [x] **Premier : le découpage était cassé par le caractère qu'il devait détecter.** J'obtenais
+      l'autorité par `sansSchema.split('/')[0]` — mais un mot de passe contenant un `/`, qui
+      est précisément l'une des fautes cherchées, coupait la chaîne **avant** l'arobase.
+      L'autorité n'en contenait plus, et le contrôle du mot de passe **ne s'exécutait pas**.
+
+  > **CORRIGÉ EN FAISANT COMME LE PILOTE : on découpe au DERNIER `@`, jamais au premier `/`.**
+
+- [x] **Second, et plus instructif : l'auto-contrôle ne s'exécutait pas du tout.** Je
+      comparais `import.meta.url` à `` `file://${process.argv[1]}` ``. Sous Windows,
+      `import.meta.url` vaut `file:///C:/…` — **trois barres** — là où ma construction en
+      donnait deux.
+
+  > **AUCUNE SORTIE, CODE DE SORTIE 0 : TOUT ALLAIT BIEN EN APPARENCE.**
+  > *Un contrôle qui ne s'exécute pas rend le même verdict qu'un contrôle qui passe.*
+  > `pathToFileURL` est fait pour cela. **Cinquième visage du faux vert dans ce projet**,
+  > après la page vide, le `0/0`, le filtre de date et l'assertion d'absence sur la forme
+  > ASCII.
+
+### MESURES
+
+- [x] **Auto-contrôle du module : 11/11**, code de sortie 0.
+- [x] **`verifier:deploiement` : 10 au vert** *(9 + le nouveau contrôle d'URI)*, 0 en échec,
+      7 réservés à la production.
+- [x] **Le nouveau contrôle éprouvé dans les deux sens** : `rien à signaler` sur l'URI locale,
+      et `ÉCHEC` nommé sur une marque laissée en place.
+- [x] **`migrer:atlas` énumère désormais TOUTES les fautes d'un coup** — éprouvé sur une URI
+      qui en portait deux.
+- [x] **Migration complète rejouée** après branchement du module : `16 collections`,
+      `4 796 documents`, comptages relus égaux, base de contrôle retirée.
+- [x] **Non-régression** : `api 73/73`, `support 134/134`, `controles 82/82`, base de travail
+      intacte.

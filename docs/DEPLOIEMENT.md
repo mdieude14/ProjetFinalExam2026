@@ -91,6 +91,35 @@ de répliques à la main sur un VPS, c'est trois nœuds à surveiller pour le m�
    > par Atlas : les 20 transactions de l'application l'exigent. Rien à configurer pour cela,
    > c'est le comportement par défaut.
 
+#### L'assistant « Connectez-vous à … », et les deux choix qu'il fait pour vous
+
+Après la création du cluster, Atlas ouvre un assistant en trois temps. **Il a déjà fait deux
+choses, et les deux méritent d'être connues.**
+
+| Ce qu'il a fait | Ce que cela implique |
+|---|---|
+| **Ajouté votre IP actuelle** à la liste d'accès | elle suffit pour migrer depuis le poste, **mais une IP domestique change**, et celle de l'hébergeur de l'API n'y est pas |
+| **Créé un utilisateur avec les droits d'ADMINISTRATEUR Atlas** | c'est plus large que nécessaire : `readWriteAnyDatabase` suffit à l'application |
+
+> ⚠️ **LE MOT DE PASSE N'EST AFFICHÉ QU'UNE FOIS.** Copiez-le immédiatement — et s'il a
+> transité par un endroit qui en garde la trace *(une conversation, un courriel, un
+> presse-papiers partagé)*, **changez-le avant de l'employer** : `Database Access` → l'utilisateur
+> → `Edit` → `Edit Password` → `Autogenerate` → `Update User`. Trente secondes.
+>
+> Le fichier `.env` que l'assistant propose de télécharger **ne doit pas entrer dans le
+> dépôt** ; la règle `.env` du `.gitignore` le couvre, mais le plus sûr est de ne pas le
+> laisser traîner dans `Téléchargements`.
+
+**Les deux temps suivants de l'assistant :**
+
+2. **« Choisissez un mode de connexion »** → **`Drivers`**. *Pas `Compass`, pas `MongoDB
+   Shell` : c'est une application Node qui se connecte, et c'est cette chaîne-là qu'il faut.*
+3. **« Connecter »** → choisir **Node.js**, version **6.7 or later**, puis copier la chaîne et
+   lui appliquer les deux modifications de l'étape 4 ci-dessous.
+
+**Et avant de déployer l'API**, revenir dans `Network Access` pour y ajouter soit les IP de
+sortie de l'hébergeur, soit `0.0.0.0/0` : **l'IP du poste n'autorise que le poste.**
+
 #### Étape 2 — L'utilisateur de la base
 
 4. Menu **« Database Access »** → **« Add New Database User »**.
