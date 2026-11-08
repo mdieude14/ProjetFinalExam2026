@@ -18779,3 +18779,144 @@ d'autorisation d'Atlas.**
 > **UN SEUL CLIC, DANS UNE INTERFACE QUE JE N'AI PAS** : Atlas → **Network Access** → **Add IP
 > Address** → `2.24.62.117/32`. *L'API redémarre en boucle, donc elle se connectera d'elle-même
 > dès l'autorisation posée.*
+
+---
+
+## 16.11 — La production debout, le compte n8n conservé, et un 409 qui accusait le mauvais coupable  `VÉRIFIÉ`
+
+### L'API EST EN SERVICE, ET LE LOGIN FONCTIONNE
+
+L'autorisation `2.24.62.117/32` posée dans Atlas, l'API s'est connectée **d'elle-même**, après
+**75 redémarrages** en boucle.
+
+- [x] **Mesuré de l'extérieur, et c'est ce qui compte** :
+
+  | Appel | Résultat |
+  |---|---|
+  | `GET /api/health` | **200** `{"succes":true,"message":"API opérationnelle","base":"connecte"}` |
+  | `GET /socket.io/?EIO=4` | **200**, `upgrades:["websocket"]` — **le temps réel passe à travers Caddy** |
+  | **`POST /api/auth/login`** | **401 « Identifiants invalides »** |
+
+  > **CE 401 EST LE RÉSULTAT ATTENDU, ET IL CLÔT LA QUESTION DU LOGIN CÔTÉ SERVEUR.** *La
+  > route existe, valide, consulte Atlas et refuse de mauvais identifiants. Il ne reste que le
+  > client, qui ne sait pas encore où appeler.*
+
+- [ ] **ET MON PREMIER ESSAI RENDAIT 400, pas 401.** J'avais envoyé `email` et `motDePasse` ;
+      l'API attend **`identifiant`** et **`password`**. *Le 400 portait la réponse dans son
+      corps — `[{"champ":"identifiant"},{"champ":"password"}]`. Un message de validation bien
+      écrit se lit au lieu de se contourner.*
+
+- [x] **En-têtes de sécurité en ligne**, vérifiés : HSTS `max-age=31536000`, CSP complète,
+      `nosniff`, `X-Frame-Options`, et **HTTP/3** annoncé par `Alt-Svc: h3`.
+
+### « POURQUOI DEVOIR CRÉER UN AUTRE COMPTE n8n ? » — IL NE FAUT PAS, ET J'AVAIS TORT
+
+La question est revenue une **quatrième** fois. Deux réponses successives l'avaient écartée sans
+y répondre : *« le compte n'est pas transférable »*, puis *« c'est comme WordPress »*.
+
+- [x] **IL L'ÉTAIT, et la bonne réponse était à une mesure de distance** : **le compte est une
+      ligne dans `/home/node/.n8n/database.sqlite`.** Copier cette base transporte **le compte,
+      les identifiants, les flux et l'historique** d'un seul geste.
+
+  > **J'AI RÉPONDU « IMPOSSIBLE » PARCE QUE L'OUTIL OFFICIEL NE LE FAIT PAS.** `export:credentials`
+  > et `export:workflow` existent ; il n'y a pas d'`export:user`. *J'en ai conclu une
+  > impossibilité alors que je n'avais constaté qu'une lacune de l'outil. La base, elle, ne
+  > fait pas cette distinction.*
+
+- [x] **La condition, vérifiée avant de copier** : **versions identiques, `1.121.3` de part et
+      d'autre** *(un schéma migré par une version plus récente ne redescend pas)*, et **clé de
+      chiffrement alignée**, empreinte `583f2cefaca62da3`.
+
+- [x] **Le n8n local arrêté AVANT la copie**, pour que SQLite soit cohérent, et les fichiers
+      `-wal` et `-shm` retirés à la pose. *Copier une base en cours d'écriture donne un fichier
+      valide et un contenu partiel.*
+
+- [x] **142 Mo transférés en 17 secondes**, base du VPS sauvegardée avant d'être écrasée.
+
+- [x] **ET LE TEST DÉCISIF N'EST PAS LA PRÉSENCE, C'EST LA LISIBILITÉ** :
+
+  | Identifiant | Champs lisibles |
+  |---|---|
+  | Clé d'agent, Clé de service | 2 chacun |
+  | Anthropic, Bot Telegram | 1 chacun |
+  | Envoi support (SMTP) | 6 |
+  | Gmail | 8 |
+
+  > **6/6 DÉCHIFFRÉS, 0 EN ÉCHEC** *(`export:credentials --decrypted`, relu par n8n avec la clé
+  > du VPS)*. **Aucun secret retapé, aucun secret lu.** *Compter six lignes en base n'aurait
+  > rien prouvé : des identifiants indéchiffrables s'y comptent aussi bien.*
+
+### L'IMPORT DÉSACTIVE TOUT, ET LE SCRIPT LE DISAIT
+
+- [x] **Les 6 flux régénérés importés sur les mêmes identifiants** — `ccAgentCourri01`,
+      `ccAgentTelegr01`, `ccMessagerieCor1`, `ccMessagerieTri1`, `ccReleveTelegr01`,
+      `ccSupportAgent01` — donc **6 en base après import, pas 12 : mise à jour et non
+      duplication.** *Vérifié par comptage, parce qu'un identifiant qui ne concorde pas produit
+      un doublon silencieux et deux flux actifs sur le même webhook.*
+
+- [x] **`import:workflow` a bien remis les 6 à `active=0`**, exactement comme
+      `preparer:production` l'annonce dans son propre texte. Réactivés, **puis redémarrés** :
+      n8n le dit lui-même, *« activation will not take effect if n8n is running »*.
+
+- [x] **0 adresse locale en base**, et les 10 adresses de production en place.
+
+- [x] **Les deux webhooks répondent, sans mot de passe, de l'extérieur** :
+
+  | Webhook | Code | Lecture |
+  |---|---|---|
+  | `/webhook/coachconnect-support` | **400** | le flux répond, et **valide** : *« question de 3 à 2000 caractères »* |
+  | `/webhook/telegram-support` | **403** | *« Authorization data is wrong! »* — le jeton secret est contrôlé |
+
+  > **UN 404 AURAIT SIGNIFIÉ « FLUX NON ENREGISTRÉ ».** *Un 400 ou un 403 avec un corps
+  > sensé prouvent l'inverse : quelque chose écoute et raisonne.*
+
+### LE 409 TELEGRAM ACCUSAIT LE MAUVAIS COUPABLE, ET MOI AVEC
+
+Le journal répétait **`un webhook est encore posé (409)`** toutes les dix secondes.
+
+- [ ] **ET `getWebhookInfo` RENDAIT UNE ADRESSE VIDE.** Aucun webhook posé. *Le message de
+      l'API accusait une cause qui n'existait pas.*
+
+- [x] **Telegram rend 409 pour DEUX raisons distinctes** : un webhook actif, **ou un autre
+      `getUpdates` en cours**. C'était la seconde.
+
+  > **L'API LOCALE TOURNAIT ENCORE ET SE DISPUTAIT LE MÊME BOT.** *Et l'architecture explique
+  > pourquoi c'est structurel : le back-end **scrute** (`getUpdates`) au lieu d'être appelé, et
+  > appelle `deleteWebhook` au démarrage — décision documentée, prise parce qu'un justificatif
+  > n8n ne peut pas porter le jeton dans le CHEMIN de l'URL. **Deux instances ne peuvent donc
+  > pas partager un bot.***
+
+- [ ] **ARRÊTER LA TÂCHE N'A PAS ARRÊTÉ LE SERVEUR** — la leçon des enfants orphelins, une
+      fois de plus. `127.0.0.1:5000` répondait encore **200 avec `base: connecte`**, et trois
+      processus survivaient : **deux `nodemon` et un `node src/server.js`**.
+
+  > ⚠️ **ET `Get-NetTCPConnection -LocalPort 5000 -State Listen` NE VOYAIT RIEN**, alors que
+  > `curl` obtenait 200. *Deux instruments, deux réponses contradictoires. Celui qui
+  > interrogeait le service avait raison ; celui qui interrogeait le système d'exploitation
+  > s'est trompé. La ligne de commande des processus a tranché.*
+
+- [x] **Les surveillants tués AVANT le serveur**, sans quoi `nodemon` l'aurait relancé. *Le
+      serveur est d'ailleurs parti de lui-même avec son parent.*
+
+- [x] **Vérifié par comptage sur une fenêtre glissante, après un cycle complet de scrutage**
+      *(l'attente longue va jusqu'à 50 s)* : **3 occurrences par minute → 0**, et
+      `127.0.0.1:5000` rend **000**.
+
+  > **ET C'EST UNE CONTRAINTE D'EXPLOITATION, PAS UN INCIDENT FERMÉ** : tant que la production
+  > détient le bot, **le back-end local ne doit pas tourner**. *Le relancer rouvrirait le
+  > conflit, et le symptôme s'afficherait côté serveur.*
+
+### CE QUI RESTE, ET CE QUI LE BLOQUE
+
+- [ ] **`verifier:n8n` rend 1 échec, et il porte sur le poste et non sur le VPS** : le
+      `server/.env` **local** n'a pas `N8N_WEBHOOK_TELEGRAM`, donc le contrôle signale un repli
+      vers `localhost:5678`. **Sur le VPS, les trois variables sont justes**, lues dans les
+      conteneurs : `N8N_WEBHOOK_TELEGRAM`, `WEBHOOK_URL`, `N8N_HOST`.
+
+  > *Un contrôle lancé depuis le poste mesure le poste. Le distinguer évite de corriger une
+  > production qui n'a rien.*
+
+- [ ] **LE SEUL VERROU RESTANT EST DANS VERCEL**, et c'est un refus légitime de sa part : une
+      variable `VITE_` est **figée dans le paquet du navigateur**, donc **elle ne peut pas être
+      de type `Secret`**. *Il faut la poser en `Config`, puis redéployer, car la valeur est
+      incorporée à la construction.*
