@@ -18463,3 +18463,45 @@ mon compte n8n »*. **Répéter les mêmes mots n'a rien donné ; une analogie a
 
 > **LES ÉTAPES 4 À 6 ET 8 SONT AUTOMATIQUES dès que l'IP est connue.** *Seules 1, 2, 3 et 7
 > demandent des clics, parce qu'elles passent par des interfaces web ou touchent des secrets.*
+
+### ADDENDUM 16.08 — MON ALARME CRLF ÉTAIT FAUSSE, ET C'EST LE MÊME DÉFAUT D'INSTRUMENT
+
+Le `warning: LF will be replaced by CRLF` de Git m'a fait vérifier les fins de ligne des
+fichiers lus par Linux. **J'ai annoncé « les sept fichiers sont en CRLF », dont les
+`.env.example` — donc « des heures de diagnostic évitées ». C'ÉTAIT FAUX.**
+
+- [ ] **`grep -c $'\r'` ne comptait pas les retours chariot.** En Git Bash, `$'\r'` arrive
+      comme un **motif vide**, qui correspond à **toutes** les lignes. Mes « 222 CR » étaient le
+      **nombre total de lignes** du fichier.
+
+  > **SEPT FICHIERS « CASSÉS SUR LINUX », ET AUCUN NE L'ÉTAIT.** *Quatrième occurrence de la
+  > même famille dans cette session, après `[a-z]+` sans chiffres, `grep -o` qui n'affiche que
+  > le motif, et le test DNS qui comptait l'adresse du résolveur : **un motif qui attrape autre
+  > chose que ce qu'on croit et rend un résultat crédible.***
+
+- [x] **DEUX CAS TÉMOINS ONT SUFFI**, et j'aurais dû les écrire avant d'alarmer :
+      un fichier **LF pur** rendait **2**, et un fichier **sans aucune lettre `r`** rendait
+      **2** aussi. *Un compteur de CR qui rend 2 sur du LF pur n'est pas un compteur de CR.*
+
+- [x] **Remesuré au niveau de l'octet** *(Node, en comptant les `0x0D`, avec trois cas témoins
+      validés en préalable)* :
+
+  | Fichier | Octets | CR |
+  |---|---|---|
+  | **servi par GitHub** *(ce que le VPS télécharge)* | 7 841 | **0** |
+  | `installer-vps.sh`, `docker-compose.yml`, `Caddyfile` | | **0** |
+  | `.env.example`, `api.env.example` | | **0** |
+  | `server/Dockerfile`, `server/.dockerignore` | | **0** |
+
+  > **ET LE MESSAGE DE GIT NE DISAIT PAS CE QUE J'AI CRU** : « LF **will be** replaced » parle
+  > d'une conversion **future** de la copie de travail sous `core.autocrlf=true`, **pas** de ce
+  > qui est stocké. *Le dépôt était correct depuis le début.*
+
+- [x] **Le `.gitattributes` est CONSERVÉ, mais comme prévention et non comme réparation.** Sous
+      `core.autocrlf=true` l'aller-retour est déjà sûr ; la garantie devient en revanche
+      **indépendante de la configuration locale** de chacun. *Le cas qu'il couvre vraiment : un
+      poste réglé en `autocrlf=false` dont l'éditeur écrirait du CRLF dans un `.sh`.*
+
+- [x] **La règle, renforcée** : la danger n'est pas de se tromper, c'est d'**annoncer un
+      diagnostic avant d'avoir validé l'instrument**. *Deux cas témoins coûtent dix secondes.
+      J'ai écrit une alarme, un correctif et un commit avant de les écrire.*

@@ -1,0 +1,40 @@
+# Normalisation par defaut : Git stocke en LF, et rend a chacun les fins de
+# ligne de sa plateforme.
+* text=auto
+
+# ET CES FICHIERS DOIVENT RESTER EN LF MEME SUR WINDOWS, parce qu'ils sont
+# consommes par Linux et non par un editeur Windows.
+#
+# Un script shell en CRLF echoue sur « $'\r': command not found », illisible.
+# Un fichier d'environnement en CRLF est pire encore : la valeur garde le \r,
+# donc « N8N_DOMAINE=n8n.exemple.com<CR> » fait demander a Caddy un certificat
+# pour un nom d'hote qui n'existe pas, sans que le message le dise.
+*.sh              text eol=lf
+*.bash            text eol=lf
+Dockerfile        text eol=lf
+Dockerfile.*      text eol=lf
+.dockerignore     text eol=lf
+**/.dockerignore  text eol=lf
+Caddyfile         text eol=lf
+**/Caddyfile      text eol=lf
+*.env.example     text eol=lf
+.env.example      text eol=lf
+**/.env.example   text eol=lf
+docker/**/*.yml   text eol=lf
+docker/**/*.yaml  text eol=lf
+
+# Les scripts propres a Windows gardent au contraire le CRLF.
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Et les binaires ne sont jamais touches.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
