@@ -97,6 +97,30 @@ services:
     depends_on:
       - n8n
       - api
+    networks:
+      default:
+        aliases:
+          # LE REPLI NAT, ET C'EST LE PIÈGE QUI A COÛTÉ LE PLUS CHER ICI.
+          #
+          # Les flux n8n appellent l'API par son adresse PUBLIQUE, parce que
+          # c'est la même que celle posée dans le client. Mais un conteneur qui
+          # sort vers l'IP publique de sa propre machine pour y revenir échoue :
+          # le paquet quitte le réseau Docker et n'y retrouve pas son chemin.
+          #
+          # MESURÉ : depuis le conteneur n8n,
+          #   https://<nom public>/api/health  -> échec
+          #   http://api:5000/api/health       -> 200
+          #
+          # D'où cet alias : le DNS interne de Docker fait résoudre le nom
+          # public vers CADDY, qui est déjà là. Le certificat correspond au nom
+          # demandé, Caddy route par chemin comme pour n'importe quel visiteur,
+          # et les flux gardent UNE SEULE adresse, la même qu'en façade.
+          #
+          # L'alternative aurait été de faire appeler `http://api:5000` par les
+          # flux. Rejetée : l'adresse est FIGÉE dans leur code à la génération,
+          # et la même option sert aussi à dicter `VITE_API_URL` au client, qui
+          # ne peut évidemment pas joindre un nom interne.
+          - ${HOTE_UNIQUE:-caddy-sans-alias.invalid}
 
   # -------------------------------------------------------------------------
   #  n8n — jamais exposé directement
