@@ -51,6 +51,23 @@ dotenv.config();
 
 const PRODUCTION = process.env.NODE_ENV === 'production';
 
+/*
+ * `--cible` : ÉPROUVER L'AUTRE BASE SANS RIEN TAPER.
+ *
+ * Après une migration, il faut contrôler la base d'ARRIVÉE. L'évidence serait
+ *
+ *     MONGO_URI="mongodb+srv://…" npm run verifier:deploiement
+ *
+ * mais cela remet le mot de passe sur la ligne de commande, donc dans
+ * l'historique du terminal — précisément ce qu'on vient d'éviter en le posant
+ * dans `server/.env`.
+ *
+ *   AVEC `-- --cible`, LE SCRIPT LIT `MONGO_URI_CIBLE` À LA PLACE DE
+ *   `MONGO_URI`. Rien n'est tapé, rien n'est affiché.
+ */
+const SUR_LA_CIBLE = process.argv.slice(2).includes('--cible');
+const CLE_URI = SUR_LA_CIBLE ? 'MONGO_URI_CIBLE' : 'MONGO_URI';
+
 /* ------------------------------------------------------------------ *
  *  LE PETIT BANC
  * ------------------------------------------------------------------ */
@@ -82,7 +99,7 @@ const estLocale = (url) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(
  *  1 — LES VARIABLES SANS LESQUELLES RIEN NE DÉMARRE
  * ================================================================== */
 
-for (const cle of ['MONGO_URI', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']) {
+for (const cle of [CLE_URI, 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']) {
   verifier(
     `${cle} renseignée`,
     Boolean(process.env[cle]),
@@ -287,7 +304,7 @@ enProduction(
  *  8 — LA BASE, ET LA SONDE QUI DÉCIDE VRAIMENT
  * ================================================================== */
 
-const uri = process.env.MONGO_URI ?? '';
+const uri = process.env[CLE_URI] ?? '';
 
 /*
  * LA FORME DE L'URI AVANT SA JOIGNABILITÉ, ET DANS CET ORDRE.
@@ -398,6 +415,7 @@ const symbole = { OK: '  OK   ', ECHEC: ' ECHEC ', 'SANS OBJET': '  ---  ', NOTE
 console.log('');
 console.log('='.repeat(78));
 console.log(`  CONTRÔLE D'AVANT-DÉPLOIEMENT — NODE_ENV = ${process.env.NODE_ENV || 'development'}`);
+console.log(`  base examinée : celle de ${CLE_URI}${SUR_LA_CIBLE ? '   (option --cible)' : ''}`);
 console.log('='.repeat(78));
 console.log('');
 
