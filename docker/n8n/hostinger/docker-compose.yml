@@ -73,7 +73,16 @@ services:
       - '443:443'
       - '443:443/udp'
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Quel Caddyfile monter, selon le nombre de noms d'hôte disponibles :
+      #
+      #   Caddyfile             DEUX noms  : api.<domaine> et n8n.<domaine>,
+      #                         routage par nom d'hôte. Demande un domaine acheté.
+      #   Caddyfile.nom-unique  UN SEUL nom : le nom gratuit du VPS,
+      #                         routage par CHEMIN. Aucun achat.
+      #
+      # Deux blocs de site ne peuvent pas porter la même adresse, d'où deux
+      # fichiers plutôt qu'une condition — Caddy n'en a pas.
+      - ./${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     environment:
@@ -82,6 +91,9 @@ services:
       - EDITEUR_UTILISATEUR=${EDITEUR_UTILISATEUR:?definir EDITEUR_UTILISATEUR dans .env}
       - EDITEUR_EMPREINTE=${EDITEUR_EMPREINTE:?definir EDITEUR_EMPREINTE dans .env}
       - API_DOMAINE=${API_DOMAINE:?definir API_DOMAINE dans .env}
+      # Utilisé par la seule variante `Caddyfile.nom-unique`. Vide avec le
+      # Caddyfile à deux noms, où il n'est jamais lu.
+      - HOTE_UNIQUE=${HOTE_UNIQUE:-}
     depends_on:
       - n8n
       - api

@@ -1,0 +1,112 @@
+# =============================================================================
+#  CADDY, VARIANTE « UN SEUL NOM D'HÔTE »
+# =============================================================================
+#
+# À monter à la place du `Caddyfile` quand on ne dispose que d'UN nom, par
+# exemple le nom gratuit du VPS Hostinger `srvXXXXXXX.hstgr.cloud`, au lieu
+# des deux sous-domaines `api.<domaine>` et `n8n.<domaine>`.
+#
+#   CADDYFILE=Caddyfile.nom-unique docker compose up -d
+#
+# POURQUOI CE NOM GRATUIT PLUTÔT QU'UN SERVICE DE DNS JOKER : `nip.io` et
+# `sslip.io` sont ABSENTS de la liste des suffixes publics, donc tous leurs
+# utilisateurs PARTAGENT un même quota Let's Encrypt. `hstgr.cloud` y figure,
+# donc `srvXXXXXXX.hstgr.cloud` dispose de son quota propre. Mesuré sur la
+# liste, pas supposé.
+#
+# ET LE ROUTAGE SE FAIT PAR CHEMIN, SANS RÉÉCRITURE : l'API sert déjà sous
+# `/api`, et n8n possède tous ses chemins propres (`/webhook`, `/rest`, la
+# racine). Les deux cohabitent donc sans se gêner et sans `N8N_PATH`, dont la
+# mise en place est réputée délicate.
+#
+#   /api/*            -> l'API Node
+#   /socket.io/*      -> l'API Node, pour le temps réel
+#   /webhook/*        -> n8n, appelé par Telegram, le widget, l'API
+#   /webhook-test/*   -> n8n, mode « écouter une fois » de l'éditeur
+#   /healthz          -> n8n, sonde de disponibilité
+#   /rest/oauth2-credential/callback
+#                     -> n8n, rappel de Google
+#   tout le reste     -> n8n, derrière un mot de passe
+#
+# UNE SEULE ADRESSE DONC UN SEUL CERTIFICAT, ce qui réduit aussi le risque
+# d'épuiser le quota pendant les essais.
+{
+	# Adresse pour les avis d'expiration de Let's Encrypt. Sans elle, Caddy
+	# obtient quand même le certificat, mais personne n'est averti si le
+	# renouvellement échoue, et il échoue toujours un dimanche.
+	email {$ADMIN_COURRIEL}
+}
+
+{$HOTE_UNIQUE} {
+	encode zstd gzip
+
+	# -------------------------------------------------------------------------
+	#  L'API NODE
+	# -------------------------------------------------------------------------
+	#
+	# Aucun `uri strip_prefix` : l'API attend bien ses routes sous `/api`.
+	# Retirer le préfixe ici renverrait des 404 partout, et le diagnostic
+	# serait pénible parce que Caddy, lui, répondrait correctement.
+	#
+	# RIEN À AJOUTER POUR L'ADRESSE DU VISITEUR : Caddy pose `X-Forwarded-For`
+	# de lui-même, et l'API lit cet en-tête grâce à `trust proxy`. L'enjeu est
+	# réel, car un limiteur de débit qui voit l'adresse du relais au lieu de
+	# celle du visiteur ferait partager à tout Internet le quota de cinq
+	# tentatives de connexion.
+	@api path /api/*
+	handle @api {
+		reverse_proxy api:5000
+	}
+
+	# Le temps réel. `reverse_proxy` relaie nativement la bascule WebSocket,
+	# sans réglage supplémentaire.
+	@socket path /socket.io/*
+	handle @socket {
+		reverse_proxy api:5000
+	}
+
+	# -------------------------------------------------------------------------
+	#  n8n : CE QUI EST PUBLIC, ET UNIQUEMENT CELA
+	# -------------------------------------------------------------------------
+	#
+	# Le rappel OAuth de Google reste public DÉLIBÉRÉMENT : c'est le navigateur
+	# de l'exploitant qui l'appelle, mais Google l'y renvoie par une
+	# redirection. Derrière un mot de passe, la fenêtre d'autorisation se
+	# refermerait sur une demande d'identifiants au plus mauvais moment.
+	@n8n_public path /webhook/* /webhook-test/* /healthz /rest/oauth2-credential/callback
+	handle @n8n_public {
+		reverse_proxy n8n:5678
+	}
+
+	# -------------------------------------------------------------------------
+	#  TOUT LE RESTE : l'éditeur n8n, son API REST, ses réglages
+	# -------------------------------------------------------------------------
+	#
+	# `basic_auth` attend une empreinte bcrypt, jamais un mot de passe en
+	# clair. La générer ainsi, sur le VPS :
+	#
+	#   docker run --rm caddy:2.11.9-alpine caddy hash-password --plaintext 'le-mot-de-passe'
+	#
+	# ATTENTION AU `$` : dans un `.env` lu par docker compose, une empreinte
+	# bcrypt commence par `$2a$...` et chaque `$` doit être DOUBLÉ (`$$`),
+	# sinon compose tente de l'interpréter comme une variable et transmet une
+	# empreinte tronquée. Le symptôme est un mot de passe correct qui est
+	# refusé, sans rien dans le journal.
+	handle {
+		basic_auth {
+			{$EDITEUR_UTILISATEUR} {$EDITEUR_EMPREINTE}
+		}
+		reverse_proxy n8n:5678
+	}
+
+	# -------------------------------------------------------------------------
+	#  JOURNAL
+	# -------------------------------------------------------------------------
+	log {
+		output file /data/acces.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format json
+	}
+}
