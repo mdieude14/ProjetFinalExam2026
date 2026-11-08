@@ -29,6 +29,35 @@ Ces points n'ont **rien à faire** : ils ont été mesurés, pas supposés.
 
 ---
 
+## 0 bis. L'outil à lancer à chaque étape
+
+```bash
+cd server
+npm run verifier:deploiement
+```
+
+Il lit la configuration et rend **tous** les défauts d'un coup, chacun suivi de sa
+conséquence. Il n'affiche **aucune valeur de secret** — longueurs, préfixes et verdicts
+seulement : le rapport peut être recopié tel quel.
+
+**Pourquoi un script séparé alors que `config/env.js` garde déjà le démarrage :** `env.js`
+s'arrête **au premier problème**, et c'est le bon comportement pour un serveur. Pas pour une
+veille de déploiement — corriger une variable, redéployer, découvrir la suivante,
+recommencer six fois est exactement ce qu'on veut éviter sur un hébergement distant.
+
+**Il voit trois choses qu'aucune garde de démarrage ne peut voir :**
+
+| Contrôle | Pourquoi il ne peut pas vivre au démarrage |
+|---|---|
+| **Les transactions passent** *(sonde réelle)* | il faut ouvrir une transaction, pas deviner la topologie |
+| **Les deux secrets JWT diffèrent** | invariant écrit en commentaire dans `auth.service.js`, et que rien n'appliquait |
+| **L'adresse publique est autorisée par CORS** | les deux variables sont valides séparément : seule leur confrontation révèle le défaut |
+
+> Pour éprouver les contrôles réservés à la production sans rien installer :
+> `NODE_ENV=production npm run verifier:deploiement`
+
+---
+
 ## 1. MongoDB Atlas
 
 ### Pourquoi Atlas et pas un Mongo sur le VPS
@@ -40,25 +69,101 @@ tombent : commentaires, publications, stories, événements, abonnements, messag
 modération. **Atlas est un jeu de répliques même sur son offre gratuite M0.** Monter un jeu
 de répliques à la main sur un VPS, c'est trois nœuds à surveiller pour le même résultat.
 
-### Les gestes
+### Les gestes, étape par étape
 
-1. **Créer un cluster M0** (gratuit), région la plus proche — `eu-west` pour la France.
-2. **Créer un utilisateur de base** avec un mot de passe long et aléatoire.
-   *Ni le nom ni le mot de passe ne doivent apparaître ailleurs que dans la variable
-   d'environnement de l'hébergeur de l'API.*
-3. **Autoriser le réseau.** Deux voies :
+> **Compter vingt minutes.** Chaque étape se vérifie avant de passer à la suivante : c'est
+> plus lent une fois, et cela évite de chercher ensuite laquelle des cinq a échoué.
 
-   | Voie | Quand | Réserve |
+#### Étape 1 — Le compte et le cluster
+
+1. Créer un compte sur `cloud.mongodb.com`. L'offre **M0 est gratuite et sans carte**.
+2. **Créer un cluster `M0`**, région **`eu-west-1` (Irlande)** ou `eu-west-3` (Paris) si
+   proposée.
+
+   > **Pourquoi la région compte** : chaque requête de l'API fait l'aller-retour. Un cluster
+   > aux États-Unis ajoute environ 100 ms à **chaque** appel, et une page qui en fait dix
+   > devient perceptiblement lente sans qu'aucune mesure du code ne l'explique.
+
+3. **Nommer le cluster**, par exemple `coachconnect`. Le nom apparaîtra dans la chaîne de
+   connexion.
+
+   > **M0 est un JEU DE RÉPLIQUES à trois nœuds**, et c'est la raison pour laquelle on passe
+   > par Atlas : les 20 transactions de l'application l'exigent. Rien à configurer pour cela,
+   > c'est le comportement par défaut.
+
+#### Étape 2 — L'utilisateur de la base
+
+4. Menu **« Database Access »** → **« Add New Database User »**.
+5. Méthode **mot de passe**. Nom d'utilisateur simple, par exemple `coachconnect-api`.
+6. **Laisser Atlas générer le mot de passe** (bouton *Autogenerate*), puis **le copier
+   immédiatement** : il ne sera plus affiché.
+7. Rôle : **`readWriteAnyDatabase`**, ou `readWrite` restreint à la base `sportsocial`.
+
+   > ⚠️ **SI LE MOT DE PASSE CONTIENT `@`, `:`, `/`, `?`, `#`, `[`, `]` OU `%`**, il doit être
+   > encodé dans l'URL, sinon la chaîne de connexion est coupée au mauvais endroit et l'erreur
+   > parle d'un hôte introuvable — pas d'un mot de passe. Le plus simple est de **régénérer un
+   > mot de passe sans ces caractères**.
+
+#### Étape 3 — L'accès réseau
+
+8. Menu **« Network Access »** → **« Add IP Address »**.
+
+   | Voie | Quand la choisir | Réserve |
    |---|---|---|
-   | Les IP de sortie de l'hébergeur | elles sont fixes et documentées | la plus étroite, à préférer |
-   | `0.0.0.0/0` | l'hébergeur n'annonce pas d'IP fixe | **l'accès ne tient alors QUE sur le mot de passe** |
+   | Les IP de sortie de l'hébergeur de l'API | il les annonce et elles sont fixes | **la plus étroite, à préférer** |
+   | `0.0.0.0/0` *(« Allow access from anywhere »)* | l'hébergeur n'annonce pas d'IP fixe | **l'accès ne tient plus QUE sur le mot de passe** |
 
-   > Si `0.0.0.0/0` est retenu, le mot de passe de base devient la seule barrière : il doit
-   > être long, unique, et ne jamais servir ailleurs.
+   > Si `0.0.0.0/0` est retenu, le mot de passe devient la seule barrière : il doit être long,
+   > unique, et ne servir nulle part ailleurs. *Ce n'est pas une faute en soi — beaucoup
+   > d'hébergements n'ont pas d'IP fixe — mais c'est un choix à faire les yeux ouverts.*
 
-4. **Récupérer la chaîne de connexion** au format `mongodb+srv://…`. Le schéma `+srv` active
-   le TLS tout seul : **aucune option de certificat à écrire** dans `db.js`.
-5. **La poser dans `MONGO_URI`** sur l'hébergeur de l'API. *Pas dans un fichier du dépôt.*
+#### Étape 4 — La chaîne de connexion
+
+9. Bouton **« Connect »** → **« Drivers »** → **Node.js**. Atlas affiche :
+
+   ```
+   mongodb+srv://<UTILISATEUR>:<MOT_DE_PASSE>@<CLUSTER>.mongodb.net/?retryWrites=true&w=majority
+   ```
+
+   > **Les quatre `<…>` sont des marques à remplacer**, pas des valeurs. Atlas affiche déjà
+   > l'utilisateur et le cluster renseignés ; seul `<MOT_DE_PASSE>` reste à substituer à la
+   > main — Atlas ne l'insère jamais.
+
+10. **Trois modifications à faire dessus**, et les trois comptent :
+
+    | À faire | Pourquoi |
+    |---|---|
+    | Remplacer `<db_password>` par le mot de passe | Atlas ne l'insère pas |
+    | **Insérer le nom de la base avant le `?`** → `…mongodb.net/sportsocial?retry…` | sans lui, Mongoose écrit dans la base `test` et l'application paraît vide |
+    | Ne rien ajouter d'autre | `mongodb+srv` **active le TLS tout seul** — aucune option de certificat à écrire |
+
+    > **Le nom exact de la base est `sportsocial`** — c'est celui qu'affiche le contrôle en
+    > développement, à la ligne « connexion à la base ».
+
+#### Étape 5 — Vérifier AVANT de déployer quoi que ce soit
+
+11. Depuis le poste de développement, **sans modifier `server/.env`** :
+
+    ```bash
+    cd server
+    MONGO_URI="mongodb+srv://…/sportsocial?retryWrites=true&w=majority" npm run verifier:deploiement
+    ```
+
+12. **Deux lignes seules décident** :
+
+    ```
+    OK    connexion à la base                              sportsocial
+    OK    LES TRANSACTIONS PASSENT (20 usages, 7 modules)  une transaction s’ouvre et se referme
+    ```
+
+    > **Si la seconde échoue avec « Transaction numbers are only allowed on a replica set
+    > member or mongos »**, la base n'est pas un jeu de répliques — ce qui ne devrait jamais
+    > arriver avec Atlas, mais arriverait avec un `mongod` installé à la main sur un VPS.
+    > *Sept modules tomberaient : commentaires, publications, stories, événements,
+    > abonnements, messagerie, modération.*
+
+13. **Puis seulement**, poser la chaîne dans `MONGO_URI` **sur l'hébergeur de l'API** — jamais
+    dans un fichier du dépôt.
 
 ### Les données : partir à vide
 

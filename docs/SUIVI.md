@@ -16303,3 +16303,142 @@ persistant, n8n sur un VPS Hostinger, base sur Atlas.** Restait à vérifier l'a
   > **LA LEÇON : quand une garantie ne se trouve pas écrite, on cesse d'en dépendre au lieu
   > de parier dessus.** *C'est moins élégant qu'une seule règle, et cela ne cassera pas le
   > jour où la précédence change.*
+
+---
+
+## 15.91 — Un contrôle d'avant-vol, et un invariant que personne n'appliquait  `VÉRIFIÉ`
+
+### UN MALENTENDU À LEVER D'ABORD
+
+Le porteur du projet a lu les huit étapes du diagnostic de `test:recherche` comme **des
+travaux à exécuter**, et m'a demandé de les décrire avant de les réaliser.
+
+- [x] **Ces étapes n'étaient pas un plan, c'était le raisonnement d'un correctif DÉJÀ
+      appliqué**, validé *(36/36, trois passages)* et poussé dans `d2f76fc`. Rien n'y
+      attendait d'être fait.
+
+  > **ET LA DEMANDE EST RETENUE COMME RÈGLE** : désormais, je décris une modification de test
+  > avant d'y toucher, et j'attends l'accord. *Une règle née d'un malentendu reste une bonne
+  > règle.*
+
+### LA TÂCHE AUTONOME : CE QUE `env.js` NE PEUT PAS VOIR
+
+`config/env.js` garde déjà bien le démarrage : variables requises, secrets JWT faibles,
+adresse publique locale en production, envoi d'e-mails, et les deux clés du support
+identiques. **Mais il s'arrête au premier défaut rencontré.**
+
+- [x] **C'est le bon comportement pour un serveur, et le mauvais pour une veille de
+      déploiement.** Corriger une variable, redéployer, découvrir la suivante, recommencer —
+      six fois, sur un hébergement distant où chaque essai coûte un redéploiement.
+
+  > **UN SERVEUR DOIT S'ARRÊTER AU PREMIER DÉFAUT ; UN CONTRÔLE D'AVANT-VOL DOIT LES MONTRER
+  > TOUS.** D'où `npm run verifier:deploiement`, qui lit `process.env` **directement** pour
+  > ne pas hériter des `process.exit` de `env.js`.
+
+- [x] **Et il voit trois choses qu'aucune garde de démarrage ne peut voir** :
+
+  | Contrôle | Pourquoi il ne peut pas vivre au démarrage |
+  |---|---|
+  | **Les transactions passent** | il faut en ouvrir une, pas deviner la topologie |
+  | **Les deux secrets JWT diffèrent** | invariant écrit en commentaire, et que rien n'appliquait |
+  | **L'adresse publique est autorisée par CORS** | les deux variables sont valides séparément |
+
+- [x] **Aucune valeur de secret n'est affichée** — longueurs, préfixes et verdicts seulement.
+      Le rapport est fait pour être recopié dans une conversation ou ici même.
+
+### L'INVARIANT DES DEUX SECRETS JWT : MESURÉ AVANT D'ÊTRE ANNONCÉ
+
+`auth.service.js` écrit noir sur blanc : *« Il est signé avec un secret DIFFÉRENT de l'access
+token. Ainsi, si le secret d'accès fuite, un attaquant ne peut pas forger de refresh token,
+et inversement. »* **Toute la valeur de cette phrase tient à une égalité que rien ne
+vérifiait.**
+
+J'ai cherché à savoir si c'était exploitable **avant** d'en faire une affaire.
+
+- [x] **Un jeton de rafraîchissement accepté comme jeton d'accès : pas de montée en
+      privilège.** `auth.middleware.js` fait `User.findById(charge.sub)` et pose le **document
+      de base** dans `req.user` : le rôle ne vient donc pas du jeton. Reste qu'un jeton de
+      7 jours servirait là où un jeton de 15 minutes est attendu — mais le cookie est
+      `httpOnly` et limité à `/api/auth`, et qui le détient peut déjà l'échanger.
+- [x] **Un jeton d'accès accepté comme jeton de rafraîchissement : refusé.**
+      `auth.controller.js:171` compare `charge.v` à `refreshTokenVersion` ; la charge d'un
+      jeton d'accès n'a pas de `v`, donc `undefined !== 0`.
+
+  > **CONCLUSION HONNÊTE : L'IMPACT IMMÉDIAT EST LIMITÉ**, par deux défenses en profondeur
+  > qui n'avaient pas été écrites pour ça. *Je ne vais pas gonfler une trouvaille parce
+  > qu'elle serait plus belle grosse.*
+  >
+  > **MAIS LA PROTECTION CONTRE LA FUITE D'UN SEUL DES DEUX SECRETS DISPARAÎT ENTIÈREMENT**,
+  > et c'était la raison d'être de la séparation. L'invariant est donc contrôlé, là où il ne
+  > coûte rien.
+
+### LES ONZE CONTRÔLES, PROUVÉS DANS LES DEUX SENS
+
+**Un contrôle qui ne s'allume jamais ne vérifie rien** — c'est le faux vert sous sa forme la
+plus discrète. Chacun a donc été forcé à échouer, par l'environnement, **sans toucher au
+`.env`** *(`dotenv` ne surcharge pas une variable déjà présente : la ligne de commande
+gagne)*.
+
+| Contrôle | Déclenché par | Message obtenu |
+|---|---|---|
+| adresse publique locale | `NODE_ENV=production` | `http://localhost:5173` |
+| clé Stripe en mode réel | `NODE_ENV=production` | `sk_test — aucun paiement n'encaisserait` |
+| base locale | `NODE_ENV=production` | `URI LOCALE` |
+| **secrets JWT identiques** | les deux à la même valeur | `IDENTIQUES` |
+| **`sk_live` hors production** | clé factice | `test:paiement débiterait une VRAIE carte` |
+| **adresse publique hors CORS** | `PUBLIC_URL` ≠ `CLIENT_URL` | `chacun de ses appels serait bloqué par CORS` |
+| Cloudinary incomplet | variable vidée | `stockage sur disque LOCAL` |
+| clés du support identiques | les deux à la même valeur | `IDENTIQUES` |
+| connexion impossible | port 1 | `ECONNREFUSED ::1:1` |
+| envoi d'e-mails absent | `SMTP_USER` vidé | `aucun` |
+| **LES TRANSACTIONS ÉCHOUENT** | **un `mongod` AUTONOME** | voir ci-dessous |
+
+- [x] **Le dernier méritait mieux qu'une supposition.** Un `mongod` seul a été démarré sur le
+      port 27018, le temps de la sonde, puis retiré. La sonde a rendu **l'erreur réelle** :
+
+  ```
+  ECHEC  LES TRANSACTIONS PASSENT (20 usages, 7 modules)
+         Transaction numbers are only allowed on a replica set member or mongos
+         └─ commentaires, publications, stories, événements, abonnements,
+            messagerie et modération tomberaient
+  ```
+
+  > **C'EST EXACTEMENT CE QUI ARRIVERAIT AVEC UN MONGO INSTALLÉ À LA MAIN SUR LE VPS**, et ce
+  > n'est plus une hypothèse. *La sonde ouvre une vraie transaction et la referme : déduire
+  > la réponse de la topologie annoncée ne marche pas, puisqu'une connexion directe à un
+  > membre d'un jeu de répliques et un `mongod` seul sont tous deux annoncés « Single » et se
+  > comportent à l'inverse.*
+
+- [x] **Et `startTransaction()` seul ne prouve rien** : il est purement local au pilote et ne
+      touche le serveur qu'à la première opération. La sonde **lit** donc quelque chose à
+      l'intérieur.
+
+### LA MARCHE À SUIVRE ATLAS, PAS À PAS
+
+- [x] **`docs/DEPLOIEMENT.md` §1 réécrite en cinq étapes vérifiables**, chacune contrôlée
+      avant la suivante. Quatre pièges nommés, qui ne se diagnostiquent pas tout seuls :
+
+  | Piège | Ce qu'on voit | Ce que c'est |
+  |---|---|---|
+  | **Nom de base omis** dans l'URI | l'application paraît vide | Mongoose écrit dans la base `test` |
+  | Mot de passe avec `@ : / ? # [ ] %` | « hôte introuvable » | l'URI est coupée au mauvais endroit |
+  | Région lointaine | pages lentes, code irréprochable | ~100 ms **par appel** |
+  | `0.0.0.0/0` | rien | le mot de passe devient la **seule** barrière |
+
+- [x] **Et l'étape 5 est une vérification, pas un déploiement** : la chaîne Atlas s'éprouve
+      depuis le poste, **sans modifier `server/.env`**, par
+      `MONGO_URI="…" npm run verifier:deploiement`. Deux lignes décident.
+
+  > *On ne découvre pas qu'une base refuse les transactions après avoir déployé l'API qui en
+  > dépend.*
+
+### MESURES
+
+- [x] **Contrôle en développement : 9 au vert, 0 en échec, 7 réservés à la production.**
+- [x] **Contrôle en `NODE_ENV=production` sur la configuration locale : 13 au vert, 3 en
+      échec** — exactement les trois attendus *(adresse locale, `sk_test`, base locale)*,
+      code de sortie 1.
+- [x] **Suites rejouées après la modification de `package.json`** : `api 73/73`,
+      `controles 82/82`, `support 134/134`.
+- [x] **Le conteneur de sonde a été retiré** — il ne reste que `coachconnect-n8n` et
+      `sportsocial-mongo`.
