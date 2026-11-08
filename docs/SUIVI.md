@@ -16799,3 +16799,91 @@ toutes un message qui parle d'autre chose** — et l'une ne rend rien du tout.
       `4 796 documents`, comptages relus égaux, base de contrôle retirée.
 - [x] **Non-régression** : `api 73/73`, `support 134/134`, `controles 82/82`, base de travail
       intacte.
+
+---
+
+## 15.95 — Les fichiers Hostinger éprouvés, et un piège de documentation confirmé par la mesure  `VÉRIFIÉ`
+
+### CE QUI AVAIT ÉTÉ LIVRÉ SANS POUVOIR ÊTRE TESTÉ
+
+`docker/n8n/hostinger/` a été écrit et poussé **pendant que Docker Desktop était à terre**,
+disque saturé. Trois fichiers livrés sans qu'aucun outil ne les ait lus. Docker étant
+revenu, ils ont été éprouvés.
+
+- [x] **`docker compose config` : code 0.** Les deux services sont rendus, **et `n8n` ne
+      publie aucun port** — conforme à l'intention : il n'est joignable que par Caddy, sur le
+      réseau interne.
+- [x] **Les trois adresses convergent bien** sur le domaine public :
+
+  ```
+  N8N_HOST             n8n.exemple.test
+  WEBHOOK_URL          https://n8n.exemple.test/
+  N8N_EDITOR_BASE_URL  https://n8n.exemple.test/
+  N8N_PROXY_HOPS       1
+  EXECUTIONS_DATA_PRUNE / MAX_AGE   true / 336
+  ```
+
+- [x] **`caddy validate` : « Valid configuration »**, avec les redirections HTTP→HTTPS
+      automatiques confirmées.
+- [x] **ET LA COMMANDE QUE J'AVAIS DOCUMENTÉE MARCHE** : `caddy hash-password --plaintext`
+      rend bien une empreinte de **60 caractères commençant par `$2a$14$`**. *Documenter une
+      commande sans l'exécuter, c'est documenter une intention.*
+
+### UN AVERTISSEMENT QUI SE SERAIT RÉPÉTÉ À CHAQUE DÉMARRAGE
+
+- [x] **`Caddyfile input is not formatted`**, ligne 17 — une ligne vide avant le bloc global.
+      Sans conséquence fonctionnelle, mais **cet avertissement serait apparu dans le journal
+      du VPS à chaque démarrage**, et un journal qui crie pour rien finit par n'être plus lu.
+- [x] **`caddy fmt` appliqué** : un seul octet de différence, **accents préservés**,
+      revalidation **sans aucun avertissement**.
+
+### LE PIÈGE DES `$` : AFFIRMÉ HIER, MESURÉ AUJOURD'HUI
+
+J'avais écrit qu'une empreinte bcrypt doit voir ses `$` doublés dans un `.env` lu par
+docker compose. **C'était une affirmation. La voici mesurée :**
+
+| Écrit dans le `.env` | Reçu par Caddy |
+|---|---|
+| `EDITEUR_EMPREINTE=$2a$14$abcdefghijklmnopqrstuv` | **`$2a$14`** — tronquée |
+| `EDITEUR_EMPREINTE=$$2a$$14$$abcdefghijklmnopqrstuv` | `$2a$14$abcdefghijklmnopqrstuv` — entière |
+
+> **DOCKER COMPOSE A LU `$abcdefghijklmnopqrstuv` COMME UNE VARIABLE INEXISTANTE** et l'a
+> remplacée par du vide. L'empreinte arrive coupée **à l'endroit exact** où la substitution a
+> eu lieu.
+>
+> **LE SYMPTÔME SERAIT UN MOT DE PASSE CORRECT, REFUSÉ, SANS RIEN DANS LE JOURNAL.** *C'est
+> le même genre de panne que le secret Stripe vide écrit le 5 novembre : une valeur
+> silencieusement amputée vaut moins qu'une valeur absente, parce qu'une absence se
+> remarque.*
+
+- [x] **La preuve chiffrée est désormais DANS le gabarit**, avec les deux formes côte à côte.
+      *Une mise en garde qui montre le résultat se respecte mieux qu'une mise en garde qui
+      l'annonce.*
+- [x] **Et le gabarit reste complet** : les cinq variables attendues par la composition et le
+      Caddyfile y sont, aucune ne porte de valeur.
+
+### TROISIÈME FOIS QUE `[a-z]+` ME TROMPE
+
+- [x] **Mon contrôle des services rendus n'affichait que `caddy`.** Motif `^  [a-z]+:` —
+      **`n8n` contient un chiffre.** Le service était là ; c'est mon contrôle qui était
+      aveugle.
+
+  | Où | Ce qui a disparu |
+  |---|---|
+  | 7 nov. | `N8N_DOMAINE`, lu comme `N` |
+  | 8 nov. | `test:parcours-10-11`, suite jamais lancée |
+  | 8 nov. | **le service `n8n` de la composition** |
+
+  > **TROIS FOIS LE MÊME OUBLI, ET IL NE SE SIGNALE JAMAIS** : un motif sans chiffres rend un
+  > résultat plus court et parfaitement crédible. *À retenir comme réflexe : dans ce projet,
+  > les identifiants portent des chiffres — `n8n`, `10-11`, `N8N_`, `2dsphere`.*
+
+### CE QUI RESTE VRAI SUR HOSTINGER
+
+- [ ] **Les fichiers sont éprouvés ; RIEN N'EST DÉPLOYÉ.** Le porteur du projet pensait que
+      l'hébergement n8n était peut-être déjà fait : il ne l'est pas. Ce qui existe est le
+      nécessaire pour le faire, validé, et il manque **le VPS, le sous-domaine, et les
+      identifiants à recréer dans l'éditeur**.
+
+  > *Un fichier de déploiement validé n'est pas un déploiement. La distinction vaut d'être
+  > dite, parce qu'elle est facile à perdre de vue quand tout est vert.*
