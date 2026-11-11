@@ -19149,3 +19149,85 @@ compte personnel.
   > **UN JURY NE DOIT PAS DÉCLENCHER D'ENCAISSEMENT RÉEL.** *Le passer en clé réelle exigerait
   > un compte Stripe activé, des informations bancaires et les neuf événements de webhook
   > recochés sur le tableau de bord. Aucun de ces gestes n'a sa place avant la soutenance.*
+
+---
+
+## 16.14 — Relancer le poste SANS casser la production, et Vite qui n'écoute qu'en IPv6  `VÉRIFIÉ`
+
+### LA RECETTE DE RELANCE, ET ELLE N'EST PLUS SYMÉTRIQUE
+
+Depuis que la production détient le bot Telegram, **relancer le poste à l'identique casserait
+le canal en production**. L'ordre à suivre, et la seule variante qui compte :
+
+| | Geste |
+|---|---|
+| 1 | Docker Desktop, puis attendre le moteur *(`docker info` en boucle)* |
+| 2 | `sportsocial-mongo` et `coachconnect-n8n` remontent **seuls** par leur politique de redémarrage |
+| 3 | **`TELEGRAM_BOT_TOKEN= npm run dev`** — le jeton VIDE, et c'est tout l'enjeu |
+| 4 | le client, puis `relais:stripe` |
+
+- [x] **CE QUI REND LA VARIANTE SÛRE** : `dotenv` **n'écrase pas** une variable déjà présente
+      dans l'environnement. Un jeton vide passé en préfixe survit donc au chargement du `.env`,
+      et le scrutateur s'arrête de lui-même.
+
+  > **VÉRIFIÉ PAR LA LIGNE QU'IL IMPRIME, et non par déduction** :
+  > `[TELEGRAM] Scrutage inactif : TELEGRAM_BOT_TOKEN absent de server/.env.`
+  >
+  > **Et contrôlé de l'autre côté, qui est le seul qui compte** : **0 occurrence de 409** dans
+  > le journal de l'API de production sur les deux minutes suivantes. *Le bot reste à la
+  > production seule.*
+
+### LE FAUX DÉPART DE DOCKER, ET POURQUOI CE N'ÉTAIT PAS LA MÉMOIRE
+
+Le moteur s'est annoncé prêt en 5 s, puis a **disparu entièrement** — `aucun processus docker`,
+les deux distributions WSL arrêtées.
+
+- [ ] **ET J'AI FAILLI ACCUSER LA MÉMOIRE** : **engagement total à 15,3 Go sur 17,5**, soit
+      87 %, avec seulement 0,71 Go physique libre, Chrome à 1 064 Mo sur 28 processus et VS Code
+      à 967 Mo sur 14.
+
+- [x] **LA MESURE QUI A ÉCARTÉ CETTE PISTE** : le `.wslconfig` **plafonne déjà WSL à 2 Go**
+      depuis le 29 octobre, avec `autoMemoryReclaim=gradual` depuis le 4 novembre. **Et la
+      seconde tentative a abouti en 10 s**, sans qu'un octet ait été libéré entre les deux.
+
+  > **UN DÉMARRAGE AVORTÉ, PAS UNE SATURATION.** *Même piège que la fois où j'ai refusé trois
+  > campagnes en invoquant un seuil de 2 Go alors que le vrai coupable était le disque saturé.
+  > Le disque, ici, a 27,9 Go libres : hors de cause lui aussi.*
+  >
+  > *La règle qui se dégage : une ressource basse n'est pas une cause. Retenter coûte dix
+  > secondes et tranche mieux qu'un raisonnement.*
+
+### VITE N'ÉCOUTE QU'EN IPv6 SUR CE POSTE, ET ÇA PIÈGE TOUT CONTRÔLE
+
+- [ ] **Mon contrôle du client rendait `000`** alors que Vite annonçait
+      `ready in 6543 ms` et `Local: http://localhost:5173/`.
+
+- [x] **Mesuré** : Vite n'écoute que sur **`::1:5173`**. Aucune écoute en IPv4.
+
+  | Adresse testée | Code |
+  |---|---|
+  | `http://localhost:5173/` | **200** |
+  | `http://[::1]:5173/` | **200** |
+  | **`http://127.0.0.1:5173/`** | **000** |
+
+  > **UN CONTRÔLE QUI TAPE SUR `127.0.0.1` CONCLUT « CLIENT ARRÊTÉ » SUR UN CLIENT QUI TOURNE.**
+  > *À utiliser `localhost`, qui résout dans les deux familles.*
+
+- [ ] **ET MON PROPRE TABLEAU ÉTAIT CONTRADICTOIRE SANS QUE JE LE VOIE** : la ligne
+      `127.0.0.1` affichait `000` **et** un titre. *`curl` n'écrase pas son fichier de sortie
+      quand la connexion échoue : le titre affiché était celui de l'appel précédent. Une
+      colonne périmée à côté d'une colonne juste.*
+
+### L'ÉTAT APRÈS RELANCE
+
+| Service | État |
+|---|---|
+| Mongo local, `rs0` | **PRIMARY**, transactions possibles |
+| n8n local | **200** sur `/healthz` |
+| API locale | **200**, base `sportsocial`, Cloudinary et Stripe connectés |
+| client | **200** sur `localhost:5173`, mandataire `/api` fonctionnel |
+| relais Stripe | **prêt**, secret inchangé |
+| **la production** | **les trois adresses en 200**, rien perdu |
+
+- [x] **Le certificat Avast vérifié AVANT tout diagnostic n8n**, comme la règle l'impose :
+      valide jusqu'au **1er janvier 2040**.
