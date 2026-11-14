@@ -19231,3 +19231,145 @@ les deux distributions WSL arrêtées.
 
 - [x] **Le certificat Avast vérifié AVANT tout diagnostic n8n**, comme la règle l'impose :
       valide jusqu'au **1er janvier 2040**.
+
+---
+
+## 16.15 — Les sept jours sont revenus, et réémettre le jeton ne réparait plus que la moitié  `DIAGNOSTIQUÉ` / `GESTE EN ATTENTE`
+
+### DEUX SYMPTÔMES, UNE SEULE CAUSE
+
+Le porteur du projet signale deux erreurs sur l'agent de support déployé :
+
+| Où | Message |
+|---|---|
+| Telegram | *« L'envoi a échoué : le dossier reste ouvert et le brouillon est conservé. »* |
+| back-office | *« L'envoi du courriel a échoué : invalid_grant: Token has been expired or revoked. »* |
+
+- [x] **Et il soupçonnait le dépôt GitHub. Ce n'est pas lui** : ce jeton n'y a jamais figuré,
+      établi sur les 144 commits. *Le soupçon est naturel — « ça marchait, j'ai poussé, ça ne
+      marche plus » — mais la coïncidence n'est pas la cause.*
+
+- [x] **LES DEUX ERREURS N'EN FONT QU'UNE**, et le code le prouve :
+      `support.service.js:4` importe `envoyerMail`. **Envoyer un brouillon passe par le
+      courriel**, que l'ordre vienne de Telegram ou du back-office.
+
+  > *Le message Telegram est donc la dégradation gracieuse du flux, pas un second incident.
+  > Chercher deux pannes aurait doublé le travail pour rien.*
+
+### MESURÉ AUPRÈS DE GOOGLE, ET NON DÉDUIT DU MESSAGE
+
+- [x] **Appel réel au point d'échange de jetons**, avec les identifiants de production :
+
+  ```
+  error             : invalid_grant
+  error_description : Token has been expired or revoked.
+  ```
+
+- [x] **ET LA CAUSE ÉTAIT DÉJÀ ÉCRITE DANS CE JOURNAL** *(15.77)* : **« Prochaine échéance :
+      sept jours. »** L'écran de consentement Google est en mode **Test**, qui fait expirer
+      **tout** jeton de rafraîchissement au bout de sept jours.
+
+  > **LE JOURNAL AVAIT PRÉDIT LA PANNE, ET PERSONNE N'A AGI SUR LA PRÉDICTION.** *Un
+  > avertissement daté qui n'est pas transformé en geste ne vaut pas mieux qu'une absence
+  > d'avertissement.*
+
+- [x] **La chronologie, lue dans le journal de l'API** : dernier envoi réussi le **12/11 à
+      13:52** *(`POST /api/support/service/courriel` → 201)*, puis `invalid_grant` en boucle.
+      **Et `ccAgentCourri01` a échoué 150 fois en 48 heures.**
+
+### IL N'Y A AUCUN REPLI, ET C'EST DOUBLEMENT VRAI
+
+- [ ] **`modeEnvoi()` choisit OAuth2 DÈS QUE les trois variables sont présentes**, sans jamais
+      redescendre sur le mot de passe **au moment de l'échec**. Le repli n'existe qu'au
+      démarrage, par absence de configuration, pas en cours de route.
+
+- [ ] **Et le mot de passe applicatif est mort aussi**, testé par `verify()` sans envoyer un
+      seul courriel : **`535-5.7.8 Username and Password not accepted`**.
+
+  > **SES 27 CARACTÈRES N'EN FONT PAS UN MOT DE PASSE D'APPLICATION GMAIL, QUI EN COMPTE 16.**
+  > *C'est probablement le mot de passe du compte, que Google refuse pour SMTP depuis la fin
+  > des « applications moins sécurisées ». Retirer le jeton OAuth pour forcer le repli
+  > n'aurait donc rien réparé : une seconde panne attendait derrière la première.*
+
+- [x] **L'identifiant Gmail de n8n est mort LUI AUSSI**, et c'est le même appel qui le dit :
+      `invalid_grant`. **Deux identifiants à réautoriser, pas un.**
+
+  | Identifiant | État |
+  |---|---|
+  | `GOOGLE_OAUTH_REFRESH_TOKEN` de l'API | **révoqué** |
+  | `Gmail (assistant de messagerie)` de n8n | **révoqué** |
+
+### LE TROU QUE LE DÉPLOIEMENT A CREUSÉ SANS QUE PERSONNE LE VOIE
+
+- [ ] **`autoriser-gmail.mjs` écrit dans `server/.env`, et s'arrête.** C'était suffisant quand
+      le projet ne tournait qu'en local.
+
+  > **DEPUIS LE VPS, RÉÉMETTRE LE JETON NE RÉPARE QUE LE POSTE.** La production garde son
+  > `api.env`, donc son jeton mort, **et rien ne le signale** : on relance le script, on voit
+  > « RÉUSSIE », et le site continue d'échouer. *Un correctif qui ne couvre que la moitié du
+  > périmètre est plus dangereux qu'une panne franche, parce qu'il clôt l'enquête.*
+
+- [x] **`propager:gmail` comble ce trou**, et vérifie **dans cet ordre** : forme du jeton,
+      **acceptation par Google**, SSH, puis écart d'empreinte.
+
+  > **ON NE POUSSE JAMAIS UN JETON MORT** : ce serait remplacer une panne par la même, en
+  > ayant consommé la confiance qu'on venait de réparer.
+
+- [x] **Le jeton passe par l'ENTRÉE STANDARD de `ssh`**, donc n'apparaît dans aucune commande,
+      donc dans aucun historique de shell distant. Comparaison par **SHA-256**, jamais par
+      valeur. Et `api.env` est **diffé** après écriture : `autres lignes modifiées : 0`.
+
+- [x] **Trois commandes npm enregistrées**, qui existaient sans l'être :
+      `autoriser:gmail`, `verifier:envoi`, `propager:gmail`. *Un script qu'on ne peut pas
+      appeler par son nom ne sera pas appelé.*
+
+### ET UN DÉFAUT DANS MON PROPRE SCRIPT, TROUVÉ EN L'ÉPROUVANT
+
+- [ ] **Premier essai : le garde-fou a bien refusé, puis le processus a PLANTÉ.**
+
+  ```
+  Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c, line 94
+  code de sortie : 127
+  ```
+
+  > **`process.exit()` APPELÉ ALORS QU'UNE CONNEXION `fetch` EST ENCORE OUVERTE FAIT PLANTER
+  > libuv SUR WINDOWS.** Et le code devient **127 au lieu de 1** — donc un script
+  > d'enchaînement lirait « commande introuvable » là où il y a un refus motivé.
+
+- [x] **Corrigé par un UNIQUE point de sortie** : le corps *rend* un code, et seule la dernière
+      ligne pose `process.exitCode`. Node termine de lui-même quand les connexions se
+      referment. **Revérifié : code 1, aucune assertion.**
+
+  > *Le refus était juste depuis le début ; c'est sa façon de quitter qui le rendait
+  > illisible. Un diagnostic correct rendu par un code faux ne sert à personne.*
+
+### LES CINQ FLUX INCONNUS SONT LÉGITIMES
+
+Cinq identifiants hors convention sont apparus en base, créés le **12/11 vers 03:30**.
+
+| Flux | État |
+|---|---|
+| `Alternance 1 – Veille des offres` | inactif |
+| `Alternance 2 – Lettre de motivation` | inactif |
+| `Alternance 3 – Email de candidature et envoi` | inactif |
+| `Alternance 4 – Relances` | inactif |
+| `Alternance 5 – Surveillance Gmail` | inactif |
+
+> **CE SONT LES AUTOMATISATIONS PERSONNELLES DU PORTEUR DU PROJET**, sans rapport avec
+> CoachConnect, **toutes inactives**. *Vérifié avant de s'en inquiéter : des identifiants hors
+> convention dans une base de production méritent une question, pas une alerte.*
+
+### LE CORRECTIF DURABLE N'EST PAS DANS LE CODE
+
+- [ ] **Tant que l'écran de consentement reste en mode « Test », la panne revient tous les sept
+      jours** — y compris, le cas échéant, le matin de la soutenance.
+
+  > **LE SEUL CORRECTIF DURABLE EST DE PUBLIER L'APPLICATION « In production »**, dans
+  > `OAuth consent screen` du projet **82922914472**, sous le compte
+  > `support.coachconnect.app@gmail.com`.
+  >
+  > ⚠️ **ET IL FAUT DIRE LA RÉSERVE** : la portée `https://mail.google.com/` est **restreinte**
+  > chez Google. Publier sans vérification reste possible pour un usage personnel, avec un
+  > écran « application non vérifiée » à franchir, mais *Google peut exiger une vérification.*
+  > **Si cette voie se ferme, le repli est de réémettre le jeton le matin de la soutenance** —
+  > ce qui prend deux minutes avec `autoriser:gmail` puis `propager:gmail`.
