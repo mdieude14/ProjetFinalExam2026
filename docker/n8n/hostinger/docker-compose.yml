@@ -126,13 +126,26 @@ services:
   #  n8n — jamais exposé directement
   # -------------------------------------------------------------------------
   n8n:
-    # Même version qu'en développement, et délibérément.
+    # 2.46.7 depuis le 11/11/2026, et ce commentaire disait l'inverse.
     #
-    # Un conteneur de production qui ne tourne pas la même version que celui
-    # sur lequel les flux ont été éprouvés, c'est une variable de plus le jour
-    # où quelque chose casse. La surface publique est réduite par Caddy, pas
-    # par un saut de version majeure à quelques jours d'une soutenance.
-    image: n8nio/n8n:1.121.3
+    # IL DISAIT : « même version qu'en développement », et qu'un saut de
+    # version majeure à quelques jours d'une soutenance était une variable de
+    # trop. La montée a été faite malgré ce principe, pour obtenir le serveur
+    # MCP d'instance, absent de la ligne 1.x.
+    #
+    # ET LE PRINCIPE RESTE JUSTE : la production tourne maintenant en 2.46.7
+    # alors que le poste est resté en 1.121.3. L'écart est donc réel, et c'est
+    # exactement ce que le commentaire d'origine voulait éviter.
+    #
+    # CE QUI A ÉTÉ VÉRIFIÉ APRÈS LA MONTÉE, et qui rend l'écart acceptable :
+    # les 6 flux sont présents et ACTIFS, les 6 identifiants intacts, et le
+    # compte propriétaire est toujours celui du 16/09. La migration de schéma
+    # 1.x vers 2.x n'a rien perdu.
+    #
+    # À FAIRE AVANT TOUTE CAMPAGNE QUI TOUCHE n8n : aligner le poste sur
+    # 2.46.7, sans quoi un flux éprouvé en local ne prouve rien pour la
+    # production.
+    image: n8nio/n8n:2.46.7
     container_name: coachconnect-n8n
     restart: unless-stopped
 

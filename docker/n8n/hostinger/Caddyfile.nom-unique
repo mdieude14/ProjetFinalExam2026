@@ -73,6 +73,22 @@
 	# de l'exploitant qui l'appelle, mais Google l'y renvoie par une
 	# redirection. Derrière un mot de passe, la fenêtre d'autorisation se
 	# refermerait sur une demande d'identifiants au plus mauvais moment.
+	# -----------------------------------------------------------------------
+	#  MCP D'INSTANCE (connecteur Claude) — ajouté le 11/11/2026
+	# -----------------------------------------------------------------------
+	#
+	# Claude s'enregistre seul (OAuth, enregistrement dynamique) puis appelle
+	# /mcp-server/http avec un jeton. Derrière `basic_auth`, ces appels de
+	# SERVEUR à serveur reçoivent un 401 de Caddy et l'enregistrement échoue
+	# (« Couldn't register with n8n's sign-in service »). Ils restent protégés
+	# par n8n lui-même : sans jeton OAuth valide, /mcp-server répond 401.
+	# La page de consentement, elle, est ouverte par TON navigateur : elle
+	# reste derrière le mot de passe de l'éditeur.
+	@mcp path /mcp-server/* /mcp-oauth/* /.well-known/oauth-authorization-server* /.well-known/oauth-protected-resource*
+	handle @mcp {
+		reverse_proxy n8n:5678
+	}
+
 	@n8n_public path /webhook/* /webhook-test/* /healthz /rest/oauth2-credential/callback
 	handle @n8n_public {
 		reverse_proxy n8n:5678
@@ -96,7 +112,18 @@
 		basic_auth {
 			{$EDITEUR_UTILISATEUR} {$EDITEUR_EMPREINTE}
 		}
-		reverse_proxy n8n:5678
+		# 12/11/2026 : n8n repond 401 quand on n'est pas encore connecte a n8n
+		# (GET /rest/login). Le navigateur prend ce 401 pour un refus du mot de
+		# passe de CETTE fenetre, l'oublie, et les fichiers de la page suivante
+		# arrivent sans mot de passe : page blanche, impossible de se connecter.
+		# Ici, et seulement ici, un 401 de n8n devient 403 : le navigateur garde
+		# le mot de passe, et n8n affiche normalement sa page de connexion.
+		reverse_proxy n8n:5678 {
+			@n8n_401 status 401
+			handle_response @n8n_401 {
+				copy_response 403
+			}
+		}
 	}
 
 	# -------------------------------------------------------------------------
