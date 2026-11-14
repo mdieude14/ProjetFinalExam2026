@@ -47,7 +47,10 @@
     "test:scrutage": "node tests/telegram-scrutage.mjs",
     "test:controles": "node tests/controles-exploitation.mjs",
     "verifier:secrets": "node scripts/verifier-secrets.mjs",
-    "transferer:n8n": "node scripts/transferer-n8n.mjs"
+    "transferer:n8n": "node scripts/transferer-n8n.mjs",
+    "propager:gmail": "node scripts/propager-jeton-gmail.mjs",
+    "autoriser:gmail": "node scripts/autoriser-gmail.mjs",
+    "verifier:envoi": "node scripts/verifier-envoi.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
