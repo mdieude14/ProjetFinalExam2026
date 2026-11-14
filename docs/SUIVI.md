@@ -19373,3 +19373,79 @@ Cinq identifiants hors convention sont apparus en base, créés le **12/11 vers 
   > écran « application non vérifiée » à franchir, mais *Google peut exiger une vérification.*
   > **Si cette voie se ferme, le repli est de réémettre le jeton le matin de la soutenance** —
   > ce qui prend deux minutes avec `autoriser:gmail` puis `propager:gmail`.
+
+### ADDENDUM 16.15 — UNE SECONDE CONVERSATION MIEUX INFORMÉE QUE MOI, ET UNE DÉRIVE RÉCUPÉRÉE
+
+Le porteur du projet a posé la même question à une autre conversation, et m'a demandé d'arbitrer.
+
+- [x] **SON DIAGNOSTIC EST JUSTE, ET IDENTIQUE AU MIEN** sur sept points vérifiés
+      indépendamment : la cause *(mode Test, sept jours)*, l'innocence du dépôt, le fait que
+      seul l'envoi de courriel emploie ce jeton, les **deux** jetons à réémettre,
+      `--force-recreate` plutôt que `restart` *(car `restart` ne relit pas `api.env`)*, les
+      sections 15.76 et 15.77 du journal, et l'avertissement sur les flux « Alternance ».
+
+- [ ] **ET ELLE AVAIT RAISON LÀ OÙ J'AVAIS TORT : n8n est en `2.46.7`, pas `1.121.3`.** Image
+      recréée le **11/11 à 16:12**. **Ma mesure datait du 8 novembre et je ne l'avais pas
+      rafraîchie** avant d'affirmer une version.
+
+  > **UNE MESURE N'EST VRAIE QU'À SA DATE, ET J'AI CITÉ LA MIENNE COMME UN FAIT PERMANENT.**
+  > *Trois jours d'écart ont suffi. Sur un système que quelqu'un d'autre peut modifier, une
+  > version se relit avant d'être énoncée.*
+
+- [x] **Vérifié après la montée 1.x → 2.x, et rien n'est perdu** : **6 flux présents et
+      ACTIFS**, **6 identifiants** intacts, et le compte propriétaire est toujours celui du
+      **16/09** — donc remis à jour, pas recréé.
+
+#### TROIS MANQUES DANS SA PROCÉDURE, DONT UN BLOQUANT
+
+- [ ] **1. Pas de correctif durable.** Elle propose un rappel tous les six jours : traiter le
+      symptôme indéfiniment là où **publier l'écran de consentement** règle la cause une fois.
+- [ ] **2. Un prérequis manquant QUI VA BLOQUER SON ÉTAPE 6** : reconnecter l'identifiant Gmail
+      dans n8n échoue en `redirect_uri_mismatch` sans
+      `https://srv2141095.hstgr.cloud/rest/oauth2-credential/callback` déclarée chez Google.
+- [ ] **3. Son étape 2 est risquée pour rien** : copier un jeton de 103 signes à la main dans
+      `nano`, par le presse-papiers, dans un terminal de navigateur. *`propager:gmail` fait les
+      étapes 2, 3 et 4 en une commande, en vérifiant d'abord que Google accepte le jeton.*
+
+#### LA DÉRIVE QUE NI ELLE NI MOI N'AVIONS VUE
+
+- [ ] **Trois fichiers modifiés à la main sur le VPS, non versionnés** : les deux `Caddyfile` et
+      la composition.
+
+  > **ET LE DANGER ÉTAIT CONCRET : `installer-vps.sh` fait un `git reset --hard origin/main`.**
+  > Une relance les aurait effacés, et **le connecteur MCP aurait cessé de fonctionner sans que
+  > rien ne l'annonce.** *Un correctif appliqué hors du dépôt est un correctif qui attend d'être
+  > perdu.*
+
+- [x] **Récupérés, et leur raison est bonne** :
+
+  | Modification | Pourquoi |
+  |---|---|
+  | `/mcp-server/*`, `/mcp-oauth/*`, deux `.well-known` devant `basic_auth` | Claude s'enregistre par enregistrement dynamique ; ces appels de serveur à serveur ne peuvent pas présenter le mot de passe de l'éditeur. **n8n les protège lui-même** : 401 sans jeton OAuth, vérifié. |
+  | un 401 de n8n traduit en **403**, derrière `basic_auth` seulement | sans quoi le navigateur prend le 401 de `/rest/login` pour un refus du mot de passe de la fenêtre, l'oublie, et la page suivante arrive sans authentification : **page blanche** |
+  | `n8nio/n8n:2.46.7` | obtenir le serveur MCP d'instance, absent de la ligne 1.x |
+
+- [x] **VPS réaligné sur le dépôt** : `4d84ae7`, **0 écart**, et les trois modifications
+      préservées. `.env` et `api.env` ont survécu *(ignorés par git)*, en `600`, 8 et 28
+      variables.
+
+- [x] **Le commentaire de version repris, parce qu'il disait l'inverse du fichier** : il
+      annonçait « même version qu'en développement » au-dessus d'un saut majeur. *La production
+      est en 2.46.7, le poste en 1.121.3 : l'écart est réel, et le principe d'origine reste
+      juste. À aligner avant toute campagne touchant n8n.*
+
+#### ET MA VALIDATION LOCALE A RENDU UN FAUX NÉGATIF
+
+- [ ] **Mes deux `Caddyfile` récupérés étaient annoncés `INVALIDE`** alors qu'ils **tournent**
+      sur le VPS avec ce même Caddy 2.11.9.
+
+  > **LE MOTEUR DOCKER DU POSTE ÉTAIT RETOMBÉ : la validation n'avait jamais tourné.** Et mon
+  > `grep -c "Valid configuration"` **ne distingue pas « invalide » de « jamais exécuté »** —
+  > les deux rendent zéro.
+  >
+  > *Même famille que le faux vert des ports, mais dans l'autre sens. Un compteur d'occurrences
+  > ne vaut que si l'on sait que l'instrument a parlé.*
+
+- [x] **Tranché par l'autorité compétente** : `docker exec coachconnect-caddy caddy validate`
+      sur le VPS rend **`Valid configuration`**. *Le Caddy qui sert la configuration est un
+      meilleur juge que le Caddy qui ne tourne pas.*
